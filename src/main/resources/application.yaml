@@ -1,0 +1,37 @@
+spring:
+  output:
+    ansi:
+      enabled: always
+
+  application:
+    name: ticket-ledger
+
+  datasource:
+      url: ${DB_URL}
+      username: ${DB_USERNAME}
+      password: ${DB_PASSWORD}
+      driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        format_sql: true
+        highlight_sql: true
+        use_sql_comments: true
+
+server:
+  port: ${PORT}
+
+logging:
+  level:
+    org:
+      hibernate:
+        SQL: DEBUG
+        type:
+          descriptor:
+            sql: trace
+jwt:
+  secret: abcdef1234567890
+  access-token-expiration: 300000 # 5 minutes
+  refresh-token-expiration: 86400000 # 24 hours
