@@ -42,7 +42,7 @@ public class Reservation {
         this.user = user;
         this.seat = seat;
         this.status = ReservationStatus.PENDING;
-        this.reservedAt = now;
+        this.reservedAt = LocalDateTime.now();
         this.expiresAt = now.plusMinutes(5);
     }
 
@@ -51,10 +51,10 @@ public class Reservation {
         this.status = ReservationStatus.CONFIRMED;
     }
 
-    public void cancel(LocalDateTime canceledAt) {
+    public void cancel() {
         if (this.status != ReservationStatus.PENDING && this.status != ReservationStatus.CONFIRMED) throw new IllegalStateException("진행 중이거나 확정된 예매만 취소할 수 있습니다.");
         this.status = ReservationStatus.CANCELED;
-        this.canceledAt = canceledAt;
+        this.canceledAt = LocalDateTime.now();
     }
 
     public void expire() {
