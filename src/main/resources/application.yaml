@@ -35,3 +35,12 @@ jwt:
   secret: ${JWT_SECRET}
   access-token-expiration: 300000 # 5 minutes
   refresh-token-expiration: 86400000 # 24 hours
+
+springdoc:
+  api-docs:
+    path: /api-docs
+
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
