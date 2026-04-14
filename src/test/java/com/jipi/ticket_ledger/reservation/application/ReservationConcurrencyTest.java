@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.reservation.application;
 
 import com.jipi.ticket_ledger.event.domain.Event;
+import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
@@ -12,74 +13,90 @@ import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
+@SpringBootTest(properties = {
+        "spring.jpa.show-sql=false",
+        "logging.level.org.hibernate.SQL=OFF",
+        "logging.level.org.hibernate.orm.jdbc.bind=OFF",
+        "logging.level.org.hibernate.type.descriptor.sql=OFF"
+})
 class ReservationConcurrencyTest {
 
-    @Mock
+    @Autowired
+    private ReservationService reservationService;
+
+    @Autowired
     private ReservationRepository reservationRepository;
 
-    @Mock
+    @Autowired
     private UserRepository userRepository;
 
-    @Mock
+    @Autowired
+    private EventRepository eventRepository;
+
+    @Autowired
     private ScheduleRepository scheduleRepository;
 
-    @Mock
+    @Autowired
     private SeatRepository seatRepository;
 
-    @InjectMocks
-    private ReservationService reservationService;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Test
     @DisplayName("동일 seatId로 20명이 동시에 예약 요청하면 1건만 성공해야 한다")
     void createReservationConcurrentSingleSeat() throws InterruptedException {
+        // given: 실제 DB에 테스트 데이터 생성
         int users = 20;
-        long seatId = 1L;
+        LocalDateTime now = LocalDateTime.now();
+        String runId = String.valueOf(System.nanoTime());
 
-        Seat sharedSeat = createSeat();
-        Map<Long, User> userMap = createUsers(users);
+        Event event = eventRepository.save(new Event(
+                "동시성 검증 공연-" + runId,
+                "비관적 락 동시성 테스트",
+                "테스트홀",
+                now,
+                now
+        ));
 
-        AtomicLong reservationIdGenerator = new AtomicLong(0L);
-        List<Reservation> savedReservations = new ArrayList<>();
+        Schedule schedule = scheduleRepository.save(new Schedule(
+                event,
+                now.plusDays(1),
+                now.plusDays(1).plusHours(2),
+                now
+        ));
 
-        when(userRepository.findById(anyLong())).thenAnswer(invocation -> {
-            Long userId = invocation.getArgument(0);
-            return Optional.ofNullable(userMap.get(userId));
-        });
-        when(seatRepository.findById(seatId)).thenReturn(Optional.of(sharedSeat));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> {
-            Reservation reservation = invocation.getArgument(0);
-            ReflectionTestUtils.setField(reservation, "id", reservationIdGenerator.incrementAndGet());
-            synchronized (savedReservations) {
-                savedReservations.add(reservation);
-            }
-            return reservation;
-        });
+        Seat seat = seatRepository.save(new Seat(schedule, "A-1-" + runId, "VIP", 100000, now));
+        Long seatId = seat.getId();
 
+        List<Long> userIds = new ArrayList<>();
+        for (int i = 1; i <= users; i++) {
+            User user = userRepository.save(new User(
+                    "concurrency-user-" + runId + "-" + i + "@test.com",
+                    "password",
+                    "테스터" + i,
+                    now
+            ));
+            userIds.add(user.getId());
+        }
+
+        // when: 동일 좌석에 동시 예약 요청
         ExecutorService executorService = Executors.newFixedThreadPool(users);
         CountDownLatch readyLatch = new CountDownLatch(users);
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -88,13 +105,12 @@ class ReservationConcurrencyTest {
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failCount = new AtomicInteger(0);
 
-        for (long userId = 1; userId <= users; userId++) {
-            long currentUserId = userId;
+        for (Long userId : userIds) {
             executorService.submit(() -> {
                 readyLatch.countDown();
                 try {
                     startLatch.await();
-                    reservationService.createReservation(new CreateReservationCommand(currentUserId, seatId));
+                    reservationService.createReservation(new CreateReservationCommand(userId, seatId));
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();
@@ -104,51 +120,41 @@ class ReservationConcurrencyTest {
             });
         }
 
-        assertTrue(readyLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(readyLatch.await(10, TimeUnit.SECONDS));
         startLatch.countDown();
-        assertTrue(doneLatch.await(10, TimeUnit.SECONDS));
-
+        assertTrue(doneLatch.await(20, TimeUnit.SECONDS));
         executorService.shutdown();
+
+        // then: 비관적 락 기준 검증
+        Seat finalSeat = seatRepository.findById(seatId).orElseThrow();
+        long reservationCountForSeat = reservationRepository.findAll().stream()
+                .filter(r -> r.getSeat().getId().equals(seatId))
+                .count();
 
         String resultSummary = "결과 - success=" + successCount.get()
                 + ", fail=" + failCount.get()
-                + ", reservations=" + savedReservations.size()
-                + ", seatStatus=" + sharedSeat.getStatus();
+                + ", reservations=" + reservationCountForSeat
+                + ", seatStatus=" + finalSeat.getStatus();
 
         System.out.println(resultSummary);
 
-        // 성공 건수 1건 초과 시 실패
         if (successCount.get() > 1) {
             throw new AssertionError("성공 건수가 1건을 초과하면 중복 예약입니다. " + resultSummary);
         }
-        if (savedReservations.size() != 1) {
-            throw new AssertionError("동일 좌석으로 Reservation은 1건만 생성되어야 합니다. " + resultSummary);
-        }
-        if (sharedSeat.getStatus() != SeatStatus.HELD) {
-            throw new AssertionError("좌석 최종 상태는 HELD여야 합니다. " + resultSummary);
-        }
-    }
+        assertEquals(1L, reservationCountForSeat, "동일 좌석으로 Reservation은 1건만 생성되어야 합니다. " + resultSummary);
+        assertEquals(SeatStatus.HELD, finalSeat.getStatus(), "좌석 최종 상태는 HELD여야 합니다. " + resultSummary);
 
-    private Map<Long, User> createUsers(int users) {
-        Map<Long, User> userMap = new ConcurrentHashMap<>();
-        for (long id = 1; id <= users; id++) {
-            User user = new User("user" + id + "@test.com", "password", "테스터" + id, LocalDateTime.now());
-            ReflectionTestUtils.setField(user, "id", id);
-            userMap.put(id, user);
-        }
-        return userMap;
-    }
-
-    private Seat createSeat() {
-        Event event = new Event("공연", "설명", "장소", LocalDateTime.now(), LocalDateTime.now());
-        Schedule schedule = new Schedule(
-                event,
-                LocalDateTime.now().plusDays(1),
-                LocalDateTime.now().plusDays(1).plusHours(2),
-                LocalDateTime.now()
-        );
-        Seat seat = new Seat(schedule, "A-1", "VIP", 100000, LocalDateTime.now());
-        ReflectionTestUtils.setField(seat, "id", 1L);
-        return seat;
+        // 테스트에서 생성한 데이터만 정리
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            reservationRepository.findAll().stream()
+                    .filter(r -> r.getSeat().getId().equals(seatId))
+                    .map(Reservation::getId)
+                    .forEach(reservationRepository::deleteById);
+            seatRepository.deleteById(seatId);
+            scheduleRepository.deleteById(schedule.getId());
+            eventRepository.deleteById(event.getId());
+            userIds.forEach(userRepository::deleteById);
+        });
     }
 }

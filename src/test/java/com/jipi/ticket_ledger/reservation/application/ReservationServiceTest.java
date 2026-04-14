@@ -55,7 +55,7 @@ class ReservationServiceTest {
         Seat seat = createSeat();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findById(10L)).thenReturn(Optional.of(seat));
+        when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(seat));
         when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> {
             Reservation reservation = invocation.getArgument(0);
             ReflectionTestUtils.setField(reservation, "id", 99L);
@@ -84,7 +84,7 @@ class ReservationServiceTest {
         assertThrows(EntityNotFoundException.class,
                 () -> reservationService.createReservation(new CreateReservationCommand(1L, 10L)));
 
-        verify(seatRepository, never()).findById(anyLong());
+        verify(seatRepository, never()).findByIdForUpdate(anyLong());
         verify(reservationRepository, never()).save(any());
     }
 
@@ -92,7 +92,7 @@ class ReservationServiceTest {
     @DisplayName("createReservation: 좌석이 없으면 예외가 발생한다")
     void createReservationSeatNotFound() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(createUser()));
-        when(seatRepository.findById(10L)).thenReturn(Optional.empty());
+        when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class,
                 () -> reservationService.createReservation(new CreateReservationCommand(1L, 10L)));
@@ -108,7 +108,7 @@ class ReservationServiceTest {
         seat.hold();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findById(10L)).thenReturn(Optional.of(seat));
+        when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(seat));
 
         assertThrows(IllegalStateException.class,
                 () -> reservationService.createReservation(new CreateReservationCommand(1L, 10L)));
