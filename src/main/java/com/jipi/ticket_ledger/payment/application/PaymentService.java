@@ -48,4 +48,16 @@ public class PaymentService {
         reservation.expire();
         seat.release();
     }
+    // 결제취소
+    public void cancelPayment(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new EntityNotFoundException("결제를 찾을 수 없습니다."));
+
+        Reservation reservation = payment.getReservation();
+        Seat seat = reservation.getSeat();
+
+        payment.cancel(LocalDateTime.now());
+        reservation.cancel();
+        seat.releaseBooked();
+    }
 }

@@ -60,4 +60,11 @@ public class Seat {
         if (this.status != SeatStatus.HELD) throw new IllegalStateException("예약된 좌석만 해제할 수 있습니다.");
         this.status = SeatStatus.AVAILABLE;
     }
+
+    public void releaseBooked() {
+        if (this.status != SeatStatus.BOOKED) {
+            throw new IllegalStateException("확정된 좌석만 취소 후 복구할 수 있습니다.");
+        }
+        this.status = SeatStatus.AVAILABLE;
+    }
 }
