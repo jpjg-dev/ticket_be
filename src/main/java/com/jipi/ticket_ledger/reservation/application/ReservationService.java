@@ -33,7 +33,7 @@ public class ReservationService {
         User user = userRepository.findById(command.userId())
                 .orElseThrow(() -> new EntityNotFoundException("사용자를 찾을 수 없습니다."));
 
-        Seat seat = seatRepository.findById(command.seatId())
+        Seat seat = seatRepository.findByIdForUpdate(command.seatId())
                 .orElseThrow(() -> new EntityNotFoundException("좌석을 찾을 수 없습니다."));
 
         // 2) 좌석 상태를 AVAILABLE -> HELD로 변경해 임시 선점한다.
