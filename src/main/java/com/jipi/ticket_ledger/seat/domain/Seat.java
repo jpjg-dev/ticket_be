@@ -45,4 +45,19 @@ public class Seat {
         this.status = SeatStatus.AVAILABLE;
         this.createdAt = createdAt;
     }
+
+    public void hold(){
+        if(this.status != SeatStatus.AVAILABLE) throw  new IllegalStateException("선택 가능한 좌석만 예약 가능합니다.");
+        this.status = SeatStatus.HELD;
+    }
+
+    public void book(){
+        if(this.status != SeatStatus.HELD) throw new IllegalStateException("예약된 좌석만 예매 확정할 수 있습니다.");
+        this.status = SeatStatus.BOOKED;
+    }
+
+    public void release() {
+        if (this.status != SeatStatus.HELD) throw new IllegalStateException("예약된 좌석만 해제할 수 있습니다.");
+        this.status = SeatStatus.AVAILABLE;
+    }
 }

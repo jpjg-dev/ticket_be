@@ -41,4 +41,27 @@ public class Payment {
         this.status = PaymentStatus.READY;
         this.requestedAt = now;
     }
+
+    public void approve(LocalDateTime approvedAt) {
+        if (this.status != PaymentStatus.READY) {
+            throw new IllegalStateException("결제 대기 상태에서만 승인할 수 있습니다.");
+        }
+        this.status = PaymentStatus.APPROVED;
+        this.approvedAt = approvedAt;
+    }
+
+    public void fail() {
+        if (this.status != PaymentStatus.READY) {
+            throw new IllegalStateException("결제 대기 상태에서만 실패 처리할 수 있습니다.");
+        }
+        this.status = PaymentStatus.FAILED;
+    }
+
+    public void cancel(LocalDateTime canceledAt) {
+        if (this.status != PaymentStatus.APPROVED) {
+            throw new IllegalStateException("승인된 결제만 취소할 수 있습니다.");
+        }
+        this.status = PaymentStatus.CANCELED;
+        this.canceledAt = canceledAt;
+    }
 }

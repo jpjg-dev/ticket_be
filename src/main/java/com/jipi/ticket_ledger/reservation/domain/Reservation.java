@@ -45,4 +45,20 @@ public class Reservation {
         this.reservedAt = now;
         this.expiresAt = now.plusMinutes(5);
     }
+
+    public void confirm() {
+        if (this.status != ReservationStatus.PENDING) throw new IllegalStateException("진행 중이거나 예매가 확정된 상태입니다.");
+        this.status = ReservationStatus.CONFIRMED;
+    }
+
+    public void cancel(LocalDateTime canceledAt) {
+        if (this.status != ReservationStatus.PENDING && this.status != ReservationStatus.CONFIRMED) throw new IllegalStateException("진행 중이거나 확정된 예매만 취소할 수 있습니다.");
+        this.status = ReservationStatus.CANCELED;
+        this.canceledAt = canceledAt;
+    }
+
+    public void expire() {
+        if (this.status != ReservationStatus.PENDING) throw new IllegalStateException("대기 상태의 예매만 만료 처리할 수 있습니다.");
+        this.status = ReservationStatus.EXPIRED;
+    }
 }
