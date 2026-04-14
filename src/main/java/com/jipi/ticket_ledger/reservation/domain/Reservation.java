@@ -61,4 +61,9 @@ public class Reservation {
         if (this.status != ReservationStatus.PENDING) throw new IllegalStateException("대기 상태의 예매만 만료 처리할 수 있습니다.");
         this.status = ReservationStatus.EXPIRED;
     }
+
+    //만료여부 확인
+    public boolean isExpiredAt(LocalDateTime now) {
+        return !this.expiresAt.isAfter(now);
+    }
 }
