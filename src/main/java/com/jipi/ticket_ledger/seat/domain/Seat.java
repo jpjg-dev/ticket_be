@@ -37,13 +37,12 @@ public class Seat {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
-    public Seat(Schedule schedule, String seatNumber, String grade,
-                Integer price, SeatStatus status, LocalDateTime createdAt) {
+    public Seat(Schedule schedule, String seatNumber, String grade, Integer price, LocalDateTime createdAt) {
         this.schedule = schedule;
         this.seatNumber = seatNumber;
         this.grade = grade;
         this.price = price;
-        this.status = status;
+        this.status = SeatStatus.AVAILABLE;
         this.createdAt = createdAt;
     }
 }

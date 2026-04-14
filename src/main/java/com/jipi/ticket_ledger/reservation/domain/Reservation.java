@@ -38,12 +38,11 @@ public class Reservation {
 
     private LocalDateTime canceledAt;
 
-    public Reservation(User user, Seat seat, ReservationStatus status,
-                       LocalDateTime reservedAt, LocalDateTime expiresAt) {
+    public Reservation(User user, Seat seat, LocalDateTime now) {
         this.user = user;
         this.seat = seat;
-        this.status = status;
-        this.reservedAt = reservedAt;
-        this.expiresAt = expiresAt;
+        this.status = ReservationStatus.PENDING;
+        this.reservedAt = now;
+        this.expiresAt = now.plusMinutes(5);
     }
 }

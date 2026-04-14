@@ -35,11 +35,10 @@ public class Payment {
 
     private LocalDateTime canceledAt;
 
-    public Payment(Reservation reservation, Integer amount, PaymentStatus status,
-                   LocalDateTime requestedAt) {
+    public Payment(Reservation reservation, Integer amount, LocalDateTime now) {
         this.reservation = reservation;
         this.amount = amount;
-        this.status = status;
-        this.requestedAt = requestedAt;
+        this.status = PaymentStatus.READY;
+        this.requestedAt = now;
     }
 }
