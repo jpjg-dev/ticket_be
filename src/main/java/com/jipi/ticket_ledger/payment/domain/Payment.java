@@ -10,7 +10,12 @@ import java.time.LocalDateTime;
 
 @Getter
 @Entity
-@Table(name = "payments")
+@Table(
+        name = "payments",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_payment_reservation", columnNames = "reservation_id")
+        }
+)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Payment {
     @Id
