@@ -16,9 +16,9 @@
 
 | 상태        | 설명                  |
 | --------- | ------------------- |
-| AVAILABLE | 선택 가능한 상태           |
-| HELD      | 사용자가 선택하여 임시 점유된 상태 |
-| BOOKED    | 결제가 완료되어 확정된 상태     |
+| AVAILABLE | 예약 가능 상태           |
+| HELD      | 예약 중 (일시적으로 보류된 상태) |
+| BOOKED    | 예약 확정 상태          |
 
 ---
 
@@ -28,6 +28,7 @@
 AVAILABLE → HELD
 HELD → BOOKED
 HELD → AVAILABLE
+BOOKED → AVAILABLE
 ```
 
 ---
@@ -37,6 +38,7 @@ HELD → AVAILABLE
 * AVAILABLE 상태에서만 좌석 선택 가능
 * HELD 상태는 일정 시간 이후 자동 해제될 수 있음
 * BOOKED 상태는 변경 불가 (불변 상태)
+* BOOKED 상태는 취소 후 AVAILABLE로 복구 가능
 
 ---
 
@@ -44,7 +46,6 @@ HELD → AVAILABLE
 
 ```text
 BOOKED → HELD ❌
-BOOKED → AVAILABLE ❌
 AVAILABLE → BOOKED ❌ (결제 없이 확정 불가)
 ```
 
