@@ -42,12 +42,12 @@ public class Payment {
         this.requestedAt = now;
     }
 
-    public void approve(LocalDateTime approvedAt) {
+    public void approve() {
         if (this.status != PaymentStatus.READY) {
             throw new IllegalStateException("결제 대기 상태에서만 승인할 수 있습니다.");
         }
         this.status = PaymentStatus.APPROVED;
-        this.approvedAt = approvedAt;
+        this.approvedAt = LocalDateTime.now();
     }
 
     public void fail() {
