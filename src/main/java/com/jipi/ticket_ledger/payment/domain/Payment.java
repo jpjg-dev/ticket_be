@@ -40,11 +40,24 @@ public class Payment {
 
     private LocalDateTime canceledAt;
 
-    public Payment(Reservation reservation, Integer amount, LocalDateTime now) {
+    @Column(nullable = false, unique = true, length = 100)
+    private String orderId;
+
+    @Column(unique = true, length = 200)
+    private String paymentKey;
+
+    @Column(length = 50)
+    private String pgStatus;
+
+    @Column(length = 50)
+    private String method;
+
+    public Payment(Reservation reservation, Integer amount, LocalDateTime now,String orderId) {
         this.reservation = reservation;
         this.amount = amount;
         this.status = PaymentStatus.READY;
         this.requestedAt = now;
+        this.orderId = orderId;
     }
 
     public void approve() {
