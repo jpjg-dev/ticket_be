@@ -43,7 +43,7 @@ public class Reservation {
         this.seat = seat;
         this.status = ReservationStatus.PENDING;
         this.reservedAt = LocalDateTime.now();
-        this.expiresAt = now.plusMinutes(5);
+        this.expiresAt = now.plusSeconds(30);
     }
 
     public void confirm() {
