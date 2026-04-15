@@ -60,10 +60,13 @@ public class Payment {
         this.orderId = orderId;
     }
 
-    public void approve() {
+    public void approve(String paymentKey, String method, String pgStatus) {
         if (this.status != PaymentStatus.READY) {
             throw new IllegalStateException("결제 대기 상태에서만 승인할 수 있습니다.");
         }
+        this.paymentKey = paymentKey;
+        this.method = method;
+        this.pgStatus = pgStatus;
         this.status = PaymentStatus.APPROVED;
         this.approvedAt = LocalDateTime.now();
     }
