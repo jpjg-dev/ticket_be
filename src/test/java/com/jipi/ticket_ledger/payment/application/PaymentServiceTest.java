@@ -38,7 +38,7 @@ class PaymentServiceTest {
     @DisplayName("approvePayment: READY 결제를 승인하면 예약 확정/좌석 확정까지 반영된다")
     void approvePaymentSuccess() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-1");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
@@ -53,8 +53,8 @@ class PaymentServiceTest {
     @DisplayName("approvePayment: READY 상태가 아니면 예외가 발생한다")
     void approvePaymentWhenNotReady() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
-        payment.approve();
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-2");
+        payment.approve("pay-key-1", "CARD", "DONE");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
@@ -66,7 +66,7 @@ class PaymentServiceTest {
     void approvePaymentWhenReservationNotPending() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         reservation.confirm();
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-3");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
@@ -77,7 +77,7 @@ class PaymentServiceTest {
     @DisplayName("failPayment: 만료 전 실패면 결제만 FAILED로 변경되고 예약/좌석은 유지된다")
     void failPaymentSuccessNotExpired() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-4");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
@@ -92,7 +92,7 @@ class PaymentServiceTest {
     @DisplayName("failPayment: 만료 후 실패면 예약 만료 및 좌석 복구가 수행된다")
     void failPaymentWhenExpired() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().minusMinutes(1));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-5");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
@@ -107,8 +107,8 @@ class PaymentServiceTest {
     @DisplayName("failPayment: READY 상태가 아니면 예외가 발생한다")
     void failPaymentWhenNotReady() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
-        payment.approve();
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-6");
+        payment.approve("pay-key-2", "CARD", "DONE");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
@@ -119,9 +119,9 @@ class PaymentServiceTest {
     @DisplayName("cancelPayment: APPROVED 결제를 취소하면 예약/좌석이 함께 복구된다")
     void cancelPaymentSuccess() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-7");
 
-        payment.approve();
+        payment.approve("pay-key-3", "CARD", "DONE");
         reservation.confirm();
         reservation.getSeat().book();
 
@@ -138,7 +138,7 @@ class PaymentServiceTest {
     @DisplayName("cancelPayment: APPROVED 상태가 아니면 예외가 발생한다")
     void cancelPaymentWhenNotApproved() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now());
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-8");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
