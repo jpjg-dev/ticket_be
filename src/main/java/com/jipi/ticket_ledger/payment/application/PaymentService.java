@@ -3,6 +3,8 @@ package com.jipi.ticket_ledger.payment.application;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
+import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
@@ -21,6 +23,7 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
+    private final TossPaymentClient tossPaymentClient;
 
     //결제 대기
     public Payment readyPayment(Long reservationId) {
@@ -70,8 +73,18 @@ public class PaymentService {
 
         // TODO: Toss Payments 승인 API 호출
         // 여기까지 통과한 뒤에만 외부 PG 승인 API를 호출해야 한다.
+        TossConfirmResponse tossResponse = tossPaymentClient.confirm(
+                paymentKey,
+                orderId,
+                payment.getAmount()
+        );
 
-        payment.approve(paymentKey, null, "DONE");
+        payment.approve(
+                tossResponse.paymentKey(),
+                tossResponse.method(),
+                tossResponse.status()
+        );
+
         reservation.confirm();
         seat.book();
 
