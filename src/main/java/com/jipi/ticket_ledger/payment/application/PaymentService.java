@@ -65,7 +65,9 @@ public class PaymentService {
             throw new IllegalStateException("예약 시간이 만료되어 결제를 승인할 수 없습니다.");
         }
 
-        if (!payment.getAmount().equals(amount)) {
+        Integer totalAmountWithVat = calculateTotalAmountWithVat(payment.getAmount());
+
+        if (!totalAmountWithVat.equals(amount)) {
             payment.fail();
 
             throw new IllegalStateException("결제 금액이 일치하지 않습니다.");
@@ -76,8 +78,13 @@ public class PaymentService {
         TossConfirmResponse tossResponse = tossPaymentClient.confirm(
                 paymentKey,
                 orderId,
-                payment.getAmount()
+                totalAmountWithVat
         );
+
+        if (!totalAmountWithVat.equals(tossResponse.totalAmount())) {
+            payment.fail();
+            throw new IllegalStateException("PG 승인 금액이 일치하지 않습니다.");
+        }
 
         payment.approve(
                 tossResponse.paymentKey(),
@@ -156,5 +163,10 @@ public class PaymentService {
 
     private String createOrderId(Long reservationId) {
         return "reservation-" + reservationId + "-" + java.util.UUID.randomUUID();
+    }
+
+    private Integer calculateTotalAmountWithVat(Integer baseAmount) {
+        int vat = (int) Math.round(baseAmount * 0.1d);
+        return baseAmount + vat;
     }
 }

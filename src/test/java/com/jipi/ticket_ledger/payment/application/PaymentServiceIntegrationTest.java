@@ -134,7 +134,7 @@ class PaymentServiceIntegrationTest {
         Payment ready = paymentService.readyPayment(fixture.reservationId);
         paymentIds.add(ready.getId());
 
-        Payment approved = paymentService.confirmPayment("pay-key-success", ready.getOrderId(), ready.getAmount());
+        Payment approved = paymentService.confirmPayment("pay-key-success", ready.getOrderId(), amountWithVat(ready.getAmount()));
 
         Reservation reservation = reservationRepository.findById(fixture.reservationId).orElseThrow();
         Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
@@ -163,7 +163,7 @@ class PaymentServiceIntegrationTest {
         paymentIds.add(payment.getId());
 
         assertThrows(IllegalStateException.class,
-                () -> paymentService.confirmPayment("pay-key-expired", payment.getOrderId(), fixture.price));
+                () -> paymentService.confirmPayment("pay-key-expired", payment.getOrderId(), amountWithVat(fixture.price)));
 
         Payment failed = paymentRepository.findById(payment.getId()).orElseThrow();
         Reservation expiredReservation = reservationRepository.findById(fixture.reservationId).orElseThrow();
@@ -182,7 +182,7 @@ class PaymentServiceIntegrationTest {
         paymentIds.add(ready.getId());
 
         assertThrows(IllegalStateException.class,
-                () -> paymentService.confirmPayment("pay-key-mismatch", ready.getOrderId(), ready.getAmount() + 1));
+                () -> paymentService.confirmPayment("pay-key-mismatch", ready.getOrderId(), amountWithVat(ready.getAmount()) + 1));
 
         Payment failed = paymentRepository.findById(ready.getId()).orElseThrow();
         Reservation reservation = reservationRepository.findById(fixture.reservationId).orElseThrow();
@@ -248,6 +248,10 @@ class PaymentServiceIntegrationTest {
         reservationIds.add(reservation.getId());
 
         return new Fixture(reservation.getId(), seat.getId(), seat.getPrice());
+    }
+
+    private int amountWithVat(int amount) {
+        return amount + (int) Math.round(amount * 0.1d);
     }
 
     private record Fixture(Long reservationId, Long seatId, Integer price) {

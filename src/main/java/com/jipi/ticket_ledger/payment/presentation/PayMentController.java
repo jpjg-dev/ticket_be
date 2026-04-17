@@ -26,6 +26,9 @@ public class PayMentController {
     public ReadyPaymentResponse readyPayment(@RequestBody @Valid ReadyPaymentRequest request) {
         Payment payment = paymentService.readyPayment(request.reservationId());
         Reservation reservation = payment.getReservation();
+        int supplyAmount = payment.getAmount();
+        int vatAmount = (int) Math.round(supplyAmount * 0.1d);
+        int totalAmount = supplyAmount + vatAmount;
 
         String orderName = reservation.getSeat().getSchedule().getEvent().getTitle()
                 + " "
@@ -34,7 +37,9 @@ public class PayMentController {
         return new ReadyPaymentResponse(
                 payment.getId(),
                 payment.getOrderId(),
-                payment.getAmount(),
+                totalAmount,
+                supplyAmount,
+                vatAmount,
                 orderName
         );
     }

@@ -4,6 +4,8 @@ public record ReadyPaymentResponse(
         Long paymentId,
         String orderId,
         Integer amount,
+        Integer supplyAmount,
+        Integer vatAmount,
         String orderName
 ) {
 }
