@@ -2,6 +2,9 @@ package com.jipi.ticket_ledger.reservation.application;
 
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
+import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
+import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
@@ -27,6 +30,7 @@ public class ReservationService {
     private final UserRepository userRepository;
     private final ScheduleRepository scheduleRepository;
     private final SeatRepository seatRepository;
+    private final PaymentRepository paymentRepository;
 
     public Long createReservation(CreateReservationCommand command) {
         // 수동 요청들어올시 예약만료 검사
@@ -53,6 +57,9 @@ public class ReservationService {
         List<Reservation> expiredReservations =
                 reservationRepository.findByStatusAndExpiresAtLessThanEqual(ReservationStatus.PENDING, now);
         for(Reservation reservation : expiredReservations){
+            paymentRepository.findByReservationId(reservation.getId())
+                    .filter(payment -> payment.getStatus() == PaymentStatus.READY)
+                    .ifPresent(Payment::fail);
             reservation.expire();
             reservation.getSeat().release();
         }

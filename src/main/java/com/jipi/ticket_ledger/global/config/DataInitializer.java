@@ -86,7 +86,7 @@ public class DataInitializer implements ApplicationRunner {
 
     private void saveSeats(Schedule schedule, LocalDateTime now) {
         seatRepository.saveAll(List.of(
-                new Seat(schedule, "A-1", "VIP", 3, now),
+                new Seat(schedule, "A-1", "VIP", 1000, now),
                 new Seat(schedule, "A-2", "VIP", 11, now),
                 new Seat(schedule, "A-3", "VIP", 11, now),
                 new Seat(schedule, "B-1", "R", 11, now),
