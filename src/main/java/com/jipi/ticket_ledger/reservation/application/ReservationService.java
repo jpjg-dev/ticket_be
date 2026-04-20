@@ -30,16 +30,14 @@ public class ReservationService {
     private final SeatRepository seatRepository;
 
     public Long createReservation(CreateReservationCommand command) {
-        // 만료된 예약을 먼저 정리해 HELD 좌석을 AVAILABLE로 복구한다.
+        // 수동 요청들어올시 예약만료 검사
         expireReservations();
-
         // 1) 요청에 포함된 사용자와 좌석을 조회하고, 없으면 즉시 예외를 던진다.
         User user = userRepository.findById(command.userId())
                 .orElseThrow(() -> new EntityNotFoundException("사용자를 찾을 수 없습니다."));
 
         Seat seat = seatRepository.findByIdForUpdate(command.seatId())
                 .orElseThrow(() -> new EntityNotFoundException("좌석을 찾을 수 없습니다."));
-
         // 2) 좌석 상태를 AVAILABLE -> HELD로 변경해 임시 선점한다.
         seat.hold();
 
