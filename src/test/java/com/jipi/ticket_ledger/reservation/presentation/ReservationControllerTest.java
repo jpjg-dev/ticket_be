@@ -15,7 +15,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,17 +65,6 @@ class ReservationControllerTest {
         mockMvc.perform(post("/reservations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateReservationRequestFixture(1L, 999L))))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
-    }
-
-    @Test
-    @DisplayName("다른 사용자의 예약 취소 시도는 404를 반환한다")
-    void cancelReservationNotFound() throws Exception {
-        doThrow(new EntityNotFoundException("예약을 찾을 수 없습니다."))
-                .when(reservationService).cancelReservation(99L, 1L);
-
-        mockMvc.perform(post("/reservations/1/cancel").param("userId", "99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }

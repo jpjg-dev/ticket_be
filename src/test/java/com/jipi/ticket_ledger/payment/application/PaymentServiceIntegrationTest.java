@@ -7,6 +7,8 @@ import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
+import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -30,6 +33,9 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
         "spring.jpa.show-sql=false",
@@ -38,6 +44,9 @@ import static org.junit.jupiter.api.Assertions.*;
         "logging.level.org.hibernate.type.descriptor.sql=OFF"
 })
 class PaymentServiceIntegrationTest {
+
+    @MockitoBean
+    private TossPaymentClient tossPaymentClient;
 
     @Autowired
     private PaymentService paymentService;
@@ -133,8 +142,19 @@ class PaymentServiceIntegrationTest {
         Fixture fixture = createPendingReservationFixture(false);
         Payment ready = paymentService.readyPayment(fixture.reservationId);
         paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        Payment approved = paymentService.confirmPayment("pay-key-success", ready.getOrderId(), amountWithVat(ready.getAmount()));
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt()))
+                .thenReturn(new TossConfirmResponse(
+                        "pay-key-success",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        Payment approved = paymentService.confirmPayment("pay-key-success", ready.getOrderId(), totalAmountWithVat);
 
         Reservation reservation = reservationRepository.findById(fixture.reservationId).orElseThrow();
         Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
@@ -142,7 +162,7 @@ class PaymentServiceIntegrationTest {
         assertEquals(PaymentStatus.APPROVED, approved.getStatus());
         assertEquals("pay-key-success", approved.getPaymentKey());
         assertEquals("DONE", approved.getPgStatus());
-        assertNull(approved.getMethod());
+        assertEquals("CARD", approved.getMethod());
 
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, seat.getStatus());

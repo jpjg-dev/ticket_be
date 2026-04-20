@@ -6,8 +6,10 @@ import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
+import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
@@ -37,46 +39,46 @@ class PaymentServiceTest {
     @Mock
     private TossPaymentClient tossPaymentClient;
 
+    @Mock
+    private ReservationRepository reservationRepository;
+
     @InjectMocks
     private PaymentService paymentService;
 
     @Test
-    @DisplayName("approvePayment: READY 결제를 승인하면 예약 확정/좌석 확정까지 반영된다")
-    void approvePaymentSuccess() {
+    @DisplayName("confirmPayment: READY/PENDING/HELD 상태에서 승인 성공 시 상태가 확정된다")
+    void confirmPaymentSuccess() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-1");
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-confirm-1", "KRW");
 
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByOrderId("order-confirm-1")).thenReturn(Optional.of(payment));
+        when(tossPaymentClient.confirm("pay-key-1", "order-confirm-1", 11000))
+                .thenReturn(new TossConfirmResponse("pay-key-1", "order-confirm-1", "DONE", "CARD", 11000, "KRW"));
 
-        paymentService.approvePayment(1L);
+        Payment confirmed = paymentService.confirmPayment("pay-key-1", "order-confirm-1", 11000);
 
-        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals(PaymentStatus.APPROVED, confirmed.getStatus());
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, reservation.getSeat().getStatus());
+        assertEquals("pay-key-1", confirmed.getPaymentKey());
+        assertEquals("CARD", confirmed.getMethod());
+        assertEquals("DONE", confirmed.getPgStatus());
     }
 
     @Test
-    @DisplayName("approvePayment: READY 상태가 아니면 예외가 발생한다")
-    void approvePaymentWhenNotReady() {
+    @DisplayName("confirmPayment: amount가 다르면 예외가 발생하고 READY 상태가 유지된다")
+    void confirmPaymentAmountMismatch() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-2");
-        payment.approve("pay-key-1", "CARD", "DONE");
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-confirm-2", "KRW");
 
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByOrderId("order-confirm-2")).thenReturn(Optional.of(payment));
 
-        assertThrows(IllegalStateException.class, () -> paymentService.approvePayment(1L));
-    }
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.confirmPayment("pay-key-2", "order-confirm-2", 10000));
 
-    @Test
-    @DisplayName("approvePayment: 예약이 PENDING이 아니면 예외가 발생한다")
-    void approvePaymentWhenReservationNotPending() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        reservation.confirm();
-        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-3");
-
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
-
-        assertThrows(IllegalStateException.class, () -> paymentService.approvePayment(1L));
+        assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(ReservationStatus.PENDING, reservation.getStatus());
+        assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
     }
 
     @Test
@@ -159,7 +161,7 @@ class PaymentServiceTest {
     void paymentNotFound() {
         when(paymentRepository.findById(404L)).thenReturn(Optional.empty());
 
-        assertThrows(EntityNotFoundException.class, () -> paymentService.approvePayment(404L));
+        assertThrows(EntityNotFoundException.class, () -> paymentService.failPayment(404L));
     }
 
     private Reservation createPendingReservationWithHeldSeat(LocalDateTime expiresAt) {

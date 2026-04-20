@@ -2,6 +2,9 @@ package com.jipi.ticket_ledger.reservation.application;
 
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
+import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
+import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
@@ -12,6 +15,7 @@ import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,8 +49,18 @@ class ReservationServiceTest {
     @Mock
     private SeatRepository seatRepository;
 
+    @Mock
+    private PaymentRepository paymentRepository;
+
     @InjectMocks
     private ReservationService reservationService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(reservationRepository.findByStatusAndExpiresAtLessThanEqual(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
+                .thenReturn(List.of());
+        lenient().when(paymentRepository.findByReservationId(anyLong())).thenReturn(Optional.empty());
+    }
 
     @Test
     @DisplayName("createReservation: 정상적으로 예약 생성되고 좌석/예약 상태가 변경된다")
@@ -117,76 +131,42 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("cancelReservation: PENDING 예약을 취소하면 좌석이 AVAILABLE로 복구된다")
-    void cancelReservationPendingSuccess() {
-        Reservation reservation = createPendingReservationWithHeldSeat();
-        when(reservationRepository.findByIdAndUserId(1L, 1L)).thenReturn(Optional.of(reservation));
-
-        reservationService.cancelReservation(1L, 1L);
-
-        assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
-        assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
-    }
-
-    @Test
-    @DisplayName("cancelReservation: CONFIRMED 예약도 취소 가능하고 좌석이 복구된다")
-    void cancelReservationConfirmedSuccess() {
-        Reservation reservation = createPendingReservationWithHeldSeat();
-        reservation.confirm();
-
-        when(reservationRepository.findByIdAndUserId(2L, 2L)).thenReturn(Optional.of(reservation));
-
-        reservationService.cancelReservation(2L, 2L);
-
-        assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
-        assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
-    }
-
-    @Test
-    @DisplayName("cancelReservation: 다른 사용자의 예약이면 예외가 발생한다")
-    void cancelReservationByAnotherUser() {
-        when(reservationRepository.findByIdAndUserId(10L, 99L)).thenReturn(Optional.empty());
-
-        assertThrows(EntityNotFoundException.class,
-                () -> reservationService.cancelReservation(99L, 10L));
-    }
-
-    @Test
-    @DisplayName("cancelReservation: 이미 CANCELED 상태면 취소할 수 없다")
-    void cancelReservationAlreadyCanceled() {
-        Reservation reservation = createPendingReservationWithHeldSeat();
-        reservation.cancel();
-
-        when(reservationRepository.findByIdAndUserId(1L, 3L)).thenReturn(Optional.of(reservation));
-
-        assertThrows(IllegalStateException.class,
-                () -> reservationService.cancelReservation(3L, 1L));
-    }
-
-    @Test
-    @DisplayName("cancelReservation: EXPIRED 상태면 취소할 수 없다")
-    void cancelReservationExpired() {
-        Reservation reservation = createPendingReservationWithHeldSeat();
-        ReflectionTestUtils.setField(reservation, "expiresAt", LocalDateTime.now().minusMinutes(1));
-        reservation.expire();
-
-        when(reservationRepository.findByIdAndUserId(1L, 4L)).thenReturn(Optional.of(reservation));
-
-        assertThrows(IllegalStateException.class,
-                () -> reservationService.cancelReservation(4L, 1L));
-    }
-
-    @Test
     @DisplayName("expireReservations: 만료된 예약은 EXPIRED로 변경되고 좌석이 복구된다")
     void expireReservationsSuccess() {
         Reservation expiredReservation = createPendingReservationWithHeldSeat();
         ReflectionTestUtils.setField(expiredReservation, "expiresAt", LocalDateTime.now().minusSeconds(1));
+        ReflectionTestUtils.setField(expiredReservation, "id", 1L);
+
+        Payment payment = new Payment(expiredReservation, 10000, LocalDateTime.now(), "order-expire-1", "KRW");
 
         when(reservationRepository.findByStatusAndExpiresAtLessThanEqual(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
                 .thenReturn(List.of(expiredReservation));
+        when(paymentRepository.findByReservationId(1L)).thenReturn(Optional.of(payment));
 
         reservationService.expireReservations();
 
+        assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, expiredReservation.getSeat().getStatus());
+        assertEquals(PaymentStatus.FAILED, payment.getStatus());
+    }
+
+    @Test
+    @DisplayName("expireReservations: 연결 결제가 READY가 아니면 결제 상태는 변경하지 않는다")
+    void expireReservationsWithApprovedPayment() {
+        Reservation expiredReservation = createPendingReservationWithHeldSeat();
+        ReflectionTestUtils.setField(expiredReservation, "expiresAt", LocalDateTime.now().minusSeconds(1));
+        ReflectionTestUtils.setField(expiredReservation, "id", 2L);
+
+        Payment payment = new Payment(expiredReservation, 10000, LocalDateTime.now(), "order-expire-2", "KRW");
+        payment.fail();
+
+        when(reservationRepository.findByStatusAndExpiresAtLessThanEqual(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
+                .thenReturn(List.of(expiredReservation));
+        when(paymentRepository.findByReservationId(2L)).thenReturn(Optional.of(payment));
+
+        reservationService.expireReservations();
+
+        assertEquals(PaymentStatus.FAILED, payment.getStatus());
         assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, expiredReservation.getSeat().getStatus());
     }
