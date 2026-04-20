@@ -70,7 +70,7 @@ public class ReservationService {
     public void expireReservations(){
         LocalDateTime now = LocalDateTime.now();
         List<Reservation> expiredReservations =
-                reservationRepository.findByStatusAndExpiresAtBefore(ReservationStatus.PENDING, now);
+                reservationRepository.findByStatusAndExpiresAtLessThanEqual(ReservationStatus.PENDING, now);
         for(Reservation reservation : expiredReservations){
             reservation.expire();
             reservation.getSeat().release();

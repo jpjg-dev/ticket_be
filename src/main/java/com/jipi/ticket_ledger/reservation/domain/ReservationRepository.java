@@ -14,5 +14,5 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     //나의 예약 확인 및 검증
     Optional<Reservation> findByIdAndUserId(Long reservationId, Long userId);
     //예약만료확인
-    List<Reservation> findByStatusAndExpiresAtBefore(ReservationStatus status, LocalDateTime time);
+    List<Reservation> findByStatusAndExpiresAtLessThanEqual(ReservationStatus status, LocalDateTime time);
 }

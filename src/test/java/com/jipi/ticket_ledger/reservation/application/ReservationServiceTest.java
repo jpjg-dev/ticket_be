@@ -182,7 +182,7 @@ class ReservationServiceTest {
         Reservation expiredReservation = createPendingReservationWithHeldSeat();
         ReflectionTestUtils.setField(expiredReservation, "expiresAt", LocalDateTime.now().minusSeconds(1));
 
-        when(reservationRepository.findByStatusAndExpiresAtBefore(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
+        when(reservationRepository.findByStatusAndExpiresAtLessThanEqual(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
                 .thenReturn(List.of(expiredReservation));
 
         reservationService.expireReservations();
@@ -196,7 +196,7 @@ class ReservationServiceTest {
     void expireReservationsNoTarget() {
         Reservation reservation = createPendingReservationWithHeldSeat();
 
-        when(reservationRepository.findByStatusAndExpiresAtBefore(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
+        when(reservationRepository.findByStatusAndExpiresAtLessThanEqual(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
         reservationService.expireReservations();
