@@ -26,11 +26,4 @@ public class ReservationController {
         );
         return new ReservationResponse(reservationId);
     }
-
-    @Operation(summary = "공연 예매 취소", description = "예약 식별자와 사용자 ID로 예약을 취소합니다.")
-    @PostMapping("/{reservationId}/cancel")
-    public void cancelReservation(@PathVariable Long reservationId,
-                                  @RequestParam Long userId) {
-        reservationService.cancelReservation(userId, reservationId);
-    }
 }

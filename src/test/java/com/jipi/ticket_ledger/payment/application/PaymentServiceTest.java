@@ -5,6 +5,8 @@ import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
+import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -23,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +33,9 @@ class PaymentServiceTest {
 
     @Mock
     private PaymentRepository paymentRepository;
+
+    @Mock
+    private TossPaymentClient tossPaymentClient;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -126,8 +132,11 @@ class PaymentServiceTest {
         reservation.getSeat().book();
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        doReturn(new TossCancelResponse("pay-key-3", "CANCELED", "10000", "KRW"))
+                .when(tossPaymentClient)
+                .cancel("pay-key-3", "사용자 요청", "KRW");
 
-        paymentService.cancelPayment(1L);
+        paymentService.cancelPayment(1L, "사용자 요청");
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
@@ -142,7 +151,7 @@ class PaymentServiceTest {
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
-        assertThrows(IllegalStateException.class, () -> paymentService.cancelPayment(1L));
+        assertThrows(IllegalStateException.class, () -> paymentService.cancelPayment(1L, "사용자 요청"));
     }
 
     @Test

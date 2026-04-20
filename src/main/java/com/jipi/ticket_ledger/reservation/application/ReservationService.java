@@ -7,7 +7,6 @@ import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
-import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -46,22 +45,6 @@ public class ReservationService {
 
         // 4) 생성된 예약 식별자를 반환한다.
         return reservationRepository.save(new Reservation(user, seat, now)).getId();
-    }
-
-    // 예약 취소
-    public void cancelReservation(Long userId, Long reservationId) {
-        Reservation reservation = reservationRepository.findByIdAndUserId(reservationId, userId)
-                .orElseThrow(() -> new EntityNotFoundException("예약을 찾을 수 없습니다."));
-
-        reservation.cancel();
-        Seat seat = reservation.getSeat();
-        if (seat.getStatus() == SeatStatus.HELD) {
-            seat.release();
-            return;
-        }
-        if (seat.getStatus() == SeatStatus.BOOKED) {
-            seat.releaseBooked();
-        }
     }
 
     // 예약 만료

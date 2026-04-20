@@ -52,12 +52,20 @@ public class Payment {
     @Column(length = 50)
     private String method;
 
-    public Payment(Reservation reservation, Integer amount, LocalDateTime now,String orderId) {
+    @Column(nullable = false, length = 10)
+    private String currency;
+
+    public Payment(Reservation reservation, Integer amount, LocalDateTime now, String orderId) {
+        this(reservation, amount, now, orderId, "KRW");
+    }
+
+    public Payment(Reservation reservation, Integer amount, LocalDateTime now,String orderId, String currency) {
         this.reservation = reservation;
         this.amount = amount;
         this.status = PaymentStatus.READY;
         this.requestedAt = now;
         this.orderId = orderId;
+        this.currency = currency;
     }
 
     public void approve(String paymentKey, String method, String pgStatus) {

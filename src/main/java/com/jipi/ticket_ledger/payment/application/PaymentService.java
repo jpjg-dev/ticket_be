@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.payment.application;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
@@ -37,10 +38,12 @@ public class PaymentService {
                                 reservation,
                                 reservation.getSeat().getPrice(),
                                 LocalDateTime.now(),
-                                createOrderId(reservationId)
+                                createOrderId(reservationId),
+                                "KRW"
                         )
                 ));
     }
+
     // 내부 결제 전 검증로직
     public Payment confirmPayment(String paymentKey, String orderId, Integer amount) {
         Payment payment = paymentRepository.findByOrderId(orderId)
@@ -86,6 +89,11 @@ public class PaymentService {
             throw new IllegalStateException("PG 승인 금액이 일치하지 않습니다.");
         }
 
+        if (!payment.getCurrency().equals(tossResponse.currency())) {
+            payment.fail();
+            throw new IllegalStateException("PG 통화 코드가 일치하지 않습니다.");
+        }
+        //결제 승인
         payment.approve(
                 tossResponse.paymentKey(),
                 tossResponse.method(),
@@ -96,17 +104,6 @@ public class PaymentService {
         seat.book();
 
         return payment;
-    }
-    // 결제 승인
-    public void approvePayment(Long paymentId) {
-        Payment payment = getPayment(paymentId);
-
-        Reservation reservation = payment.getReservation();
-        Seat seat = reservation.getSeat();
-
-        payment.approve(null, null, null);
-        reservation.confirm();
-        seat.book();
     }
 
     // 결제실패
@@ -127,11 +124,39 @@ public class PaymentService {
     }
 
     // 결제취소
-    public void cancelPayment(Long paymentId) {
+    public void cancelPayment(Long paymentId, String cancelReason) {
         Payment payment = getPayment(paymentId);
 
         Reservation reservation = payment.getReservation();
         Seat seat = reservation.getSeat();
+
+        if (payment.getStatus() != PaymentStatus.APPROVED) {
+            throw new IllegalStateException("승인된 결제만 취소할 수 있습니다.");
+        }
+
+        if (payment.getPaymentKey() == null || payment.getPaymentKey().isBlank()) {
+            throw new IllegalStateException("PG 결제키가 없어 취소할 수 없습니다.");
+        }
+
+        TossCancelResponse tossResponse = tossPaymentClient.cancel(
+                payment.getPaymentKey(),
+                cancelReason,
+                payment.getCurrency()
+        );
+
+        if (!payment.getPaymentKey().equals(tossResponse.paymentKey())) {
+            throw new IllegalStateException("PG 취소 응답 결제키가 일치하지 않습니다.");
+        }
+
+        if (!payment.getCurrency().equals(tossResponse.currency())) {
+            throw new IllegalStateException("PG 취소 응답 통화가 일치하지 않습니다.");
+        }
+
+        // status 값은 PG 응답 포맷에 맞춰 조정 가능
+        if (!"CANCELED".equalsIgnoreCase(tossResponse.status())
+                && !"PARTIAL_CANCELED".equalsIgnoreCase(tossResponse.status())) {
+            throw new IllegalStateException("PG 취소 상태가 유효하지 않습니다.");
+        }
 
         payment.cancel(LocalDateTime.now());
         reservation.cancel();

@@ -6,6 +6,7 @@ public record ReadyPaymentResponse(
         Integer amount,
         Integer supplyAmount,
         Integer vatAmount,
-        String orderName
+        String orderName,
+        String currency
 ) {
 }

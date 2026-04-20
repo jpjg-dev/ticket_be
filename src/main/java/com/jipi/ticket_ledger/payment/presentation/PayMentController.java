@@ -40,7 +40,8 @@ public class PayMentController {
                 totalAmount,
                 supplyAmount,
                 vatAmount,
-                orderName
+                orderName,
+                payment.getCurrency()
         );
     }
     @Operation(summary = "결제 승인 확인", description = "토스 결제 성공 후 paymentKey, orderId, amount로 결제를 승인합니다.")
@@ -64,12 +65,6 @@ public class PayMentController {
         );
     }
 
-    @Operation(summary = "결제 승인", description = "결제 식별자로 결제를 승인합니다.")
-    @PostMapping("/{paymentId}/approve")
-    public void approvePayment(@PathVariable Long paymentId) {
-        paymentService.approvePayment(paymentId);
-    }
-
     @Operation(summary = "결제 실패", description = "결제 식별자로 결제를 실패 처리합니다.")
     @PostMapping("/{paymentId}/fail")
     public void failPayment(@PathVariable Long paymentId) {
@@ -78,8 +73,8 @@ public class PayMentController {
 
     @Operation(summary = "결제 취소", description = "결제 식별자로 결제를 취소합니다.")
     @PostMapping("/{paymentId}/cancel")
-    public void cancelPayment(@PathVariable Long paymentId) {
-        paymentService.cancelPayment(paymentId);
+    public void cancelPayment(@PathVariable Long paymentId, @RequestBody String cancelReason) {
+        paymentService.cancelPayment(paymentId, cancelReason);
     }
 
 }

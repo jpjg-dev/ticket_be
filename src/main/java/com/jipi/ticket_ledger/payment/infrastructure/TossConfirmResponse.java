@@ -4,5 +4,7 @@ public record TossConfirmResponse(String paymentKey,
                                   String orderId,
                                   String status,
                                   String method,
-                                  Integer totalAmount) {
+                                  Integer totalAmount,
+                                  String currency
+) {
 }

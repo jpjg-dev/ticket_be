@@ -32,6 +32,18 @@ public class TossPaymentClient {
                 .body(TossConfirmResponse.class);
     }
 
+    public TossCancelResponse cancel(String paymentKey, String cancelReason, String currency) {
+        TossCancelRequest request = new TossCancelRequest(cancelReason, currency);
+
+        return restClient.post()
+                .uri(baseUrl + "/v1/payments/{paymentKey}/cancel", paymentKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", createAuthorizationHeader())
+                .body(request)
+                .retrieve()
+                .body(TossCancelResponse.class);
+    }
+
     private String createAuthorizationHeader() {
         String credentials = secretKey + ":";
         String encodedCredentials = Base64.getEncoder()
