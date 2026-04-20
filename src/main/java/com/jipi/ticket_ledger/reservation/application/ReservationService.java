@@ -54,10 +54,11 @@ public class ReservationService {
     }
 
     // 예약 만료
-    public void expireReservations(){
+    public int expireReservations(){
         LocalDateTime now = LocalDateTime.now();
         List<Reservation> expiredReservations =
                 reservationRepository.findByStatusAndExpiresAtLessThanEqual(ReservationStatus.PENDING, now);
+        int expiredCount = 0;
         for(Reservation reservation : expiredReservations){
             Payment payment = paymentRepository.findByReservationId(reservation.getId())
                     .orElse(null);
@@ -77,6 +78,8 @@ public class ReservationService {
             reservation.getSeat().release();
             log.info("event=RESERVATION_EXPIRE_SUCCESS orderId={} paymentId={} reservationId={} reason={}",
                     orderId, paymentId, reservation.getId(), "EXPIRED_BY_SCHEDULER");
+            expiredCount++;
         }
+        return expiredCount;
     }
 }

@@ -14,7 +14,7 @@ public class ReservationExpirationScheduler {
 
     @Scheduled(fixedDelayString = "${reservation.expire-scheduler.fixed-delay-ms}")
     public void expireReservations() {
-        log.info("Expire reservations");
-        reservationService.expireReservations();
+        int expiredCount = reservationService.expireReservations();
+        log.info("Expire reservations completed. expiredCount={}", expiredCount);
     }
 }
