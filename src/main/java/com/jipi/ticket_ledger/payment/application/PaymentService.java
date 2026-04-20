@@ -119,7 +119,7 @@ public class PaymentService {
         reservation.confirm();
         seat.book();
         log.info("event=PAYMENT_CONFIRM_SUCCESS orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                orderId, payment.getId(), reservation.getId(), "SUCCESS", maskPaymentKey(payment.getPaymentKey()));
+                orderId, payment.getId(), reservation.getId(), tossResponse.status(), maskPaymentKey(payment.getPaymentKey()));
 
         return payment;
     }
@@ -154,7 +154,7 @@ public class PaymentService {
         Reservation reservation = payment.getReservation();
         Seat seat = reservation.getSeat();
         log.info("event=PAYMENT_CANCEL_START orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                payment.getOrderId(), payment.getId(), reservation.getId(), "REQUEST", maskPaymentKey(payment.getPaymentKey()));
+                payment.getOrderId(), payment.getId(), reservation.getId(), cancelReason, maskPaymentKey(payment.getPaymentKey()));
 
         if (payment.getStatus() != PaymentStatus.APPROVED) {
             log.info("event=PAYMENT_CANCEL_REJECT orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
@@ -197,8 +197,8 @@ public class PaymentService {
         payment.cancel(LocalDateTime.now());
         reservation.cancel();
         seat.releaseBooked();
-        log.info("event=PAYMENT_CANCEL_SUCCESS orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                payment.getOrderId(), payment.getId(), reservation.getId(), "SUCCESS", maskPaymentKey(payment.getPaymentKey()));
+        log.info("event=PAYMENT_CANCEL_SUCCESS orderId={} paymentId={} reservationId={} reason={}  paymentKeyMasked={}",
+                payment.getOrderId(), payment.getId(), reservation.getId(), tossResponse.status() , maskPaymentKey(payment.getPaymentKey()));
     }
 
     // helper
