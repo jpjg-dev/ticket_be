@@ -14,6 +14,7 @@ import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class ReservationService {
     private static final long RESERVATION_HOLD_MINUTES = 10L;
 
@@ -57,11 +59,24 @@ public class ReservationService {
         List<Reservation> expiredReservations =
                 reservationRepository.findByStatusAndExpiresAtLessThanEqual(ReservationStatus.PENDING, now);
         for(Reservation reservation : expiredReservations){
-            paymentRepository.findByReservationId(reservation.getId())
-                    .filter(payment -> payment.getStatus() == PaymentStatus.READY)
-                    .ifPresent(Payment::fail);
+            Payment payment = paymentRepository.findByReservationId(reservation.getId())
+                    .orElse(null);
+
+            String orderId = payment != null ? payment.getOrderId() : "N/A";
+            Long paymentId = payment != null ? payment.getId() : null;
+            log.info("event=RESERVATION_EXPIRE_START orderId={} paymentId={} reservationId={} reason={}",
+                    orderId, paymentId, reservation.getId(), "REQUEST");
+
+            if (payment != null && payment.getStatus() == PaymentStatus.READY) {
+                payment.fail();
+                log.info("event=PAYMENT_EXPIRE_SUCCESS orderId={} paymentId={} reservationId={} reason={}",
+                        orderId, paymentId, reservation.getId(), "READY_TO_FAILED");
+            }
+
             reservation.expire();
             reservation.getSeat().release();
+            log.info("event=RESERVATION_EXPIRE_SUCCESS orderId={} paymentId={} reservationId={} reason={}",
+                    orderId, paymentId, reservation.getId(), "EXPIRED_BY_SCHEDULER");
         }
     }
 }
