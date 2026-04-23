@@ -1,7 +1,6 @@
 package com.jipi.ticket_ledger.reservation.application;
 
-import com.jipi.ticket_ledger.common.log.LogEvents;
-import com.jipi.ticket_ledger.event.domain.Schedule;
+import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;

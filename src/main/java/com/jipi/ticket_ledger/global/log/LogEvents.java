@@ -1,4 +1,4 @@
-package com.jipi.ticket_ledger.common.log;
+package com.jipi.ticket_ledger.global.log;
 
 public final class LogEvents {
     private LogEvents() {
