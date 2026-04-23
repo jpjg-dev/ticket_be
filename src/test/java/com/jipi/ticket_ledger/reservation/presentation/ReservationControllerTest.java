@@ -1,7 +1,7 @@
 package com.jipi.ticket_ledger.reservation.presentation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jipi.ticket_ledger.common.dto.GlobalExceptionHandler;
+import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
 import com.jipi.ticket_ledger.reservation.application.ReservationService;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.DisplayName;

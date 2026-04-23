@@ -1,14 +1,12 @@
 package com.jipi.ticket_ledger.payment.presentation;
 
-import com.jipi.ticket_ledger.common.dto.GlobalExceptionHandler;
+import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
-import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.seat.domain.Seat;
-import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

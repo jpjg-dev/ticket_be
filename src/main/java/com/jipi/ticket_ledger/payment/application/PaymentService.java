@@ -89,7 +89,6 @@ public class PaymentService {
             throw new IllegalStateException("결제 금액이 일치하지 않습니다.");
         }
 
-        // TODO: Toss Payments 승인 API 호출
         // 여기까지 통과한 뒤에만 외부 PG 승인 API를 호출해야 한다.
         TossConfirmResponse tossResponse = tossPaymentClient.confirm(
                 paymentKey,
