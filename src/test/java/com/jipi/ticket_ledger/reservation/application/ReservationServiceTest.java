@@ -143,11 +143,12 @@ class ReservationServiceTest {
                 .thenReturn(List.of(expiredReservation));
         when(paymentRepository.findByReservationId(1L)).thenReturn(Optional.of(payment));
 
-        reservationService.expireReservations();
+        int expiredCount = reservationService.expireReservations();
 
         assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, expiredReservation.getSeat().getStatus());
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(1, expiredCount);
     }
 
     @Test
@@ -164,11 +165,12 @@ class ReservationServiceTest {
                 .thenReturn(List.of(expiredReservation));
         when(paymentRepository.findByReservationId(2L)).thenReturn(Optional.of(payment));
 
-        reservationService.expireReservations();
+        int expiredCount = reservationService.expireReservations();
 
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
         assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, expiredReservation.getSeat().getStatus());
+        assertEquals(1, expiredCount);
     }
 
     @Test
@@ -179,10 +181,11 @@ class ReservationServiceTest {
         when(reservationRepository.findByStatusAndExpiresAtLessThanEqual(eq(ReservationStatus.PENDING), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
-        reservationService.expireReservations();
+        int expiredCount = reservationService.expireReservations();
 
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
+        assertEquals(0, expiredCount);
     }
 
     private Reservation createPendingReservationWithHeldSeat() {

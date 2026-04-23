@@ -27,6 +27,7 @@
 #### 검증 포인트
 - [ ] 만료 대상이 없으면 상태 변화가 없다
 - [ ] 결제가 없거나 `READY`가 아니면 결제 상태는 변경하지 않는다
+- [ ] `expireReservations()` 반환값(expiredCount)이 실제 만료 처리 건수와 일치한다
 
 ---
 
@@ -56,6 +57,7 @@
 - [ ] amount(총액, VAT 포함) 검증 통과 시 승인된다
 - [ ] 승인 성공 시 `Payment APPROVED / Reservation CONFIRMED / Seat BOOKED`
 - [ ] `paymentKey`, `method`, `pgStatus`가 저장된다
+- [ ] 로그 이벤트 키가 `PAYMENT_CONFIRM_*` 규칙으로 출력된다
 
 #### 실패 케이스
 - [ ] 존재하지 않는 orderId면 `EntityNotFoundException`
@@ -84,6 +86,7 @@
 #### 성공 케이스
 - [ ] `APPROVED` 결제만 취소 가능하다
 - [ ] PG 취소 성공 후 `Payment CANCELED / Reservation CANCELED / Seat AVAILABLE`
+- [ ] 로그 이벤트 키가 `PAYMENT_CANCEL_*` 규칙으로 출력된다
 
 #### 실패 케이스
 - [ ] `APPROVED`가 아니면 `IllegalStateException`

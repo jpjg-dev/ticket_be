@@ -1,5 +1,21 @@
 # 변경 이력 추적 (결제/예약 흐름)
 
+## 2026-04-23
+
+### 1) 결제/만료 로그 표준화
+- `event` 키를 문자열 하드코딩에서 공통 상수(`LogEvents`)로 통일
+- `PaymentService`의 `confirm/cancel/fail` 로그에 표준 키(`orderId`, `paymentId`, `reservationId`, `reason`) 유지
+- 승인/취소 성공 로그는 PG 응답 상태(`tossResponse.status()`)를 `reason`/`pgStatus`로 기록
+- `paymentKey`는 원문 대신 마스킹(`paymentKeyMasked`)으로만 기록
+
+### 2) 취소 API 프론트 오탐 수정
+- `/api/toss/cancel` 프록시에서 백엔드 `200 + empty body`를 에러로 처리하던 문제 수정
+- `response.ok`이고 본문이 없으면 `{ success: true }`를 반환하도록 변경
+
+### 3) 스케줄러 만료 처리 가시성 보강
+- `ReservationService.expireReservations()`의 반환값(`expiredCount`) 테스트 검증 추가
+- 만료 처리 건수가 0/1인 케이스를 단위 테스트에서 명시적으로 확인
+
 ## 2026-04-20
 
 ### 1) 결제 승인/취소 흐름 정리

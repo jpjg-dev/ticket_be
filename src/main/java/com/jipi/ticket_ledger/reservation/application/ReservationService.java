@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.reservation.application;
 
+import com.jipi.ticket_ledger.common.log.LogEvents;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.payment.domain.Payment;
@@ -65,19 +66,19 @@ public class ReservationService {
 
             String orderId = payment != null ? payment.getOrderId() : "N/A";
             Long paymentId = payment != null ? payment.getId() : null;
-            log.info("event=RESERVATION_EXPIRE_START orderId={} paymentId={} reservationId={} reason={}",
-                    orderId, paymentId, reservation.getId(), "REQUEST");
+            log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
+                    LogEvents.RESERVATION_EXPIRE_START, orderId, paymentId, reservation.getId(), "REQUEST");
 
             if (payment != null && payment.getStatus() == PaymentStatus.READY) {
                 payment.fail();
-                log.info("event=PAYMENT_EXPIRE_SUCCESS orderId={} paymentId={} reservationId={} reason={}",
-                        orderId, paymentId, reservation.getId(), "READY_TO_FAILED");
+                log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
+                        LogEvents.PAYMENT_EXPIRE_SUCCESS, orderId, paymentId, reservation.getId(), "READY_TO_FAILED");
             }
 
             reservation.expire();
             reservation.getSeat().release();
-            log.info("event=RESERVATION_EXPIRE_SUCCESS orderId={} paymentId={} reservationId={} reason={}",
-                    orderId, paymentId, reservation.getId(), "EXPIRED_BY_SCHEDULER");
+            log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
+                    LogEvents.RESERVATION_EXPIRE_SUCCESS, orderId, paymentId, reservation.getId(), "EXPIRED_BY_SCHEDULER");
             expiredCount++;
         }
         return expiredCount;
