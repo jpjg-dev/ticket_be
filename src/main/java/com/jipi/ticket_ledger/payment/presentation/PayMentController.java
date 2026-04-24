@@ -4,6 +4,7 @@ import com.jipi.ticket_ledger.payment.application.PaymentService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
+import com.jipi.ticket_ledger.payment.presentation.dto.FailRedirectRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentResponse;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
@@ -69,6 +70,16 @@ public class PayMentController {
     @PostMapping("/{paymentId}/fail")
     public void failPayment(@PathVariable Long paymentId) {
         paymentService.failPayment(paymentId);
+    }
+
+    @Operation(summary = "결제 실패 리다이렉트 기록", description = "failUrl로 전달된 code, message, orderId를 백엔드 로그에 기록합니다.")
+    @PostMapping("/fail-redirect")
+    public void recordFailRedirect(@RequestBody FailRedirectRequest request) {
+        paymentService.recordFailRedirect(
+                request.orderId(),
+                request.code(),
+                request.message()
+        );
     }
 
     @Operation(summary = "결제 취소", description = "결제 식별자로 결제를 취소합니다.")

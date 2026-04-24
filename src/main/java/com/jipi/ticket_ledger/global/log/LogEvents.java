@@ -10,6 +10,7 @@ public final class LogEvents {
 
     public static final String PAYMENT_FAIL_START = "PAYMENT_FAIL_START";
     public static final String PAYMENT_FAIL_SUCCESS = "PAYMENT_FAIL_SUCCESS";
+    public static final String PAYMENT_FAIL_REDIRECT_RECEIVED = "PAYMENT_FAIL_REDIRECT_RECEIVED";
 
     public static final String PAYMENT_CANCEL_START = "PAYMENT_CANCEL_START";
     public static final String PAYMENT_CANCEL_REJECT = "PAYMENT_CANCEL_REJECT";
