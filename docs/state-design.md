@@ -152,10 +152,19 @@ READY → CANCELED ❌
 * 결제 APPROVED → 예매 CONFIRMED
 * 결제 FAILED → 예매 EXPIRED 또는 유지 (정책 선택)
 * 결제 CANCELED → 예매 CANCELED
+* PG 응답이 애매하면 `paymentKey`/`orderId` 조회 결과를 기준으로 내부 상태를 확정함
 
 ---
 
-# 5. 설계 의도
+# 5. 상태 조회/재확인 정책
+
+* `GET /payments/{paymentId}/status`로 현재 `Payment / Reservation / Seat` 상태를 조회할 수 있음
+* `confirm/cancel` 응답이 애매한 경우 프론트는 상태 조회 API를 폴링해 최종 상태를 확인함
+* `failUrl`은 상태 전이 경로가 아니라 실패 코드/메시지 로깅 경로로만 사용함
+
+---
+
+# 6. 설계 의도
 
 * 상태를 통해 모든 흐름을 명확하게 표현
 * 각 상태는 단일 책임을 가지도록 분리
@@ -164,6 +173,6 @@ READY → CANCELED ❌
 
 ---
 
-# 6. 한 줄 요약
+# 7. 한 줄 요약
 
 **이 시스템은 상태 전이를 기반으로 예매와 결제의 정합성을 보장한다.**

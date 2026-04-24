@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -78,10 +79,16 @@ class PayMentControllerTest {
     }
 
     @Test
-    @DisplayName("결제 실패 처리 성공 시 200을 반환한다")
-    void failPaymentSuccess() throws Exception {
-        mockMvc.perform(post("/payments/1/fail"))
-                .andExpect(status().isOk());
+    @DisplayName("결제 상태 조회 성공 시 200과 현재 상태를 반환한다")
+    void getPaymentStatusSuccess() throws Exception {
+        Payment approvedPayment = createApprovedPayment();
+        when(paymentService.getPaymentStatus(1L)).thenReturn(approvedPayment);
+
+        mockMvc.perform(get("/payments/1/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.reservationStatus").value("CONFIRMED"))
+                .andExpect(jsonPath("$.seatStatus").value("BOOKED"));
     }
 
     @Test
@@ -104,6 +111,21 @@ class PayMentControllerTest {
                         .content("\"사용자 요청 취소\""))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ILLEGAL_STATE"));
+    }
+
+    @Test
+    @DisplayName("결제 실패 리다이렉트 기록 성공 시 200을 반환한다")
+    void failRedirectRecordSuccess() throws Exception {
+        mockMvc.perform(post("/payments/fail-redirect")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "orderId": "order-1",
+                                  "code": "PAY_PROCESS_ABORTED",
+                                  "message": "결제가 실패했습니다."
+                                }
+                                """))
+                .andExpect(status().isOk());
     }
 
     private Payment createReadyPayment() {

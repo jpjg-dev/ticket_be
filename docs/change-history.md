@@ -1,5 +1,16 @@
 # 변경 이력 추적 (결제/예약 흐름)
 
+## 2026-04-24
+
+### 1) 상태 조회 API 및 프론트 확인중 처리
+- `GET /payments/{paymentId}/status` 추가
+- 프론트는 `confirm/cancel` 응답이 애매할 때 상태 조회 API를 폴링해 최종 상태를 확인하도록 조정
+- `ready` 성공 시 `paymentId`, `orderId`를 저장해 성공 페이지에서 재확인에 사용
+
+### 2) 불필요 외부 fail API 정리
+- `/payments/{paymentId}/fail` 외부 API 제거
+- `failUrl`은 상태 전이 경로가 아니라 `code/message/orderId` 서버 로그 기록 경로로 유지
+
 ## 2026-04-23
 
 ### 4) 결제 상태 재확인 정책 반영

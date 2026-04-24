@@ -6,8 +6,6 @@ import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
-import com.jipi.ticket_ledger.user.domain.User;
-import com.jipi.ticket_ledger.user.domain.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -21,7 +19,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DataInitializer implements ApplicationRunner {
 
-    private final UserRepository userRepository;
     private final EventRepository eventRepository;
     private final ScheduleRepository scheduleRepository;
     private final SeatRepository seatRepository;
@@ -29,71 +26,128 @@ public class DataInitializer implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (eventRepository.count() > 0) {
+        if (eventRepository.count() > 0 || scheduleRepository.count() > 0 || seatRepository.count() > 0) {
             return;
         }
 
         LocalDateTime now = LocalDateTime.now();
+        LocalDateTime base = now.withMinute(0).withSecond(0).withNano(0);
 
-        User user = userRepository.save(new User(
-                "test-user@ticketledger.com",
-                "password",
-                "테스트사용자",
-                now
-        ));
-
-        Event phantom = eventRepository.save(new Event(
+        Event phantom = createEvent(
                 "오페라의 유령",
-                "TicketLedger 결제 흐름 테스트용 공연",
+                "파리 오페라하우스를 배경으로 한 클래식 뮤지컬",
                 "블루스퀘어 신한카드홀",
-                now.minusDays(1),
+                base.minusDays(30),
                 now
-        ));
-
-        Event lesMiserables = eventRepository.save(new Event(
+        );
+        Event lesMiserables = createEvent(
                 "레미제라블",
-                "좌석 선점과 결제 승인 흐름 테스트용 공연",
+                "혁명과 구원의 감정을 밀도 있게 다루는 대형 뮤지컬",
                 "샤롯데씨어터",
-                now.minusDays(1),
+                base.minusDays(20),
+                now
+        );
+        Event wicked = createEvent(
+                "위키드",
+                "초록 마녀와 마법 세계를 중심으로 한 판타지 뮤지컬",
+                "예술의전당 오페라극장",
+                base.minusDays(7),
+                now
+        );
+        Event chicago = createEvent(
+                "시카고",
+                "재즈와 쇼맨십이 강한 스테디셀러 뮤지컬",
+                "디큐브 링크아트센터",
+                base.minusDays(3),
+                now
+        );
+        Event matahari = createEvent(
+                "마타하리",
+                "전쟁과 무대 사이를 오가는 비극적 인물을 다룬 창작 뮤지컬",
+                "세종문화회관 대극장",
+                base.minusDays(1),
+                now
+        );
+        Event hadestown = createEvent(
+                "하데스타운",
+                "신화를 현대적으로 해석한 음악 중심의 뮤지컬",
+                "충무아트센터 대극장",
+                base.plusDays(2),
+                now
+        );
+        Event kinkyBoots = createEvent(
+                "킹키부츠",
+                "에너지와 퍼포먼스가 강한 팝 스타일 뮤지컬",
+                "LG아트센터 서울",
+                base.plusDays(5),
+                now
+        );
+
+        createSchedulesWithSeats(phantom, now, List.of(
+                base.minusDays(18).withHour(19),
+                base.minusDays(17).withHour(14),
+                base.minusDays(16).withHour(18)
+        ));
+        createSchedulesWithSeats(lesMiserables, now, List.of(
+                base.minusDays(10).withHour(19),
+                base.minusDays(9).withHour(15),
+                base.minusDays(8).withHour(19)
+        ));
+        createSchedulesWithSeats(wicked, now, List.of(
+                base.minusHours(1),
+                base.plusDays(1).withHour(19)
+        ));
+        createSchedulesWithSeats(chicago, now, List.of(
+                base.plusHours(2),
+                base.plusDays(2).withHour(15)
+        ));
+        createSchedulesWithSeats(matahari, now, List.of(
+                base.plusDays(4).withHour(19),
+                base.plusDays(5).withHour(14)
+        ));
+        createSchedulesWithSeats(hadestown, now, List.of(
+                base.plusDays(7).withHour(19),
+                base.plusDays(8).withHour(15)
+        ));
+        createSchedulesWithSeats(kinkyBoots, now, List.of(
+                base.plusDays(11).withHour(19),
+                base.plusDays(12).withHour(14)
+        ));
+    }
+
+    private Event createEvent(String title, String description, String venue, LocalDateTime bookingOpenAt, LocalDateTime now) {
+        return eventRepository.save(new Event(
+                title,
+                description,
+                venue,
+                bookingOpenAt,
                 now
         ));
+    }
 
-        Schedule phantomEvening = scheduleRepository.save(new Schedule(
-                phantom,
-                now.plusDays(7).withHour(19).withMinute(30).withSecond(0).withNano(0),
-                now.plusDays(7).withHour(22).withMinute(0).withSecond(0).withNano(0),
-                now
-        ));
+    private void createSchedulesWithSeats(Event event, LocalDateTime now, List<LocalDateTime> startTimes) {
+        for (LocalDateTime startAt : startTimes) {
+            Schedule schedule = scheduleRepository.save(new Schedule(
+                    event,
+                    startAt,
+                    startAt.plusHours(2).plusMinutes(30),
+                    now
+            ));
 
-        Schedule phantomWeekend = scheduleRepository.save(new Schedule(
-                phantom,
-                now.plusDays(8).withHour(14).withMinute(0).withSecond(0).withNano(0),
-                now.plusDays(8).withHour(16).withMinute(30).withSecond(0).withNano(0),
-                now
-        ));
-
-        Schedule lesMiserablesEvening = scheduleRepository.save(new Schedule(
-                lesMiserables,
-                now.plusDays(10).withHour(19).withMinute(0).withSecond(0).withNano(0),
-                now.plusDays(10).withHour(22).withMinute(0).withSecond(0).withNano(0),
-                now
-        ));
-
-        saveSeats(phantomEvening, now);
-        saveSeats(phantomWeekend, now);
-        saveSeats(lesMiserablesEvening, now);
+            saveSeats(schedule, now);
+        }
     }
 
     private void saveSeats(Schedule schedule, LocalDateTime now) {
         seatRepository.saveAll(List.of(
                 new Seat(schedule, "A-1", "VIP", 1000, now),
-                new Seat(schedule, "A-2", "VIP", 11, now),
-                new Seat(schedule, "A-3", "VIP", 11, now),
-                new Seat(schedule, "B-1", "R", 11, now),
-                new Seat(schedule, "B-2", "R", 11, now),
-                new Seat(schedule, "B-3", "R", 11, now),
-                new Seat(schedule, "C-1", "S", 1, now),
-                new Seat(schedule, "C-2", "S", 1, now)
+                new Seat(schedule, "A-2", "VIP", 1000, now),
+                new Seat(schedule, "A-3", "VIP", 1000, now),
+                new Seat(schedule, "B-1", "R", 1000, now),
+                new Seat(schedule, "B-2", "R", 1000, now),
+                new Seat(schedule, "B-3", "R", 1000, now),
+                new Seat(schedule, "C-1", "S", 1000, now),
+                new Seat(schedule, "C-2", "S", 1000, now)
         ));
     }
 }

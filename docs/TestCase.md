@@ -97,6 +97,15 @@
 
 ---
 
+### 2.5 getPaymentStatus()
+
+#### 성공 케이스
+- [ ] paymentId로 현재 결제 상태를 조회한다
+- [ ] `Payment / Reservation / Seat` 상태를 함께 반환한다
+- [ ] 프론트 폴링 기준으로 사용할 수 있다
+
+---
+
 ## 3. Controller 테스트
 
 ### 3.1 ReservationController
@@ -107,8 +116,9 @@
 ### 3.2 PayMentController
 - [ ] `/payments/ready` 성공 (200)
 - [ ] `/payments/confirm` 성공 (200)
-- [ ] `/payments/{id}/fail` 성공 (200)
+- [ ] `/payments/{id}/status` 성공 (200)
 - [ ] `/payments/{id}/cancel` 성공 (200)
+- [ ] `/payments/fail-redirect` 성공 (200)
 - [ ] 잘못된 상태 전이 (409)
 
 ---
@@ -118,9 +128,10 @@
 1. [ ] `PaymentService.confirmPayment()`
 2. [ ] `PaymentService.cancelPayment()`
 3. [ ] `PaymentService.readyPayment()`
-4. [ ] `ReservationService.expireReservations()`
-5. [ ] `ReservationService.createReservation()`
-6. [ ] `PaymentService.failPayment()`
+4. [ ] `PaymentService.getPaymentStatus()`
+5. [ ] `ReservationService.expireReservations()`
+6. [ ] `ReservationService.createReservation()`
+7. [ ] `PaymentService.failPayment()`
 
 ---
 

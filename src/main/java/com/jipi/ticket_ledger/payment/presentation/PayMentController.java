@@ -59,23 +59,14 @@ public class PayMentController {
                 request.amount()
         );
 
-        Reservation reservation = payment.getReservation();
-        Seat seat = reservation.getSeat();
-
-        return new ConfirmPaymentResponse(
-                payment.getId(),
-                payment.getOrderId(),
-                payment.getStatus(),
-                reservation.getStatus(),
-                seat.getStatus()
-        );
+        return toPaymentStatusResponse(payment);
     }
 
-
-    @Operation(summary = "결제 취소", description = "결제 식별자로 결제를 취소합니다.")
-    @PostMapping("/{paymentId}/cancel")
-    public void cancelPayment(@PathVariable Long paymentId, @RequestBody String cancelReason) {
-        paymentService.cancelPayment(paymentId, cancelReason);
+    @Operation(summary = "결제 상태 조회", description = "결제 식별자로 현재 결제/예약/좌석 상태를 조회합니다.")
+    @GetMapping("/{paymentId}/status")
+    public ConfirmPaymentResponse getPaymentStatus(@PathVariable Long paymentId) {
+        Payment payment = paymentService.getPaymentStatus(paymentId);
+        return toPaymentStatusResponse(payment);
     }
 
     @Operation(summary = "결제 실패 리다이렉트 기록", description = "failUrl로 전달된 code, message, orderId를 백엔드 로그에 기록합니다.")
@@ -90,6 +81,25 @@ public class PayMentController {
                 (orderId != null && !orderId.isBlank()) ? orderId : "N/A",
                 (code != null && !code.isBlank()) ? code : "UNKNOWN_FAIL_CODE",
                 (message != null && !message.isBlank()) ? message : "N/A");
+    }
+
+    @Operation(summary = "결제 취소", description = "결제 식별자로 결제를 취소합니다.")
+    @PostMapping("/{paymentId}/cancel")
+    public void cancelPayment(@PathVariable Long paymentId, @RequestBody String cancelReason) {
+        paymentService.cancelPayment(paymentId, cancelReason);
+    }
+
+    private ConfirmPaymentResponse toPaymentStatusResponse(Payment payment) {
+        Reservation reservation = payment.getReservation();
+        Seat seat = reservation.getSeat();
+
+        return new ConfirmPaymentResponse(
+                payment.getId(),
+                payment.getOrderId(),
+                payment.getStatus(),
+                reservation.getStatus(),
+                seat.getStatus()
+        );
     }
 
 }

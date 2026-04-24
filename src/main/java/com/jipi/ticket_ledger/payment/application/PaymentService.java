@@ -60,6 +60,11 @@ public class PaymentService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public Payment getPaymentStatus(Long paymentId) {
+        return getPayment(paymentId);
+    }
+
     // 내부 결제 전 검증로직
     public Payment confirmPayment(String paymentKey, String orderId, Integer amount) {
         Payment payment = paymentRepository.findByOrderIdForUpdate(orderId)
