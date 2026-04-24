@@ -21,13 +21,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -46,13 +50,46 @@ class PaymentServiceTest {
     private PaymentService paymentService;
 
     @Test
+    @DisplayName("readyPayment: 기존 READY 결제가 있으면 재사용한다")
+    void readyPaymentReuseExisting() {
+        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
+        Payment existingPayment = new Payment(reservation, 10000, LocalDateTime.now(), "order-ready-1", "KRW");
+
+        when(reservationRepository.findById(1L)).thenReturn(Optional.of(reservation));
+        when(paymentRepository.findByReservationId(1L)).thenReturn(Optional.of(existingPayment));
+
+        Payment readyPayment = paymentService.readyPayment(1L);
+
+        assertSame(existingPayment, readyPayment);
+        verify(paymentRepository, never()).save(org.mockito.ArgumentMatchers.any(Payment.class));
+    }
+
+    @Test
+    @DisplayName("readyPayment: 저장 중 유니크 충돌이 나면 기존 결제를 다시 조회해 반환한다")
+    void readyPaymentReuseExistingAfterConstraintViolation() {
+        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
+        Payment existingPayment = new Payment(reservation, 10000, LocalDateTime.now(), "order-ready-2", "KRW");
+
+        when(reservationRepository.findById(1L)).thenReturn(Optional.of(reservation));
+        when(paymentRepository.findByReservationId(1L))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(existingPayment));
+        when(paymentRepository.save(org.mockito.ArgumentMatchers.any(Payment.class)))
+                .thenThrow(new DataIntegrityViolationException("unique constraint"));
+
+        Payment readyPayment = paymentService.readyPayment(1L);
+
+        assertSame(existingPayment, readyPayment);
+    }
+
+    @Test
     @DisplayName("confirmPayment: READY/PENDING/HELD 상태에서 승인 성공 시 상태가 확정된다")
     void confirmPaymentSuccess() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-confirm-1", "KRW");
 
-        when(paymentRepository.findByOrderId("order-confirm-1")).thenReturn(Optional.of(payment));
-        when(tossPaymentClient.confirm("pay-key-1", "order-confirm-1", 11000))
+        when(paymentRepository.findByOrderIdForUpdate("order-confirm-1")).thenReturn(Optional.of(payment));
+        when(tossPaymentClient.confirm("pay-key-1", "order-confirm-1", 11000, "confirm:order-confirm-1"))
                 .thenReturn(new TossConfirmResponse("pay-key-1", "order-confirm-1", "DONE", "CARD", 11000, "KRW"));
 
         Payment confirmed = paymentService.confirmPayment("pay-key-1", "order-confirm-1", 11000);
@@ -71,7 +108,7 @@ class PaymentServiceTest {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-confirm-2", "KRW");
 
-        when(paymentRepository.findByOrderId("order-confirm-2")).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByOrderIdForUpdate("order-confirm-2")).thenReturn(Optional.of(payment));
 
         assertThrows(IllegalStateException.class,
                 () -> paymentService.confirmPayment("pay-key-2", "order-confirm-2", 10000));
@@ -79,6 +116,50 @@ class PaymentServiceTest {
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
+    }
+
+    @Test
+    @DisplayName("confirmPayment: 이미 APPROVED면 기존 결제를 그대로 반환하고 PG를 다시 호출하지 않는다")
+    void confirmPaymentAlreadyApproved() {
+        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-confirm-3", "KRW");
+        payment.approve("pay-key-3", "CARD", "DONE");
+        reservation.confirm();
+        reservation.getSeat().book();
+
+        when(paymentRepository.findByOrderIdForUpdate("order-confirm-3")).thenReturn(Optional.of(payment));
+
+        Payment confirmed = paymentService.confirmPayment("pay-key-3", "order-confirm-3", 11000);
+
+        assertSame(payment, confirmed);
+        verify(tossPaymentClient, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    @DisplayName("confirmPayment: PG confirm 응답을 못 받아도 조회 결과가 DONE이면 승인 상태를 확정한다")
+    void confirmPaymentReconcileAfterPgTimeout() {
+        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-confirm-4", "KRW");
+
+        when(paymentRepository.findByOrderIdForUpdate("order-confirm-4")).thenReturn(Optional.of(payment));
+        when(tossPaymentClient.confirm("pay-key-4", "order-confirm-4", 11000, "confirm:order-confirm-4"))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-4"))
+                .thenReturn(new com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse(
+                        "pay-key-4",
+                        "order-confirm-4",
+                        "DONE",
+                        "CARD",
+                        11000,
+                        "KRW"
+                ));
+
+        Payment confirmed = paymentService.confirmPayment("pay-key-4", "order-confirm-4", 11000);
+
+        assertEquals(PaymentStatus.APPROVED, confirmed.getStatus());
+        assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
+        assertEquals(SeatStatus.BOOKED, reservation.getSeat().getStatus());
+        assertEquals("pay-key-4", confirmed.getPaymentKey());
     }
 
     @Test
@@ -128,15 +209,16 @@ class PaymentServiceTest {
     void cancelPaymentSuccess() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-7");
+        ReflectionTestUtils.setField(payment, "id", 1L);
 
         payment.approve("pay-key-3", "CARD", "DONE");
         reservation.confirm();
         reservation.getSeat().book();
 
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
         doReturn(new TossCancelResponse("pay-key-3", "CANCELED", "10000", "KRW"))
                 .when(tossPaymentClient)
-                .cancel("pay-key-3", "사용자 요청", "KRW");
+                .cancel("pay-key-3", "사용자 요청", "KRW", "cancel:1");
 
         paymentService.cancelPayment(1L, "사용자 요청");
 
@@ -150,10 +232,62 @@ class PaymentServiceTest {
     void cancelPaymentWhenNotApproved() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-8");
+        ReflectionTestUtils.setField(payment, "id", 1L);
 
-        when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
 
         assertThrows(IllegalStateException.class, () -> paymentService.cancelPayment(1L, "사용자 요청"));
+    }
+
+    @Test
+    @DisplayName("cancelPayment: 이미 CANCELED면 기존 상태를 유지하고 PG를 다시 호출하지 않는다")
+    void cancelPaymentAlreadyCanceled() {
+        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-9");
+        ReflectionTestUtils.setField(payment, "id", 1L);
+        payment.approve("pay-key-9", "CARD", "DONE");
+        reservation.confirm();
+        reservation.getSeat().book();
+        payment.cancel(LocalDateTime.now());
+        reservation.cancel();
+        reservation.getSeat().releaseBooked();
+
+        when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
+
+        paymentService.cancelPayment(1L, "사용자 요청");
+
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        verify(tossPaymentClient, never()).cancel(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    @DisplayName("cancelPayment: PG cancel 응답을 못 받아도 조회 결과가 CANCELED면 취소 상태를 확정한다")
+    void cancelPaymentReconcileAfterPgTimeout() {
+        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
+        Payment payment = new Payment(reservation, 10000, LocalDateTime.now(), "order-10");
+        ReflectionTestUtils.setField(payment, "id", 1L);
+        payment.approve("pay-key-10", "CARD", "DONE");
+        reservation.confirm();
+        reservation.getSeat().book();
+
+        when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
+        when(tossPaymentClient.cancel("pay-key-10", "사용자 요청", "KRW", "cancel:1"))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-10"))
+                .thenReturn(new com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse(
+                        "pay-key-10",
+                        "order-10",
+                        "CANCELED",
+                        "CARD",
+                        11000,
+                        "KRW"
+                ));
+
+        paymentService.cancelPayment(1L, "사용자 요청");
+
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
     }
 
     @Test

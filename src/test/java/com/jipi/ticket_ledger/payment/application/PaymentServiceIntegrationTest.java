@@ -144,7 +144,7 @@ class PaymentServiceIntegrationTest {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt()))
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-success",
                         ready.getOrderId(),
