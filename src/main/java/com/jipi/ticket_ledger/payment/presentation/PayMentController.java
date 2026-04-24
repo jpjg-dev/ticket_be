@@ -1,10 +1,10 @@
 package com.jipi.ticket_ledger.payment.presentation;
 
+import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
-import com.jipi.ticket_ledger.payment.presentation.dto.FailRedirectRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentResponse;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
@@ -13,16 +13,20 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/payments")
 @RequiredArgsConstructor
 @Tag(name = "Payment API", description = "결제 관련 API")
+@Slf4j
 public class PayMentController {
     private final PaymentService paymentService;
 
-    @Operation (summary = "결제 준비", description = "예약 식별자로 결제 요청 정보를 생성합니다.")
+    @Operation(summary = "결제 준비", description = "예약 식별자로 결제 요청 정보를 생성합니다.")
     @PostMapping("/ready")
     public ReadyPaymentResponse readyPayment(@RequestBody @Valid ReadyPaymentRequest request) {
         Payment payment = paymentService.readyPayment(request.reservationId());
@@ -45,6 +49,7 @@ public class PayMentController {
                 payment.getCurrency()
         );
     }
+
     @Operation(summary = "결제 승인 확인", description = "토스 결제 성공 후 paymentKey, orderId, amount로 결제를 승인합니다.")
     @PostMapping("/confirm")
     public ConfirmPaymentResponse confirmPayment(@RequestBody @Valid ConfirmPaymentRequest request) {
@@ -66,26 +71,25 @@ public class PayMentController {
         );
     }
 
-    @Operation(summary = "결제 실패", description = "결제 식별자로 결제를 실패 처리합니다.")
-    @PostMapping("/{paymentId}/fail")
-    public void failPayment(@PathVariable Long paymentId) {
-        paymentService.failPayment(paymentId);
-    }
-
-    @Operation(summary = "결제 실패 리다이렉트 기록", description = "failUrl로 전달된 code, message, orderId를 백엔드 로그에 기록합니다.")
-    @PostMapping("/fail-redirect")
-    public void recordFailRedirect(@RequestBody FailRedirectRequest request) {
-        paymentService.recordFailRedirect(
-                request.orderId(),
-                request.code(),
-                request.message()
-        );
-    }
 
     @Operation(summary = "결제 취소", description = "결제 식별자로 결제를 취소합니다.")
     @PostMapping("/{paymentId}/cancel")
     public void cancelPayment(@PathVariable Long paymentId, @RequestBody String cancelReason) {
         paymentService.cancelPayment(paymentId, cancelReason);
+    }
+
+    @Operation(summary = "결제 실패 리다이렉트 기록", description = "failUrl로 전달된 code, message, orderId를 백엔드 로그에 기록합니다.")
+    @PostMapping("/fail-redirect")
+    public void recordFailRedirect(@RequestBody Map<String, String> request) {
+        String orderId = request.get("orderId");
+        String code = request.get("code");
+        String message = request.get("message");
+
+        log.info("event={} orderId={} reason={} message={}",
+                LogEvents.PAYMENT_FAIL_REDIRECT_RECEIVED,
+                (orderId != null && !orderId.isBlank()) ? orderId : "N/A",
+                (code != null && !code.isBlank()) ? code : "UNKNOWN_FAIL_CODE",
+                (message != null && !message.isBlank()) ? message : "N/A");
     }
 
 }

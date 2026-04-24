@@ -181,23 +181,6 @@ public class PaymentService {
                 LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservation.getId(), "FAIL_AND_EXPIRE");
     }
 
-    public void recordFailRedirect(String orderId, String code, String message) {
-        Payment payment = resolvePaymentByOrderId(orderId);
-        Long paymentId = payment != null ? payment.getId() : null;
-        Long reservationId = payment != null ? payment.getReservation().getId() : null;
-        String resolvedOrderId = orderId != null && !orderId.isBlank()
-                ? orderId
-                : payment != null ? payment.getOrderId() : "N/A";
-
-        log.info("event={} orderId={} paymentId={} reservationId={} reason={} message={}",
-                LogEvents.PAYMENT_FAIL_REDIRECT_RECEIVED,
-                resolvedOrderId,
-                paymentId,
-                reservationId,
-                code != null && !code.isBlank() ? code : "UNKNOWN_FAIL_CODE",
-                message != null && !message.isBlank() ? message : "N/A");
-    }
-
     // 결제취소
     public void cancelPayment(Long paymentId, String cancelReason) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId)
@@ -281,13 +264,6 @@ public class PaymentService {
     private Reservation getReservation(Long reservationId) {
         return reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new EntityNotFoundException("예약을 찾을 수 없습니다."));
-    }
-
-    private Payment resolvePaymentByOrderId(String orderId) {
-        if (orderId == null || orderId.isBlank()) {
-            return null;
-        }
-        return paymentRepository.findByOrderId(orderId).orElse(null);
     }
 
     private void validateReadyPayment(Reservation reservation) {
