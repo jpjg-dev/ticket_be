@@ -8,6 +8,7 @@ import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
+import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
@@ -27,6 +28,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
@@ -169,6 +171,39 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("confirmPayment: PG 응답 타임아웃이어도 조회 결과가 DONE이면 실제 DB 상태를 승인으로 확정한다")
+    void confirmPaymentReconcileAfterTimeout() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-reconcile"))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-reconcile",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        Payment approved = paymentService.confirmPayment("pay-key-reconcile", ready.getOrderId(), totalAmountWithVat);
+
+        Reservation reservation = reservationRepository.findById(fixture.reservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(PaymentStatus.APPROVED, approved.getStatus());
+        assertEquals("pay-key-reconcile", approved.getPaymentKey());
+        assertEquals("DONE", approved.getPgStatus());
+        assertEquals("CARD", approved.getMethod());
+        assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
+        assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
+    @Test
     @DisplayName("confirmPayment: 만료된 예약이면 예외가 발생하고 트랜잭션 롤백으로 READY/PENDING/HELD가 유지된다")
     void confirmPaymentExpiredReservation() {
         Fixture fixture = createPendingReservationFixture(true);
@@ -218,6 +253,49 @@ class PaymentServiceIntegrationTest {
     void confirmPaymentOrderIdNotFound() {
         assertThrows(EntityNotFoundException.class,
                 () -> paymentService.confirmPayment("pay-key", "not-exists-order", 1000));
+    }
+
+    @Test
+    @DisplayName("cancelPayment: PG 응답 타임아웃이어도 조회 결과가 CANCELED면 실제 DB 상태를 취소로 확정한다")
+    void cancelPaymentReconcileAfterTimeout() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        "pay-key-cancel-ready",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        Payment approved = paymentService.confirmPayment("pay-key-cancel-ready", ready.getOrderId(), totalAmountWithVat);
+
+        when(tossPaymentClient.cancel("pay-key-cancel-ready", "사용자 요청", "KRW", "cancel:" + approved.getId()))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-cancel-ready"))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-cancel-ready",
+                        approved.getOrderId(),
+                        "CANCELED",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        paymentService.cancelPayment(approved.getId(), "사용자 요청");
+
+        Payment canceled = paymentRepository.findById(approved.getId()).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.reservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(PaymentStatus.CANCELED, canceled.getStatus());
+        assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
     }
 
     private Fixture createPendingReservationFixture(boolean expiredReservation) {
