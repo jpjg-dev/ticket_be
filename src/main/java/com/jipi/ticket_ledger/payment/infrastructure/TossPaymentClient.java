@@ -20,28 +20,46 @@ public class TossPaymentClient {
     @Value("${toss.payments.secret-key}")
     private String secretKey;
 
-    public TossConfirmResponse confirm(String paymentKey, String orderId, Integer amount) {
+    public TossConfirmResponse confirm(String paymentKey, String orderId, Integer amount, String idempotencyKey) {
         TossConfirmRequest request = new TossConfirmRequest(paymentKey, orderId, amount);
 
         return restClient.post()
                 .uri(baseUrl + "/v1/payments/confirm")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", createAuthorizationHeader())
+                .header("Idempotency-Key", idempotencyKey)
                 .body(request)
                 .retrieve()
                 .body(TossConfirmResponse.class);
     }
 
-    public TossCancelResponse cancel(String paymentKey, String cancelReason, String currency) {
+    public TossCancelResponse cancel(String paymentKey, String cancelReason, String currency, String idempotencyKey) {
         TossCancelRequest request = new TossCancelRequest(cancelReason, currency);
 
         return restClient.post()
                 .uri(baseUrl + "/v1/payments/{paymentKey}/cancel", paymentKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", createAuthorizationHeader())
+                .header("Idempotency-Key", idempotencyKey)
                 .body(request)
                 .retrieve()
                 .body(TossCancelResponse.class);
+    }
+
+    public TossPaymentLookupResponse getPaymentByPaymentKey(String paymentKey) {
+        return restClient.get()
+                .uri(baseUrl + "/v1/payments/{paymentKey}", paymentKey)
+                .header("Authorization", createAuthorizationHeader())
+                .retrieve()
+                .body(TossPaymentLookupResponse.class);
+    }
+
+    public TossPaymentLookupResponse getPaymentByOrderId(String orderId) {
+        return restClient.get()
+                .uri(baseUrl + "/v1/payments/orders/{orderId}", orderId)
+                .header("Authorization", createAuthorizationHeader())
+                .retrieve()
+                .body(TossPaymentLookupResponse.class);
     }
 
     private String createAuthorizationHeader() {
