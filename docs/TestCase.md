@@ -57,6 +57,7 @@
 - [ ] amount(총액, VAT 포함) 검증 통과 시 승인된다
 - [ ] 승인 성공 시 `Payment APPROVED / Reservation CONFIRMED / Seat BOOKED`
 - [ ] `paymentKey`, `method`, `pgStatus`가 저장된다
+- [ ] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정한다
 - [ ] 로그 이벤트 키가 `PAYMENT_CONFIRM_*` 규칙으로 출력된다
 
 #### 실패 케이스
@@ -86,6 +87,7 @@
 #### 성공 케이스
 - [ ] `APPROVED` 결제만 취소 가능하다
 - [ ] PG 취소 성공 후 `Payment CANCELED / Reservation CANCELED / Seat AVAILABLE`
+- [ ] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정한다
 - [ ] 로그 이벤트 키가 `PAYMENT_CANCEL_*` 규칙으로 출력된다
 
 #### 실패 케이스

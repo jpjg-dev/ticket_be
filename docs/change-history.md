@@ -2,6 +2,12 @@
 
 ## 2026-04-23
 
+### 4) 결제 상태 재확인 정책 반영
+- `PaymentService`에 PG 응답 미수신 시 조회 기반 재확인 로직 추가
+- `confirmPayment`는 `paymentKey` 우선 조회로 `DONE` 상태를 확인하면 내부 승인 상태를 확정
+- `cancelPayment`는 `paymentKey` 조회로 `CANCELED` 상태를 확인하면 내부 취소 상태를 확정
+- 승인/취소 성공 경로와 재확인 경로가 동일한 상태 전이 헬퍼를 사용하도록 정리
+
 ### 1) 결제/만료 로그 표준화
 - `event` 키를 문자열 하드코딩에서 공통 상수(`LogEvents`)로 통일
 - `PaymentService`의 `confirm/cancel/fail` 로그에 표준 키(`orderId`, `paymentId`, `reservationId`, `reason`) 유지
