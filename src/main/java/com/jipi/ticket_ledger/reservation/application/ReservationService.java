@@ -1,7 +1,6 @@
 package com.jipi.ticket_ledger.reservation.application;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
-import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -30,7 +29,6 @@ public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final UserRepository userRepository;
-    private final ScheduleRepository scheduleRepository;
     private final SeatRepository seatRepository;
     private final PaymentRepository paymentRepository;
 

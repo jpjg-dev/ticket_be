@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-
 import java.time.LocalDateTime;
 
 @Getter
@@ -28,10 +27,24 @@ public class User {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(nullable = true)
+    private LocalDateTime updatedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private UserStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private UserRole role;
+
+
     public User(String email, String password, String name, LocalDateTime createdAt) {
         this.email = email;
         this.password = password;
         this.name = name;
         this.createdAt = createdAt;
+        this.status = UserStatus.ACTIVE;
+        this.role = UserRole.ROLE_USER;
     }
 }

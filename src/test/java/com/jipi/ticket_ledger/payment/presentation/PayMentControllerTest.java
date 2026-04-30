@@ -47,7 +47,7 @@ class PayMentControllerTest {
         Payment payment = createReadyPayment();
         when(paymentService.readyPayment(1L)).thenReturn(payment);
 
-        mockMvc.perform(post("/payments/ready")
+        mockMvc.perform(post("/api/v1/payments/ready")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reservationId\":1}"))
                 .andExpect(status().isOk())
@@ -63,7 +63,7 @@ class PayMentControllerTest {
         Payment approvedPayment = createApprovedPayment();
         when(paymentService.confirmPayment(anyString(), anyString(), anyInt())).thenReturn(approvedPayment);
 
-        mockMvc.perform(post("/payments/confirm")
+        mockMvc.perform(post("/api/v1/payments/confirm")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -84,7 +84,7 @@ class PayMentControllerTest {
         Payment approvedPayment = createApprovedPayment();
         when(paymentService.getPaymentStatus(1L)).thenReturn(approvedPayment);
 
-        mockMvc.perform(get("/payments/1/status"))
+        mockMvc.perform(get("/api/v1/payments/1/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paymentStatus").value("APPROVED"))
                 .andExpect(jsonPath("$.reservationStatus").value("CONFIRMED"))
@@ -94,7 +94,7 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 취소 성공 시 200을 반환한다")
     void cancelPaymentSuccess() throws Exception {
-        mockMvc.perform(post("/payments/1/cancel")
+        mockMvc.perform(post("/api/v1/payments/1/cancel")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("\"사용자 요청 취소\""))
                 .andExpect(status().isOk());
@@ -106,7 +106,7 @@ class PayMentControllerTest {
         doThrow(new IllegalStateException("승인된 결제만 취소할 수 있습니다."))
                 .when(paymentService).cancelPayment(anyLong(), anyString());
 
-        mockMvc.perform(post("/payments/1/cancel")
+        mockMvc.perform(post("/api/v1/payments/1/cancel")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("\"사용자 요청 취소\""))
                 .andExpect(status().isConflict())
@@ -116,7 +116,7 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 실패 리다이렉트 기록 성공 시 200을 반환한다")
     void failRedirectRecordSuccess() throws Exception {
-        mockMvc.perform(post("/payments/fail-redirect")
+        mockMvc.perform(post("/api/v1/payments/fail-redirect")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -127,6 +127,7 @@ class PayMentControllerTest {
                                 """))
                 .andExpect(status().isOk());
     }
+
 
     private Payment createReadyPayment() {
         LocalDateTime now = LocalDateTime.now();

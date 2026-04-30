@@ -39,7 +39,7 @@ class ReservationControllerTest {
     void createReservationSuccess() throws Exception {
         when(reservationService.createReservation(any())).thenReturn(1L);
 
-        mockMvc.perform(post("/reservations")
+        mockMvc.perform(post("/api/v1/reservations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateReservationRequestFixture(1L, 10L))))
                 .andExpect(status().isOk())
@@ -49,7 +49,7 @@ class ReservationControllerTest {
     @Test
     @DisplayName("요청값 validation 실패 시 400을 반환한다")
     void createReservationValidationFail() throws Exception {
-        mockMvc.perform(post("/reservations")
+        mockMvc.perform(post("/api/v1/reservations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"seatId\":10}"))
                 .andExpect(status().isBadRequest())
@@ -62,7 +62,7 @@ class ReservationControllerTest {
         when(reservationService.createReservation(any()))
                 .thenThrow(new EntityNotFoundException("좌석을 찾을 수 없습니다."));
 
-        mockMvc.perform(post("/reservations")
+        mockMvc.perform(post("/api/v1/reservations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new CreateReservationRequestFixture(1L, 999L))))
                 .andExpect(status().isNotFound())
@@ -72,5 +72,3 @@ class ReservationControllerTest {
     private record CreateReservationRequestFixture(Long userId, Long seatId) {
     }
 }
-
-

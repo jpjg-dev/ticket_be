@@ -13,18 +13,19 @@ import java.util.List;
 @Tag(name = "Event API", description = "공연/회차/좌석 조회 API")
 @RestController
 @RequiredArgsConstructor
+@RequestMapping("/api/v1/event")
 public class EventController {
 
     private final EventService eventService;
 
     @Operation(summary = "공연 목록 조회", description = "공연 목록과 회차 요약 정보를 조회합니다.")
-    @GetMapping("/events")
+    @GetMapping
     public List<EventResponse> getEvents() {
         return eventService.getEvents();
     }
 
     @Operation(summary = "공연 상세 조회", description = "공연 상세와 회차 정보를 조회합니다.")
-    @GetMapping("/events/{eventId}")
+    @GetMapping("/{eventId}")
     public EventResponse getEvent(@PathVariable Long eventId) {
         return eventService.getEvent(eventId);
     }
