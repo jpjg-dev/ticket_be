@@ -17,11 +17,13 @@ public final class SecurityURLs {
     public static final String[] AUTHENTICATED_URLS = {
             "/api/v1/reservations/**",
             "/api/v1//payments/**",
+            "/api/v1/users/mypage"
     };
 
     // 아무나 허용
     public static final String[] PUBLIC_URLS = {
             "/api/v1/users/signup",
+            "/api/v1/users/login",
             "/api/v1/event/**",
             "/api/v1/seat/**",
             "/api/v1/schedules/**"

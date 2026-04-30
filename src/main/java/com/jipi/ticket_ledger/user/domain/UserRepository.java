@@ -9,4 +9,6 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
     // email 검증
     boolean existsByEmail(String email);
+    // email 조회 및 찾기
+    Optional<User> findByEmail(String email);
 }
