@@ -16,7 +16,7 @@ public final class SecurityURLs {
     // 유저 허용
     public static final String[] AUTHENTICATED_URLS = {
             "/api/v1/reservations/**",
-            "/api/v1//payments/**",
+            "/api/v1/payments/**",
             "/api/v1/users/mypage"
     };
 

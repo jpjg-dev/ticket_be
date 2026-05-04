@@ -5,6 +5,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -26,7 +28,7 @@ import java.util.List;
 public class SecurityConfig {
     // 권한계층 상수관리
     public static final String[] HIERARCHY = {
-        "ROLE_ADMIN > ROLE_USER"
+            "ROLE_ADMIN > ROLE_USER"
     };
 
     // spring password 암호화
@@ -54,7 +56,13 @@ public class SecurityConfig {
                         .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
                         .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()
                         .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).permitAll()
-                        .anyRequest().authenticated()).build();
+                        .anyRequest().denyAll())
+//                .exceptionHandling(exception -> exception
+//                        .authenticationEntryPoint(new JwtAuthenticationEntryPoint())
+//                        .accessDeniedHandler(new JwtAccessDeniedHandler())
+//                )
+
+                .build();
     }
 
     @Bean
@@ -72,5 +80,10 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
+        return configuration.getAuthenticationManager();
     }
 }

@@ -1,9 +1,9 @@
-package com.jipi.ticket_ledger.user.presentation.dto;
+package com.jipi.ticket_ledger.auth.presentation.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
-public record RequestLoginDTO(
+public record AuthRequestLoginDTO(
         @NotBlank
         @Email
         String email,
