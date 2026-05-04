@@ -23,7 +23,7 @@ public final class SecurityURLs {
     // 아무나 허용
     public static final String[] PUBLIC_URLS = {
             "/api/v1/users/signup",
-            "/api/v1/users/login",
+            "/api/v1/auth/login",
             "/api/v1/event/**",
             "/api/v1/seat/**",
             "/api/v1/schedules/**"
