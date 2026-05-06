@@ -38,8 +38,30 @@ public class AuthCookieProvider {
         return ResponseCookie.from(REFRESH_TOKEN_COOKIE_NAME, refreshToken)
                 .httpOnly(true)
                 .secure(true)
-                .path("/api/v1/auth")
+                .path("/api/v1/auth/login")
                 .maxAge(REFRESH_TOKEN_MAX_AGE)
+                .sameSite("Lax")
+                .build();
+    }
+
+    // Access Token을 일반 API 요청에 사용할 수 있도록 루트 경로 쿠키 삭제
+    public ResponseCookie deleteAccessTokenCookie() {
+        return ResponseCookie.from(ACCESS_TOKEN_COOKIE_NAME, "")
+                .httpOnly(true)
+                .secure(true)
+                .path("/")
+                .maxAge(0)
+                .sameSite("Lax")
+                .build();
+    }
+
+    // Refresh Token이 auth/logout 경로 요청에만 삭제되도록 Path를 제한한 쿠키로 삭제
+    public ResponseCookie deleteTokenCookie() {
+        return ResponseCookie.from(REFRESH_TOKEN_COOKIE_NAME, "")
+                .httpOnly(true)
+                .secure(true)
+                .path("/api/v1/auth/logout")
+                .maxAge(0)
                 .sameSite("Lax")
                 .build();
     }
