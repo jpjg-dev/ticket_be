@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.auth.infrastructure;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
@@ -8,7 +9,6 @@ import java.time.Duration;
 
 @Component
 public class AuthCookieProvider {
-
     public AuthCookieProvider(
             @Value("${jwt.access-token-expiration}") long accessTokenExpiration,
             @Value("${jwt.refresh-token-expiration}") long refreshTokenExpiration
@@ -17,8 +17,10 @@ public class AuthCookieProvider {
         this.REFRESH_TOKEN_MAX_AGE = Duration.ofMillis(refreshTokenExpiration);
     }
 
-    private final String ACCESS_TOKEN_COOKIE_NAME = "__Host-access_token";
-    private final String REFRESH_TOKEN_COOKIE_NAME = "refresh_token";
+    private final String ACCESS_TOKEN_COOKIE_NAME = AuthCookieNames.ACCESS_TOKEN;
+    private final String REFRESH_TOKEN_COOKIE_NAME = AuthCookieNames.REFRESH_TOKEN;
+    private final String ACCESS_TOKEN_URL = "/";
+    private final String REFRESH_TOKEN_URL = "/api/v1/auth/sessions";
     private final Duration ACCESS_TOKEN_MAX_AGE;
     private final Duration REFRESH_TOKEN_MAX_AGE;
 
@@ -27,7 +29,7 @@ public class AuthCookieProvider {
         return ResponseCookie.from(ACCESS_TOKEN_COOKIE_NAME, accessToken)
                 .httpOnly(true)
                 .secure(true)
-                .path("/")
+                .path(ACCESS_TOKEN_URL)
                 .maxAge(ACCESS_TOKEN_MAX_AGE)
                 .sameSite("Lax")
                 .build();
@@ -38,7 +40,7 @@ public class AuthCookieProvider {
         return ResponseCookie.from(REFRESH_TOKEN_COOKIE_NAME, refreshToken)
                 .httpOnly(true)
                 .secure(true)
-                .path("/api/v1/auth/login")
+                .path(REFRESH_TOKEN_URL)
                 .maxAge(REFRESH_TOKEN_MAX_AGE)
                 .sameSite("Lax")
                 .build();
@@ -49,7 +51,7 @@ public class AuthCookieProvider {
         return ResponseCookie.from(ACCESS_TOKEN_COOKIE_NAME, "")
                 .httpOnly(true)
                 .secure(true)
-                .path("/")
+                .path(ACCESS_TOKEN_URL)
                 .maxAge(0)
                 .sameSite("Lax")
                 .build();
@@ -60,7 +62,7 @@ public class AuthCookieProvider {
         return ResponseCookie.from(REFRESH_TOKEN_COOKIE_NAME, "")
                 .httpOnly(true)
                 .secure(true)
-                .path("/api/v1/auth/logout")
+                .path(REFRESH_TOKEN_URL)
                 .maxAge(0)
                 .sameSite("Lax")
                 .build();

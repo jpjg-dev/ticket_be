@@ -23,7 +23,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
-    private static final String ACCESS_TOKEN_COOKIE_NAME = "__Host-access_token";
+    private static final String ACCESS_TOKEN_COOKIE_NAME = AuthCookieNames.ACCESS_TOKEN;
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
