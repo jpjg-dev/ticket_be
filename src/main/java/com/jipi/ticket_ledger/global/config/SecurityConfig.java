@@ -2,10 +2,7 @@ package com.jipi.ticket_ledger.global.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtAuthenticationFilter;
-import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.global.exception.ErrorResponse;
-import com.jipi.ticket_ledger.user.domain.UserRepository;
-import io.micrometer.core.ipc.http.HttpSender;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -16,7 +13,6 @@ import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -37,7 +33,9 @@ import java.util.List;
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
+
     private final ObjectMapper objectMapper;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     // 권한계층 상수관리
     public static final String[] HIERARCHY = {
@@ -57,7 +55,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider jwtTokenProvider, UserRepository userRepository) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -67,8 +65,8 @@ public class SecurityConfig {
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
+                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).hasRole("USER")
                 .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()
-                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).permitAll()
                 .anyRequest().denyAll());
 
         http.exceptionHandling(exception -> exception
@@ -87,7 +85,7 @@ public class SecurityConfig {
                             new ErrorResponse("ACCESS_DENIED", "접근 권한이 없습니다."));
                 })));
 
-        http.addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, userRepository), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
