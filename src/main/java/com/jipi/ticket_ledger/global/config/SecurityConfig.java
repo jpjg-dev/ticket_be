@@ -1,8 +1,17 @@
 package com.jipi.ticket_ledger.global.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jipi.ticket_ledger.auth.infrastructure.JwtAuthenticationFilter;
+import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
+import com.jipi.ticket_ledger.global.exception.ErrorResponse;
+import com.jipi.ticket_ledger.user.domain.UserRepository;
+import io.micrometer.core.ipc.http.HttpSender;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -16,6 +25,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -25,7 +35,10 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
+    private final ObjectMapper objectMapper;
+
     // 권한계층 상수관리
     public static final String[] HIERARCHY = {
             "ROLE_ADMIN > ROLE_USER"
@@ -44,25 +57,38 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        return http
-                .csrf(AbstractHttpConfigurer::disable)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider jwtTokenProvider, UserRepository userRepository) throws Exception {
+        http.csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .formLogin(AbstractHttpConfigurer::disable)
-                .httpBasic(AbstractHttpConfigurer::disable)
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
-                        .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()
-                        .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).permitAll()
-                        .anyRequest().denyAll())
-//                .exceptionHandling(exception -> exception
-//                        .authenticationEntryPoint(new JwtAuthenticationEntryPoint())
-//                        .accessDeniedHandler(new JwtAccessDeniedHandler())
-//                )
+                .httpBasic(AbstractHttpConfigurer::disable);
 
-                .build();
+        http.authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
+                .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()
+                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).permitAll()
+                .anyRequest().denyAll());
+
+        http.exceptionHandling(exception -> exception
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.setCharacterEncoding("UTF-8");
+                    objectMapper.writeValue(response.getWriter(),
+                            new ErrorResponse("AUTH_REQUIRED", "인증이 필요합니다."));
+                })
+                .accessDeniedHandler(((request, response, accessDeniedException) -> {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.setCharacterEncoding("UTF-8");
+                    objectMapper.writeValue(response.getWriter(),
+                            new ErrorResponse("ACCESS_DENIED", "접근 권한이 없습니다."));
+                })));
+
+        http.addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider, userRepository), UsernamePasswordAuthenticationFilter.class);
+        return http.build();
     }
 
     @Bean
