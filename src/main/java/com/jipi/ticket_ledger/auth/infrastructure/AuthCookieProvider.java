@@ -57,8 +57,8 @@ public class AuthCookieProvider {
                 .build();
     }
 
-    // Refresh Token이 auth/logout 경로 요청에만 삭제되도록 Path를 제한한 쿠키로 삭제
-    public ResponseCookie deleteTokenCookie() {
+    // Refresh Token이 auth 경로에서 삭제되도록 생성 때와 같은 Path의 삭제 쿠키를 만든다.
+    public ResponseCookie deleteRefreshTokenCookie() {
         return ResponseCookie.from(REFRESH_TOKEN_COOKIE_NAME, "")
                 .httpOnly(true)
                 .secure(true)

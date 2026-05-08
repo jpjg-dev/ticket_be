@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.auth.presentation;
 
 import com.jipi.ticket_ledger.auth.application.AuthService;
+import com.jipi.ticket_ledger.auth.infrastructure.AuthCookieNames;
 import com.jipi.ticket_ledger.auth.infrastructure.AuthCookieProvider;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthRequestLoginDTO;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
@@ -8,12 +9,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "Auth API", description = "인증 관련 API")
 @RestController
@@ -35,4 +34,31 @@ public class AuthController {
                 .build();
     }
 
+    @Operation(summary = "Access Token 재발급", description = "Refresh Token 쿠키를 기반으로 새로운 Access Token을 발급합니다.")
+    @PostMapping("/reissue")
+    public ResponseEntity<Void> reissue(@CookieValue(name = AuthCookieNames.REFRESH_TOKEN, required = false) String refreshToken) {
+        AuthResponseLoginDTO token = authService.reissue(refreshToken);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, authCookieProvider.createAccessTokenCookie(token.accessToken()).toString())
+                .header(HttpHeaders.SET_COOKIE, authCookieProvider.createRefreshTokenCookie(token.refreshToken()).toString())
+                .build();
+    }
+
+    @Operation(summary = "사용자 세션 확인", description = "Access Token 쿠키 기반으로 현재 로그인 상태를 확인합니다.")
+    @GetMapping("/session")
+    public ResponseEntity<Void> loginCheck() {
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "사용자 로그아웃", description = "Refresh Token을 revoke 처리하고 인증 쿠키를 삭제합니다.")
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@CookieValue(name = AuthCookieNames.REFRESH_TOKEN, required = false) String refreshToken) {
+        authService.logout(refreshToken);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, authCookieProvider.deleteAccessTokenCookie().toString())
+                .header(HttpHeaders.SET_COOKIE, authCookieProvider.deleteRefreshTokenCookie().toString())
+                .build();
+    }
 }

@@ -38,4 +38,10 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다."));
     }
+
+    @ExceptionHandler(AuthUnauthorizedException.class)
+    public ResponseEntity<ErrorResponse> handleAuthUnauthorized(AuthUnauthorizedException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse("AUTH_REQUIRED", "인증이 필요합니다."));
+    }
 }
