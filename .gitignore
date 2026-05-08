@@ -1,5 +1,6 @@
 .env
 AGENTS.md
+certs/
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar

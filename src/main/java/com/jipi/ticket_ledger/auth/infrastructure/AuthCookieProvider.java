@@ -20,7 +20,7 @@ public class AuthCookieProvider {
     private final String ACCESS_TOKEN_COOKIE_NAME = AuthCookieNames.ACCESS_TOKEN;
     private final String REFRESH_TOKEN_COOKIE_NAME = AuthCookieNames.REFRESH_TOKEN;
     private final String ACCESS_TOKEN_URL = "/";
-    private final String REFRESH_TOKEN_URL = "/api/v1/auth/sessions";
+    private final String REFRESH_TOKEN_URL = "/api/auth";
     private final Duration ACCESS_TOKEN_MAX_AGE;
     private final Duration REFRESH_TOKEN_MAX_AGE;
 

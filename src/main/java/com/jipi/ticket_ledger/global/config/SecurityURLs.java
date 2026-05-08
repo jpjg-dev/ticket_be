@@ -24,7 +24,6 @@ public final class SecurityURLs {
     public static final String[] PUBLIC_URLS = {
             "/api/v1/users/signup",
             "/api/v1/auth/login",
-            "/api/v1/auth/sessions/**",
             "/api/v1/event/**",
             "/api/v1/seat/**",
             "/api/v1/schedules/**"
