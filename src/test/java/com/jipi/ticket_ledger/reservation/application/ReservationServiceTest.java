@@ -76,7 +76,7 @@ class ReservationServiceTest {
             return reservation;
         });
 
-        Long reservationId = reservationService.createReservation(new CreateReservationCommand(1L, 10L));
+        Long reservationId = reservationService.createReservation(1L, 10L);
 
         assertEquals(99L, reservationId);
         assertEquals(SeatStatus.HELD, seat.getStatus());
@@ -96,7 +96,7 @@ class ReservationServiceTest {
         when(userRepository.findById(anyLong())).thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class,
-                () -> reservationService.createReservation(new CreateReservationCommand(1L, 10L)));
+                () -> reservationService.createReservation(1L, 10L));
 
         verify(seatRepository, never()).findByIdForUpdate(anyLong());
         verify(reservationRepository, never()).save(any());
@@ -109,7 +109,7 @@ class ReservationServiceTest {
         when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class,
-                () -> reservationService.createReservation(new CreateReservationCommand(1L, 10L)));
+                () -> reservationService.createReservation(1L, 10L));
 
         verify(reservationRepository, never()).save(any());
     }
@@ -125,7 +125,7 @@ class ReservationServiceTest {
         when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(seat));
 
         assertThrows(IllegalStateException.class,
-                () -> reservationService.createReservation(new CreateReservationCommand(1L, 10L)));
+                () -> reservationService.createReservation(1L, 10L));
 
         verify(reservationRepository, never()).save(any());
     }

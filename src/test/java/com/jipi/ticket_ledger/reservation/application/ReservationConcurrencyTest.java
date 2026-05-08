@@ -110,7 +110,7 @@ class ReservationConcurrencyTest {
                 readyLatch.countDown();
                 try {
                     startLatch.await();
-                    reservationService.createReservation(new CreateReservationCommand(userId, seatId));
+                    reservationService.createReservation(userId, seatId);
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();

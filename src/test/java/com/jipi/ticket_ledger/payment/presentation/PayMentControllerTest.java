@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.presentation;
 
+import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
@@ -8,6 +9,7 @@ import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.user.domain.User;
+import com.jipi.ticket_ledger.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +42,12 @@ class PayMentControllerTest {
 
     @MockitoBean
     private PaymentService paymentService;
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private UserRepository userRepository;
 
     @Test
     @DisplayName("결제 준비 성공 시 200과 결제 응답을 반환한다")
