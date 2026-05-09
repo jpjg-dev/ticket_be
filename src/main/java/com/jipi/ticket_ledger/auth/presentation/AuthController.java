@@ -23,7 +23,7 @@ public class AuthController {
     private final AuthService authService;
     private final AuthCookieProvider authCookieProvider;
 
-    @Operation(summary = "사용자 로그인", description = "사용자 이메일과 비밀번호를 입력받아 로그인 처리합니다.")
+    @Operation(summary = "사용자 로그인", description = "사용자 이메일, 비밀번호를 입력받아 로그인 처리합니다.")
     @PostMapping("/login")
     public ResponseEntity<Void> login(@Valid @RequestBody AuthRequestLoginDTO request) {
         AuthResponseLoginDTO token = authService.login(request);
