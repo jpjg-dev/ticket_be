@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.user.presentation;
 import com.jipi.ticket_ledger.user.application.UserService;
 import com.jipi.ticket_ledger.user.presentation.dto.RequestSignUpDTO;
 import com.jipi.ticket_ledger.user.presentation.dto.ResponseMeDTO;
+import com.jipi.ticket_ledger.user.presentation.dto.ResponseMyPageDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -29,5 +30,11 @@ public class UserController {
     @GetMapping("/me")
     public ResponseEntity<ResponseMeDTO> getMyInfo(@AuthenticationPrincipal Long userId) {
         return ResponseEntity.ok(userService.getMyInfo(userId));
+    }
+
+    @Operation(summary = "사용자 상세 조회", description = "사용자 ID를 입력받아 해당 사용자의 상세 정보를 조회합니다.")
+    @GetMapping("/{userId}")
+    public ResponseEntity<ResponseMyPageDTO> getUserInfo(@PathVariable Long userId, @AuthenticationPrincipal Long principalUserId) {
+        return ResponseEntity.ok(userService.getUserInfo(userId,principalUserId));
     }
 }

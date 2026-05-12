@@ -1,11 +1,13 @@
 package com.jipi.ticket_ledger.payment.domain;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -27,4 +29,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.id = :paymentId")
     Optional<Payment> findByIdForUpdate(Long paymentId);
+    // 예약자 기준 상태별 결제 조회
+    List<Payment> findByReservationUserIdAndStatusIn(Long userId, List<PaymentStatus> statusList, Sort sort);
 }

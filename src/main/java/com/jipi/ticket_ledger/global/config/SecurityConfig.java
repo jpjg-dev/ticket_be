@@ -65,8 +65,8 @@ public class SecurityConfig {
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
-                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).hasRole("USER")
                 .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()
+                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).hasRole("USER")
                 .anyRequest().denyAll());
 
         http.exceptionHandling(exception -> exception

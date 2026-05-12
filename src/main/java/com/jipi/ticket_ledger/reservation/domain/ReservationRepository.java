@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.reservation.domain;
 
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -15,4 +16,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     Optional<Reservation> findByIdAndUserId(Long reservationId, Long userId);
     //예약만료확인
     List<Reservation> findByStatusAndExpiresAtLessThanEqual(ReservationStatus status, LocalDateTime time);
+    //ID 기반 예약상태별 조회
+    List<Reservation> findByUserIdAndStatusIn(Long userId, List<ReservationStatus> statusList, Sort sort);
 }

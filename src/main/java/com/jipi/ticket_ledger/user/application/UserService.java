@@ -1,16 +1,25 @@
 package com.jipi.ticket_ledger.user.application;
 
+import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
+import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
+import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.presentation.dto.RequestSignUpDTO;
 import com.jipi.ticket_ledger.user.presentation.dto.ResponseMeDTO;
+import com.jipi.ticket_ledger.user.presentation.dto.ResponseMyPageDTO;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -18,6 +27,8 @@ import java.time.LocalDateTime;
 public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ReservationRepository reservationRepository;
+    private final PaymentRepository paymentRepository;
 
     /**
      * {@link RequestSignUpDTO}
@@ -33,9 +44,65 @@ public class UserService {
         log.info("회원가입 완료: email={}, name={}", request.email(), request.name());
         return "회원가입이 완료되었습니다.";
     }
+
+    /**
+     *
+     * @param userId
+     * @return
+     */
     public ResponseMeDTO getMyInfo(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException("일치하는 사용자가 없습니다."));
         return new ResponseMeDTO(user.getId(), user.getEmail(), user.getName(), user.getRole().name(), user.getStatus().name());
+    }
+
+    /**
+     *
+     * @param userId
+     * @return
+     */
+    public ResponseMyPageDTO getUserInfo(Long userId, Long principalUserId) {
+        if (!userRepository.existsById(userId)) {
+            throw new EntityNotFoundException("일치하는 사용자가 없습니다.");
+        }
+        if (!userId.equals(principalUserId)) {
+            throw new IllegalStateException("잘못된 접근 입니다.");
+        }
+
+        List<Reservation> reservations = reservationRepository.findByUserIdAndStatusIn(
+                userId,
+                List.of(ReservationStatus.CONFIRMED, ReservationStatus.CANCELED),
+                Sort.by(Sort.Direction.DESC, "id")
+        );
+
+        List<Payment> payments = paymentRepository.findByReservationUserIdAndStatusIn(
+                userId,
+                List.of(PaymentStatus.APPROVED, PaymentStatus.CANCELED),
+                Sort.by(Sort.Direction.DESC, "requestedAt")
+        );
+
+        List<ResponseMyPageDTO.ReservationItem> reservationItems = reservations.stream()
+                .map(reservation -> new ResponseMyPageDTO.ReservationItem(
+                        reservation.getStatus().name(),
+                        reservation.getSeat().getSchedule().getEvent().getTitle(),
+                        reservation.getSeat().getSchedule().getEvent().getVenue(),
+                        reservation.getSeat().getSchedule().getStartAt(),
+                        reservation.getSeat().getSeatNumber(),
+                        reservation.getSeat().getGrade()
+                ))
+                .toList();
+
+        List<ResponseMyPageDTO.PaymentItem> paymentItems = payments.stream()
+                .map(payment -> new ResponseMyPageDTO.PaymentItem(
+                        payment.getId(),
+                        payment.getReservation().getId(),
+                        payment.getStatus().name(),
+                        payment.getAmount(),
+                        payment.getMethod(),
+                        payment.getRequestedAt()
+                ))
+                .toList();
+
+        return new ResponseMyPageDTO(reservationItems, paymentItems);
     }
 }
