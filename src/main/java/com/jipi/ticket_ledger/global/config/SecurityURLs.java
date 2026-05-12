@@ -18,7 +18,7 @@ public final class SecurityURLs {
             "/api/v1/reservations/**",
             "/api/v1/payments/**",
             "/api/v1/users/mypage",
-            "/api/v1/auth/session"
+            "/api/v1/users/me",
     };
 
     // 아무나 허용

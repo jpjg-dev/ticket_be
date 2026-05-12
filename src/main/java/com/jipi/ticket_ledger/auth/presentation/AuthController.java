@@ -45,12 +45,6 @@ public class AuthController {
                 .build();
     }
 
-    @Operation(summary = "사용자 세션 확인", description = "Access Token 쿠키 기반으로 현재 로그인 상태를 확인합니다.")
-    @GetMapping("/session")
-    public ResponseEntity<Void> loginCheck() {
-        return ResponseEntity.ok().build();
-    }
-
     @Operation(summary = "사용자 로그아웃", description = "Refresh Token을 revoke 처리하고 인증 쿠키를 삭제합니다.")
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@CookieValue(name = AuthCookieNames.REFRESH_TOKEN, required = false) String refreshToken) {
