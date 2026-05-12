@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.payment.domain;
 
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -10,21 +11,20 @@ import java.time.LocalDateTime;
 
 @Getter
 @Entity
-@Table(
-        name = "payments",
-        uniqueConstraints = {
-                @UniqueConstraint(name = "uk_payment_reservation", columnNames = "reservation_id")
-        }
-)
+@Table(name = "payments")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Payment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "reservation_id", unique = true)
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reservation_id")
     private Reservation reservation;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reservation_group_id", unique = true)
+    private ReservationGroup reservationGroup;
 
     @Column(nullable = false)
     private Integer amount;
@@ -61,6 +61,20 @@ public class Payment {
 
     public Payment(Reservation reservation, Integer amount, LocalDateTime now,String orderId, String currency) {
         this.reservation = reservation;
+        this.reservationGroup = reservation.getReservationGroup();
+        this.amount = amount;
+        this.status = PaymentStatus.READY;
+        this.requestedAt = now;
+        this.orderId = orderId;
+        this.currency = currency;
+    }
+
+    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId) {
+        this(reservationGroup, amount, now, orderId, "KRW");
+    }
+
+    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId, String currency) {
+        this.reservationGroup = reservationGroup;
         this.amount = amount;
         this.status = PaymentStatus.READY;
         this.requestedAt = now;

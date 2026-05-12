@@ -19,7 +19,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -75,34 +77,74 @@ public class UserService {
                 Sort.by(Sort.Direction.DESC, "id")
         );
 
-        List<Payment> payments = paymentRepository.findByReservationUserIdAndStatusIn(
+        List<Payment> payments = paymentRepository.findByReservationGroupUserIdAndStatusIn(
                 userId,
                 List.of(PaymentStatus.APPROVED, PaymentStatus.CANCELED),
                 Sort.by(Sort.Direction.DESC, "requestedAt")
         );
 
-        List<ResponseMyPageDTO.ReservationItem> reservationItems = reservations.stream()
-                .map(reservation -> new ResponseMyPageDTO.ReservationItem(
-                        reservation.getStatus().name(),
-                        reservation.getSeat().getSchedule().getEvent().getTitle(),
-                        reservation.getSeat().getSchedule().getEvent().getVenue(),
-                        reservation.getSeat().getSchedule().getStartAt(),
+        List<ResponseMyPageDTO.ReservationGroupItem> reservationItems = groupReservations(reservations).entrySet().stream()
+                .map(entry -> toReservationGroupItem(entry.getKey(), entry.getValue()))
+                .toList();
+
+        List<ResponseMyPageDTO.PaymentItem> paymentItems = payments.stream()
+                .map(payment -> toPaymentItem(payment, reservationsForPayment(payment)))
+                .toList();
+
+        return new ResponseMyPageDTO(reservationItems, paymentItems);
+    }
+
+    private Map<Long, List<Reservation>> groupReservations(List<Reservation> reservations) {
+        Map<Long, List<Reservation>> reservationMap = new LinkedHashMap<>();
+        for (Reservation reservation : reservations) {
+            Long groupId = reservation.getReservationGroup() != null
+                    ? reservation.getReservationGroup().getId()
+                    : reservation.getId();
+            reservationMap.computeIfAbsent(groupId, ignored -> new java.util.ArrayList<>()).add(reservation);
+        }
+        return reservationMap;
+    }
+
+    private ResponseMyPageDTO.ReservationGroupItem toReservationGroupItem(Long reservationGroupId, List<Reservation> reservations) {
+        Reservation firstReservation = reservations.get(0);
+        return new ResponseMyPageDTO.ReservationGroupItem(
+                reservationGroupId,
+                firstReservation.getStatus().name(),
+                firstReservation.getSeat().getSchedule().getEvent().getTitle(),
+                firstReservation.getSeat().getSchedule().getEvent().getVenue(),
+                firstReservation.getSeat().getSchedule().getStartAt(),
+                toSeatItems(reservations)
+        );
+    }
+
+    private ResponseMyPageDTO.PaymentItem toPaymentItem(Payment payment, List<Reservation> reservations) {
+        Long reservationGroupId = payment.getReservationGroup() != null
+                ? payment.getReservationGroup().getId()
+                : reservations.get(0).getId();
+        return new ResponseMyPageDTO.PaymentItem(
+                reservationGroupId,
+                payment.getId(),
+                payment.getStatus().name(),
+                payment.getAmount(),
+                payment.getMethod(),
+                payment.getRequestedAt(),
+                toSeatItems(reservations)
+        );
+    }
+
+    private List<Reservation> reservationsForPayment(Payment payment) {
+        if (payment.getReservationGroup() != null) {
+            return reservationRepository.findByReservationGroupId(payment.getReservationGroup().getId());
+        }
+        return List.of(payment.getReservation());
+    }
+
+    private List<ResponseMyPageDTO.SeatItem> toSeatItems(List<Reservation> reservations) {
+        return reservations.stream()
+                .map(reservation -> new ResponseMyPageDTO.SeatItem(
                         reservation.getSeat().getSeatNumber(),
                         reservation.getSeat().getGrade()
                 ))
                 .toList();
-
-        List<ResponseMyPageDTO.PaymentItem> paymentItems = payments.stream()
-                .map(payment -> new ResponseMyPageDTO.PaymentItem(
-                        payment.getReservation().getId(),
-                        payment.getId(),
-                        payment.getStatus().name(),
-                        payment.getAmount(),
-                        payment.getMethod(),
-                        payment.getRequestedAt()
-                ))
-                .toList();
-
-        return new ResponseMyPageDTO(reservationItems, paymentItems);
     }
 }

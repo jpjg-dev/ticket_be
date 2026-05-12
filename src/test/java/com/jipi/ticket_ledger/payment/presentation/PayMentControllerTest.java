@@ -21,6 +21,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -53,11 +54,13 @@ class PayMentControllerTest {
     @DisplayName("결제 준비 성공 시 200과 결제 응답을 반환한다")
     void readyPaymentSuccess() throws Exception {
         Payment payment = createReadyPayment();
+        Reservation reservation = payment.getReservation();
         when(paymentService.readyPayment(1L)).thenReturn(payment);
+        when(paymentService.getReservationsForPayment(payment)).thenReturn(List.of(reservation));
 
         mockMvc.perform(post("/api/v1/payments/ready")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"reservationId\":1}"))
+                        .content("{\"reservationGroupId\":1}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paymentId").value(1L))
                 .andExpect(jsonPath("$.orderId").value("order-1"))
@@ -70,6 +73,7 @@ class PayMentControllerTest {
     void confirmPaymentSuccess() throws Exception {
         Payment approvedPayment = createApprovedPayment();
         when(paymentService.confirmPayment(anyString(), anyString(), anyInt())).thenReturn(approvedPayment);
+        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(List.of(approvedPayment.getReservation()));
 
         mockMvc.perform(post("/api/v1/payments/confirm")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -91,6 +95,7 @@ class PayMentControllerTest {
     void getPaymentStatusSuccess() throws Exception {
         Payment approvedPayment = createApprovedPayment();
         when(paymentService.getPaymentStatus(1L)).thenReturn(approvedPayment);
+        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(List.of(approvedPayment.getReservation()));
 
         mockMvc.perform(get("/api/v1/payments/1/status"))
                 .andExpect(status().isOk())

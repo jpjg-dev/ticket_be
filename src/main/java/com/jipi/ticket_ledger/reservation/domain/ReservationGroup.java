@@ -1,0 +1,49 @@
+package com.jipi.ticket_ledger.reservation.domain;
+
+import com.jipi.ticket_ledger.user.domain.User;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Entity
+@Table(name = "reservation_groups")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class ReservationGroup {
+    public static final int MAX_SEAT_COUNT = 2;
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id")
+    private User user;
+
+    @Column(nullable = false)
+    private LocalDateTime createdAt;
+
+    @Column(nullable = false)
+    private LocalDateTime expiresAt;
+
+    public ReservationGroup(User user, LocalDateTime now) {
+        this.user = user;
+        this.createdAt = now;
+        this.expiresAt = now.plusSeconds(30);
+    }
+
+    public boolean isExpiredAt(LocalDateTime now) {
+        return !this.expiresAt.isAfter(now);
+    }
+}

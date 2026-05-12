@@ -37,12 +37,12 @@
 
 #### 성공 케이스
 - [ ] `PENDING` 예약이면 Payment가 `READY`로 생성된다
-- [ ] Payment.amount는 Seat.price 기준으로 저장된다
+- [ ] Payment.amount는 그룹에 포함된 Seat.price 합계 기준으로 저장된다
 - [ ] Payment.orderId가 생성된다
-- [ ] 동일 reservationId 재요청 시 기존 Payment를 재사용한다
+- [ ] 동일 reservationGroupId 재요청 시 기존 Payment를 재사용한다
 
 #### 실패 케이스
-- [ ] 존재하지 않는 reservationId면 `EntityNotFoundException`
+- [ ] 존재하지 않는 reservationGroupId면 `EntityNotFoundException`
 - [ ] Reservation 상태가 `PENDING`이 아니면 `IllegalStateException`
 - [ ] Reservation이 만료되었으면 `IllegalStateException`
 

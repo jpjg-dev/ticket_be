@@ -8,7 +8,6 @@ import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentResponse;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
-import com.jipi.ticket_ledger.seat.domain.Seat;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -17,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/payments")
@@ -29,15 +29,17 @@ public class PayMentController {
     @Operation(summary = "결제 준비", description = "예약 식별자로 결제 요청 정보를 생성합니다.")
     @PostMapping("/ready")
     public ReadyPaymentResponse readyPayment(@RequestBody @Valid ReadyPaymentRequest request) {
-        Payment payment = paymentService.readyPayment(request.reservationId());
-        Reservation reservation = payment.getReservation();
+        Payment payment = paymentService.readyPayment(request.reservationGroupId());
+        List<Reservation> reservations = paymentService.getReservationsForPayment(payment);
+        Reservation firstReservation = reservations.get(0);
         int supplyAmount = payment.getAmount();
         int vatAmount = (int) Math.round(supplyAmount * 0.1d);
         int totalAmount = supplyAmount + vatAmount;
 
-        String orderName = reservation.getSeat().getSchedule().getEvent().getTitle()
+        String orderName = firstReservation.getSeat().getSchedule().getEvent().getTitle()
                 + " "
-                + reservation.getSeat().getSeatNumber();
+                + firstReservation.getSeat().getSeatNumber()
+                + (reservations.size() > 1 ? " 외 " + (reservations.size() - 1) + "석" : "");
 
         return new ReadyPaymentResponse(
                 payment.getId(),
@@ -90,15 +92,15 @@ public class PayMentController {
     }
 
     private ConfirmPaymentResponse toPaymentStatusResponse(Payment payment) {
-        Reservation reservation = payment.getReservation();
-        Seat seat = reservation.getSeat();
+        List<Reservation> reservations = paymentService.getReservationsForPayment(payment);
+        Reservation reservation = reservations.get(0);
 
         return new ConfirmPaymentResponse(
                 payment.getId(),
                 payment.getOrderId(),
                 payment.getStatus(),
                 reservation.getStatus(),
-                seat.getStatus()
+                reservation.getSeat().getStatus()
         );
     }
 

@@ -21,7 +21,7 @@ public class ReservationController {
     @Operation(summary = "공연 예매 생성", description = "사용자와 좌석 정보로 예약을 생성합니다.")
     @PostMapping
     public ReservationResponse createReservation(@AuthenticationPrincipal Long userId, @RequestBody @Valid CreateReservationRequest request) {
-        Long reservationId = reservationService.createReservation(userId, request.seatId());
-        return new ReservationResponse(reservationId);
+        Long reservationGroupId = reservationService.createReservation(userId, request.seatIds());
+        return new ReservationResponse(reservationGroupId);
     }
 }

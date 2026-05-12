@@ -7,6 +7,8 @@ import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -52,6 +54,9 @@ class ReservationServiceTest {
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private ReservationGroupRepository reservationGroupRepository;
+
     @InjectMocks
     private ReservationService reservationService;
 
@@ -69,23 +74,23 @@ class ReservationServiceTest {
         Seat seat = createSeat();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(seat));
-        when(reservationRepository.save(any(Reservation.class))).thenAnswer(invocation -> {
-            Reservation reservation = invocation.getArgument(0);
-            ReflectionTestUtils.setField(reservation, "id", 99L);
-            return reservation;
+        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
+            ReservationGroup reservationGroup = invocation.getArgument(0);
+            ReflectionTestUtils.setField(reservationGroup, "id", 77L);
+            return reservationGroup;
         });
+        Long reservationGroupId = reservationService.createReservation(1L, List.of(10L));
 
-        Long reservationId = reservationService.createReservation(1L, 10L);
-
-        assertEquals(99L, reservationId);
+        assertEquals(77L, reservationGroupId);
         assertEquals(SeatStatus.HELD, seat.getStatus());
 
-        ArgumentCaptor<Reservation> captor = ArgumentCaptor.forClass(Reservation.class);
-        verify(reservationRepository).save(captor.capture());
+        ArgumentCaptor<Iterable<Reservation>> captor = ArgumentCaptor.forClass(Iterable.class);
+        verify(reservationRepository).saveAll(captor.capture());
 
-        Reservation savedReservation = captor.getValue();
+        Reservation savedReservation = captor.getValue().iterator().next();
         assertEquals(ReservationStatus.PENDING, savedReservation.getStatus());
+        assertNotNull(savedReservation.getReservationGroup());
         assertNotNull(savedReservation.getExpiresAt());
         assertFalse(savedReservation.getExpiresAt().isBefore(savedReservation.getReservedAt()));
     }
@@ -96,22 +101,22 @@ class ReservationServiceTest {
         when(userRepository.findById(anyLong())).thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class,
-                () -> reservationService.createReservation(1L, 10L));
+                () -> reservationService.createReservation(1L, List.of(10L)));
 
-        verify(seatRepository, never()).findByIdForUpdate(anyLong());
-        verify(reservationRepository, never()).save(any());
+        verify(seatRepository, never()).findAllByIdInForUpdate(any());
+        verify(reservationRepository, never()).saveAll(any());
     }
 
     @Test
     @DisplayName("createReservation: 좌석이 없으면 예외가 발생한다")
     void createReservationSeatNotFound() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(createUser()));
-        when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.empty());
+        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of());
 
         assertThrows(EntityNotFoundException.class,
-                () -> reservationService.createReservation(1L, 10L));
+                () -> reservationService.createReservation(1L, List.of(10L)));
 
-        verify(reservationRepository, never()).save(any());
+        verify(reservationRepository, never()).saveAll(any());
     }
 
     @Test
@@ -122,10 +127,15 @@ class ReservationServiceTest {
         seat.hold();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(seat));
+        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
+            ReservationGroup reservationGroup = invocation.getArgument(0);
+            ReflectionTestUtils.setField(reservationGroup, "id", 77L);
+            return reservationGroup;
+        });
 
         assertThrows(IllegalStateException.class,
-                () -> reservationService.createReservation(1L, 10L));
+                () -> reservationService.createReservation(1L, List.of(10L)));
 
         verify(reservationRepository, never()).save(any());
     }

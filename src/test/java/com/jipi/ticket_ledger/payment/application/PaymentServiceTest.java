@@ -9,6 +9,8 @@ import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -26,6 +28,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.ResourceAccessException;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,17 +49,22 @@ class PaymentServiceTest {
     @Mock
     private ReservationRepository reservationRepository;
 
+    @Mock
+    private ReservationGroupRepository reservationGroupRepository;
+
     @InjectMocks
     private PaymentService paymentService;
 
     @Test
     @DisplayName("readyPayment: 기존 READY 결제가 있으면 재사용한다")
     void readyPaymentReuseExisting() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment existingPayment = new Payment(reservation, 10000, LocalDateTime.now(), "order-ready-1", "KRW");
+        ReservationGroup reservationGroup = createReservationGroup(LocalDateTime.now().plusMinutes(10));
+        Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, LocalDateTime.now().plusMinutes(10));
+        Payment existingPayment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-ready-1", "KRW");
 
-        when(reservationRepository.findById(1L)).thenReturn(Optional.of(reservation));
-        when(paymentRepository.findByReservationId(1L)).thenReturn(Optional.of(existingPayment));
+        when(reservationGroupRepository.findById(1L)).thenReturn(Optional.of(reservationGroup));
+        when(reservationRepository.findByReservationGroupId(1L)).thenReturn(List.of(reservation));
+        when(paymentRepository.findByReservationGroupId(1L)).thenReturn(Optional.of(existingPayment));
 
         Payment readyPayment = paymentService.readyPayment(1L);
 
@@ -67,11 +75,13 @@ class PaymentServiceTest {
     @Test
     @DisplayName("readyPayment: 저장 중 유니크 충돌이 나면 기존 결제를 다시 조회해 반환한다")
     void readyPaymentReuseExistingAfterConstraintViolation() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment existingPayment = new Payment(reservation, 10000, LocalDateTime.now(), "order-ready-2", "KRW");
+        ReservationGroup reservationGroup = createReservationGroup(LocalDateTime.now().plusMinutes(10));
+        Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, LocalDateTime.now().plusMinutes(10));
+        Payment existingPayment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-ready-2", "KRW");
 
-        when(reservationRepository.findById(1L)).thenReturn(Optional.of(reservation));
-        when(paymentRepository.findByReservationId(1L))
+        when(reservationGroupRepository.findById(1L)).thenReturn(Optional.of(reservationGroup));
+        when(reservationRepository.findByReservationGroupId(1L)).thenReturn(List.of(reservation));
+        when(paymentRepository.findByReservationGroupId(1L))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(existingPayment));
         when(paymentRepository.save(org.mockito.ArgumentMatchers.any(Payment.class)))
@@ -299,12 +309,25 @@ class PaymentServiceTest {
     }
 
     private Reservation createPendingReservationWithHeldSeat(LocalDateTime expiresAt) {
+        return createPendingReservationWithHeldSeat(null, expiresAt);
+    }
+
+    private Reservation createPendingReservationWithHeldSeat(ReservationGroup reservationGroup, LocalDateTime expiresAt) {
         Seat seat = createSeat();
         seat.hold();
 
-        Reservation reservation = new Reservation(createUser(), seat, LocalDateTime.now());
+        Reservation reservation = reservationGroup == null
+                ? new Reservation(createUser(), seat, LocalDateTime.now())
+                : new Reservation(createUser(), seat, reservationGroup, LocalDateTime.now());
         ReflectionTestUtils.setField(reservation, "expiresAt", expiresAt);
         return reservation;
+    }
+
+    private ReservationGroup createReservationGroup(LocalDateTime expiresAt) {
+        ReservationGroup reservationGroup = new ReservationGroup(createUser(), LocalDateTime.now());
+        ReflectionTestUtils.setField(reservationGroup, "id", 1L);
+        ReflectionTestUtils.setField(reservationGroup, "expiresAt", expiresAt);
+        return reservationGroup;
     }
 
     private Seat createSeat() {

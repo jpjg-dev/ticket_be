@@ -4,26 +4,33 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public record ResponseMyPageDTO(
-        List<ReservationItem> reservations,
+        List<ReservationGroupItem> reservations,
         List<PaymentItem> payments
 ) {
-    public record ReservationItem(
+    public record ReservationGroupItem(
+            Long reservationGroupId,
             String status,
             String eventTitle,
             String venue,
             LocalDateTime scheduleStartAt,
+            List<SeatItem> seats
+    ) {
+    }
+
+    public record SeatItem(
             String seatNumber,
             String seatGrade
     ) {
     }
 
     public record PaymentItem(
-            Long reservationId,
+            Long reservationGroupId,
             Long paymentId,
             String status,
             Integer amount,
             String method,
-            LocalDateTime requestedAt
+            LocalDateTime requestedAt,
+            List<SeatItem> seats
     ) {
     }
 }

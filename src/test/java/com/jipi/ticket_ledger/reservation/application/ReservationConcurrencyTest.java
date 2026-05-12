@@ -5,6 +5,8 @@ import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
@@ -43,6 +45,9 @@ class ReservationConcurrencyTest {
 
     @Autowired
     private ReservationRepository reservationRepository;
+
+    @Autowired
+    private ReservationGroupRepository reservationGroupRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -110,7 +115,7 @@ class ReservationConcurrencyTest {
                 readyLatch.countDown();
                 try {
                     startLatch.await();
-                    reservationService.createReservation(userId, seatId);
+                    reservationService.createReservation(userId, List.of(seatId));
                     successCount.incrementAndGet();
                 } catch (Exception e) {
                     failCount.incrementAndGet();
@@ -151,6 +156,10 @@ class ReservationConcurrencyTest {
                     .filter(r -> r.getSeat().getId().equals(seatId))
                     .map(Reservation::getId)
                     .forEach(reservationRepository::deleteById);
+            reservationGroupRepository.findAll().stream()
+                    .filter(group -> userIds.contains(group.getUser().getId()))
+                    .map(ReservationGroup::getId)
+                    .forEach(reservationGroupRepository::deleteById);
             seatRepository.deleteById(seatId);
             scheduleRepository.deleteById(schedule.getId());
             eventRepository.deleteById(event.getId());

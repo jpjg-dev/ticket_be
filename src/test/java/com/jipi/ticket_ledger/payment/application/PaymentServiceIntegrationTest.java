@@ -11,6 +11,8 @@ import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -60,6 +62,9 @@ class PaymentServiceIntegrationTest {
     private ReservationRepository reservationRepository;
 
     @Autowired
+    private ReservationGroupRepository reservationGroupRepository;
+
+    @Autowired
     private SeatRepository seatRepository;
 
     @Autowired
@@ -76,6 +81,7 @@ class PaymentServiceIntegrationTest {
 
     private final Set<Long> paymentIds = new LinkedHashSet<>();
     private final Set<Long> reservationIds = new LinkedHashSet<>();
+    private final Set<Long> reservationGroupIds = new LinkedHashSet<>();
     private final Set<Long> seatIds = new LinkedHashSet<>();
     private final Set<Long> scheduleIds = new LinkedHashSet<>();
     private final Set<Long> eventIds = new LinkedHashSet<>();
@@ -87,6 +93,7 @@ class PaymentServiceIntegrationTest {
         tx.executeWithoutResult(status -> {
             paymentIds.forEach(paymentRepository::deleteById);
             reservationIds.forEach(reservationRepository::deleteById);
+            reservationGroupIds.forEach(reservationGroupRepository::deleteById);
             seatIds.forEach(seatRepository::deleteById);
             scheduleIds.forEach(scheduleRepository::deleteById);
             eventIds.forEach(eventRepository::deleteById);
@@ -95,6 +102,7 @@ class PaymentServiceIntegrationTest {
 
         paymentIds.clear();
         reservationIds.clear();
+        reservationGroupIds.clear();
         seatIds.clear();
         scheduleIds.clear();
         eventIds.clear();
@@ -106,8 +114,8 @@ class PaymentServiceIntegrationTest {
     void readyPaymentCreateAndReuse() {
         Fixture fixture = createPendingReservationFixture(false);
 
-        Payment first = paymentService.readyPayment(fixture.reservationId);
-        Payment second = paymentService.readyPayment(fixture.reservationId);
+        Payment first = paymentService.readyPayment(fixture.reservationGroupId);
+        Payment second = paymentService.readyPayment(fixture.reservationGroupId);
 
         paymentIds.add(first.getId());
 
@@ -117,7 +125,7 @@ class PaymentServiceIntegrationTest {
         assertNotNull(first.getOrderId());
 
         long paymentCount = paymentRepository.findAll().stream()
-                .filter(p -> p.getReservation().getId().equals(fixture.reservationId))
+                .filter(p -> p.getReservationGroup().getId().equals(fixture.reservationGroupId))
                 .count();
         assertEquals(1L, paymentCount);
     }
@@ -128,21 +136,21 @@ class PaymentServiceIntegrationTest {
         Fixture fixture = createPendingReservationFixture(true);
 
         assertThrows(IllegalStateException.class,
-                () -> paymentService.readyPayment(fixture.reservationId));
+                () -> paymentService.readyPayment(fixture.reservationGroupId));
 
         Reservation updatedReservation = reservationRepository.findById(fixture.reservationId).orElseThrow();
         Seat updatedSeat = seatRepository.findById(fixture.seatId).orElseThrow();
 
         assertEquals(ReservationStatus.PENDING, updatedReservation.getStatus());
         assertEquals(SeatStatus.HELD, updatedSeat.getStatus());
-        assertTrue(paymentRepository.findByReservationId(fixture.reservationId).isEmpty());
+        assertTrue(paymentRepository.findByReservationGroupId(fixture.reservationGroupId).isEmpty());
     }
 
     @Test
     @DisplayName("confirmPayment: 실제 DB에서 결제 승인 시 Payment/Reservation/Seat 상태가 함께 확정된다")
     void confirmPaymentSuccess() {
         Fixture fixture = createPendingReservationFixture(false);
-        Payment ready = paymentService.readyPayment(fixture.reservationId);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
@@ -174,7 +182,7 @@ class PaymentServiceIntegrationTest {
     @DisplayName("confirmPayment: PG 응답 타임아웃이어도 조회 결과가 DONE이면 실제 DB 상태를 승인으로 확정한다")
     void confirmPaymentReconcileAfterTimeout() {
         Fixture fixture = createPendingReservationFixture(false);
-        Payment ready = paymentService.readyPayment(fixture.reservationId);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
@@ -233,7 +241,7 @@ class PaymentServiceIntegrationTest {
     @DisplayName("confirmPayment: 결제 금액이 다르면 예외가 발생하고 트랜잭션 롤백으로 READY 상태가 유지된다")
     void confirmPaymentAmountMismatch() {
         Fixture fixture = createPendingReservationFixture(false);
-        Payment ready = paymentService.readyPayment(fixture.reservationId);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
         paymentIds.add(ready.getId());
 
         assertThrows(IllegalStateException.class,
@@ -259,7 +267,7 @@ class PaymentServiceIntegrationTest {
     @DisplayName("cancelPayment: PG 응답 타임아웃이어도 조회 결과가 CANCELED면 실제 DB 상태를 취소로 확정한다")
     void cancelPaymentReconcileAfterTimeout() {
         Fixture fixture = createPendingReservationFixture(false);
-        Payment ready = paymentService.readyPayment(fixture.reservationId);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
@@ -338,20 +346,25 @@ class PaymentServiceIntegrationTest {
         seat = seatRepository.save(seat);
         seatIds.add(seat.getId());
 
-        Reservation reservation = reservationRepository.save(new Reservation(user, seat, now));
+        ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now));
+        reservationGroupIds.add(reservationGroup.getId());
+
+        Reservation reservation = reservationRepository.save(new Reservation(user, seat, reservationGroup, now));
         if (expiredReservation) {
+            ReflectionTestUtils.setField(reservationGroup, "expiresAt", now.minusMinutes(1));
+            reservationGroup = reservationGroupRepository.save(reservationGroup);
             ReflectionTestUtils.setField(reservation, "expiresAt", now.minusMinutes(1));
             reservation = reservationRepository.save(reservation);
         }
         reservationIds.add(reservation.getId());
 
-        return new Fixture(reservation.getId(), seat.getId(), seat.getPrice());
+        return new Fixture(reservationGroup.getId(), reservation.getId(), seat.getId(), seat.getPrice());
     }
 
     private int amountWithVat(int amount) {
         return amount + (int) Math.round(amount * 0.1d);
     }
 
-    private record Fixture(Long reservationId, Long seatId, Integer price) {
+    private record Fixture(Long reservationGroupId, Long reservationId, Long seatId, Integer price) {
     }
 }

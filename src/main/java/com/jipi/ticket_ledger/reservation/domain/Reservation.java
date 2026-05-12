@@ -26,6 +26,10 @@ public class Reservation {
     @JoinColumn(name = "seat_id")
     private Seat seat;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reservation_group_id")
+    private ReservationGroup reservationGroup;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ReservationStatus status;
@@ -39,10 +43,15 @@ public class Reservation {
     private LocalDateTime canceledAt;
 
     public Reservation(User user, Seat seat, LocalDateTime now) {
+        this(user, seat, null, now);
+    }
+
+    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now) {
         this.user = user;
         this.seat = seat;
+        this.reservationGroup = reservationGroup;
         this.status = ReservationStatus.PENDING;
-        this.reservedAt = LocalDateTime.now();
+        this.reservedAt = now;
         this.expiresAt = now.plusSeconds(30);
     }
 

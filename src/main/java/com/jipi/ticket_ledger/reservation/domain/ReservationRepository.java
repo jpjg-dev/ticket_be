@@ -18,4 +18,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findByStatusAndExpiresAtLessThanEqual(ReservationStatus status, LocalDateTime time);
     //ID 기반 예약상태별 조회
     List<Reservation> findByUserIdAndStatusIn(Long userId, List<ReservationStatus> statusList, Sort sort);
+
+    List<Reservation> findByReservationGroupId(Long reservationGroupId);
 }
