@@ -94,8 +94,8 @@ public class UserService {
 
         List<ResponseMyPageDTO.PaymentItem> paymentItems = payments.stream()
                 .map(payment -> new ResponseMyPageDTO.PaymentItem(
-                        payment.getId(),
                         payment.getReservation().getId(),
+                        payment.getId(),
                         payment.getStatus().name(),
                         payment.getAmount(),
                         payment.getMethod(),
