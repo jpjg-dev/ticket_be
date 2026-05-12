@@ -3,6 +3,8 @@ package com.jipi.ticket_ledger.user.application;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.presentation.dto.RequestSignUpDTO;
+import com.jipi.ticket_ledger.user.presentation.dto.ResponseMeDTO;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,5 +32,10 @@ public class UserService {
         userRepository.save(new User(request.email(), passwordEncoder.encode(request.password()), request.name(), LocalDateTime.now()));
         log.info("회원가입 완료: email={}, name={}", request.email(), request.name());
         return "회원가입이 완료되었습니다.";
+    }
+    public ResponseMeDTO getMyInfo(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("일치하는 사용자가 없습니다."));
+        return new ResponseMeDTO(user.getId(), user.getEmail(), user.getName(), user.getRole().name(), user.getStatus().name());
     }
 }
