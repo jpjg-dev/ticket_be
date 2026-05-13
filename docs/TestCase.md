@@ -124,7 +124,24 @@
 
 ---
 
-## 4. 우선순위
+## 4. User API 테스트
+
+### 4.1 users/me
+- [x] 로그인 사용자 id로 현재 사용자 기본 정보를 반환한다
+- [x] 존재하지 않는 사용자면 `EntityNotFoundException`
+- [x] 컨트롤러가 `@AuthenticationPrincipal Long userId`를 서비스로 전달한다
+
+### 4.2 mypage
+- [x] 본인 userId만 조회 가능하다
+- [x] 다른 사용자 조회 시 `IllegalStateException`
+- [x] `CONFIRMED`, `CANCELED` 예약을 group 기준으로 반환한다
+- [x] `APPROVED`, `CANCELED` 결제를 group 기준으로 반환한다
+- [x] 결제 취소에 필요한 `paymentId`와 좌석 목록을 포함한다
+- [x] 컨트롤러가 path variable userId와 principal userId를 서비스로 전달한다
+
+---
+
+## 5. 우선순위
 
 1. [x] `PaymentService.confirmPayment()`
 2. [x] `PaymentService.cancelPayment()`
