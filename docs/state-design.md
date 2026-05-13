@@ -138,20 +138,20 @@ READY → CANCELED ❌
 
 # 4. 상태 간 관계
 
-## 좌석 ↔ 예매
+## 좌석 ↔ 예매 묶음
 
-* 좌석 HELD 상태는 특정 예매(PENDING)와 연결됨
-* 예매가 CONFIRMED 되면 좌석은 BOOKED 상태로 변경됨
-* 예매가 CANCELED 또는 EXPIRED 되면 좌석은 AVAILABLE로 복구됨
+* 좌석 HELD 상태는 특정 예매 묶음의 Reservation(PENDING)과 연결됨
+* 예매 묶음의 결제가 승인되면 묶음 안의 Reservation은 CONFIRMED, 좌석은 BOOKED로 변경됨
+* 예매 묶음이 취소 또는 만료되면 묶음 안의 좌석은 AVAILABLE로 복구됨
 
 ---
 
-## 예매 ↔ 결제
+## 예매 묶음 ↔ 결제
 
-* 예매(PENDING)는 결제(READY)와 연결됨
-* 결제 APPROVED → 예매 CONFIRMED
-* 결제 FAILED → 예매 EXPIRED 또는 유지 (정책 선택)
-* 결제 CANCELED → 예매 CANCELED
+* ReservationGroup은 하나의 결제(READY)와 연결됨
+* 결제 APPROVED → group 안의 Reservation CONFIRMED
+* 결제 FAILED → group 만료 전이면 Reservation/Seat 유지, group 만료 후면 Reservation EXPIRED 및 Seat AVAILABLE
+* 결제 CANCELED → group 안의 Reservation CANCELED
 * PG 응답이 애매하면 `paymentKey`/`orderId` 조회 결과를 기준으로 내부 상태를 확정함
 
 ---

@@ -21,7 +21,7 @@
 
 ### 1) 결제/만료 로그 표준화
 - `event` 키를 문자열 하드코딩에서 공통 상수(`LogEvents`)로 통일
-- `PaymentService`의 `confirm/cancel/fail` 로그에 표준 키(`orderId`, `paymentId`, `reservationId`, `reason`) 유지
+- `PaymentService`의 `confirm/cancel/fail` 로그에 표준 키(`orderId`, `paymentId`, `reservationGroupId`, `reason`) 유지
 - 승인/취소 성공 로그는 PG 응답 상태(`tossResponse.status()`)를 `reason`/`pgStatus`로 기록
 - `paymentKey`는 원문 대신 마스킹(`paymentKeyMasked`)으로만 기록
 
