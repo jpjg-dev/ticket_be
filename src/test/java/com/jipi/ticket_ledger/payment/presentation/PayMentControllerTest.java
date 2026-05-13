@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
@@ -53,10 +54,10 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 준비 성공 시 200과 결제 응답을 반환한다")
     void readyPaymentSuccess() throws Exception {
-        Payment payment = createReadyPayment();
-        Reservation reservation = payment.getReservation();
+        PaymentFixture fixture = createReadyPayment();
+        Payment payment = fixture.payment();
         when(paymentService.readyPayment(1L)).thenReturn(payment);
-        when(paymentService.getReservationsForPayment(payment)).thenReturn(List.of(reservation));
+        when(paymentService.getReservationsForPayment(payment)).thenReturn(fixture.reservations());
 
         mockMvc.perform(post("/api/v1/payments/ready")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -71,9 +72,10 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 승인 확인 성공 시 200을 반환한다")
     void confirmPaymentSuccess() throws Exception {
-        Payment approvedPayment = createApprovedPayment();
+        PaymentFixture fixture = createApprovedPayment();
+        Payment approvedPayment = fixture.payment();
         when(paymentService.confirmPayment(anyString(), anyString(), anyInt())).thenReturn(approvedPayment);
-        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(List.of(approvedPayment.getReservation()));
+        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(fixture.reservations());
 
         mockMvc.perform(post("/api/v1/payments/confirm")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -93,9 +95,10 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 상태 조회 성공 시 200과 현재 상태를 반환한다")
     void getPaymentStatusSuccess() throws Exception {
-        Payment approvedPayment = createApprovedPayment();
+        PaymentFixture fixture = createApprovedPayment();
+        Payment approvedPayment = fixture.payment();
         when(paymentService.getPaymentStatus(1L)).thenReturn(approvedPayment);
-        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(List.of(approvedPayment.getReservation()));
+        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(fixture.reservations());
 
         mockMvc.perform(get("/api/v1/payments/1/status"))
                 .andExpect(status().isOk())
@@ -142,25 +145,33 @@ class PayMentControllerTest {
     }
 
 
-    private Payment createReadyPayment() {
+    private PaymentFixture createReadyPayment() {
         LocalDateTime now = LocalDateTime.now();
         Event event = new Event("테스트 공연", "설명", "테스트홀", now, now);
         Schedule schedule = new Schedule(event, now.plusDays(1), now.plusDays(1).plusHours(2), now);
         Seat seat = new Seat(schedule, "A-1", "VIP", 100000, now);
         seat.hold();
         User user = new User("ready@test.com", "pw", "유저", now);
-        Reservation reservation = new Reservation(user, seat, now);
-        Payment payment = new Payment(reservation, 100000, now, "order-1", "KRW");
+        ReservationGroup reservationGroup = new ReservationGroup(user, now);
+        org.springframework.test.util.ReflectionTestUtils.setField(reservationGroup, "id", 1L);
+        Reservation reservation = new Reservation(user, seat, reservationGroup, now);
+        Payment payment = new Payment(reservationGroup, 100000, now, "order-1", "KRW");
 
         org.springframework.test.util.ReflectionTestUtils.setField(payment, "id", 1L);
-        return payment;
+        return new PaymentFixture(payment, List.of(reservation));
     }
 
-    private Payment createApprovedPayment() {
-        Payment payment = createReadyPayment();
+    private PaymentFixture createApprovedPayment() {
+        PaymentFixture fixture = createReadyPayment();
+        Payment payment = fixture.payment();
         payment.approve("pay-key", "CARD", "DONE");
-        payment.getReservation().confirm();
-        payment.getReservation().getSeat().book();
-        return payment;
+        fixture.reservations().forEach(reservation -> {
+            reservation.confirm();
+            reservation.getSeat().book();
+        });
+        return fixture;
+    }
+
+    private record PaymentFixture(Payment payment, List<Reservation> reservations) {
     }
 }
