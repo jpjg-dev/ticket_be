@@ -4,18 +4,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
-    //나의 예약 목록
-    List<Reservation> findByUserId(Long userId);
-    //나의 예약 확인 및 검증
-    Optional<Reservation> findByIdAndUserId(Long reservationId, Long userId);
-    //예약만료확인
-    List<Reservation> findByStatusAndExpiresAtLessThanEqual(ReservationStatus status, LocalDateTime time);
     //ID 기반 예약상태별 조회
     List<Reservation> findByUserIdAndStatusIn(Long userId, List<ReservationStatus> statusList, Sort sort);
 

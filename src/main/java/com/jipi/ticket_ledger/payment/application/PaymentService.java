@@ -13,7 +13,6 @@ import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
-import com.jipi.ticket_ledger.seat.domain.Seat;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -68,13 +67,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<Reservation> getReservationsForPayment(Payment payment) {
-        if (payment.getReservationGroup() != null) {
-            return getReservationsByGroupId(payment.getReservationGroup().getId());
-        }
-        if (payment.getReservation() != null) {
-            return List.of(payment.getReservation());
-        }
-        throw new EntityNotFoundException("결제에 연결된 예매를 찾을 수 없습니다.");
+        return getReservationsByGroupId(payment.getReservationGroup().getId());
     }
 
     @Transactional(readOnly = true)
@@ -88,39 +81,39 @@ public class PaymentService {
                 .orElseThrow(() -> new EntityNotFoundException("결제를 찾을 수 없습니다."));
 
         List<Reservation> reservations = getReservationsForPayment(payment);
-        Reservation primaryReservation = reservations.get(0);
-        log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                LogEvents.PAYMENT_CONFIRM_START, orderId, payment.getId(), primaryReservation.getId(), "REQUEST", maskPaymentKey(paymentKey));
+        Long reservationGroupId = payment.getReservationGroup().getId();
+        log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                LogEvents.PAYMENT_CONFIRM_START, orderId, payment.getId(), reservationGroupId, "REQUEST", maskPaymentKey(paymentKey));
 
         if (payment.getStatus() == PaymentStatus.APPROVED) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} pgStatus={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), primaryReservation.getId(), payment.getPgStatus(), payment.getPgStatus(), maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), reservationGroupId, payment.getPgStatus(), payment.getPgStatus(), maskPaymentKey(payment.getPaymentKey()));
             return payment;
         }
 
         if (payment.getStatus() != PaymentStatus.READY) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), primaryReservation.getId(), "INVALID_PAYMENT_STATUS", maskPaymentKey(paymentKey));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "INVALID_PAYMENT_STATUS", maskPaymentKey(paymentKey));
             throw new IllegalStateException("결제 대기 상태에서만 승인할 수 있습니다.");
         }
 
         if (reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CONFIRMED)) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} pgStatus={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), primaryReservation.getId(), payment.getPgStatus(), payment.getPgStatus(), maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), reservationGroupId, payment.getPgStatus(), payment.getPgStatus(), maskPaymentKey(payment.getPaymentKey()));
             return payment;
         }
 
         if (reservations.stream().anyMatch(reservation -> reservation.getStatus() != ReservationStatus.PENDING)) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), primaryReservation.getId(), "INVALID_RESERVATION_STATUS", maskPaymentKey(paymentKey));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "INVALID_RESERVATION_STATUS", maskPaymentKey(paymentKey));
             throw new IllegalStateException("결제 대기 중인 예약만 승인할 수 있습니다.");
         }
 
         if (isExpired(payment, reservations, LocalDateTime.now())) {
             payment.fail();
             expireReservations(reservations);
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), primaryReservation.getId(), "RESERVATION_EXPIRED", maskPaymentKey(paymentKey));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "RESERVATION_EXPIRED", maskPaymentKey(paymentKey));
 
             throw new IllegalStateException("예약 시간이 만료되어 결제를 승인할 수 없습니다.");
         }
@@ -129,8 +122,8 @@ public class PaymentService {
 
         if (!totalAmountWithVat.equals(amount)) {
             payment.fail();
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), primaryReservation.getId(), "AMOUNT_MISMATCH", maskPaymentKey(paymentKey));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "AMOUNT_MISMATCH", maskPaymentKey(paymentKey));
 
             throw new IllegalStateException("결제 금액이 일치하지 않습니다.");
         }
@@ -151,8 +144,8 @@ public class PaymentService {
                     && totalAmountWithVat.equals(lookupResponse.totalAmount())
                     && payment.getCurrency().equals(lookupResponse.currency())) {
                 applyApproval(payment, reservations, lookupResponse.paymentKey(), lookupResponse.method(), lookupResponse.status());
-                log.info("event={} orderId={} paymentId={} reservationId={} reason={} pgStatus={} paymentKeyMasked={}",
-                        LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), primaryReservation.getId(), lookupResponse.status(), lookupResponse.status(), maskPaymentKey(payment.getPaymentKey()));
+                log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
+                        LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), reservationGroupId, lookupResponse.status(), lookupResponse.status(), maskPaymentKey(payment.getPaymentKey()));
                 return payment;
             }
             throw confirmException;
@@ -160,21 +153,21 @@ public class PaymentService {
 
         if (!totalAmountWithVat.equals(tossResponse.totalAmount())) {
             payment.fail();
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), primaryReservation.getId(), "PG_AMOUNT_MISMATCH", maskPaymentKey(paymentKey));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "PG_AMOUNT_MISMATCH", maskPaymentKey(paymentKey));
             throw new IllegalStateException("PG 승인 금액이 일치하지 않습니다.");
         }
 
         if (!payment.getCurrency().equals(tossResponse.currency())) {
             payment.fail();
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), primaryReservation.getId(), "PG_CURRENCY_MISMATCH", maskPaymentKey(paymentKey));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "PG_CURRENCY_MISMATCH", maskPaymentKey(paymentKey));
             throw new IllegalStateException("PG 통화 코드가 일치하지 않습니다.");
         }
         //결제 승인
         applyApproval(payment, reservations, tossResponse.paymentKey(), tossResponse.method(), tossResponse.status());
-        log.info("event={} orderId={} paymentId={} reservationId={} reason={} pgStatus={} paymentKeyMasked={}",
-                LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), primaryReservation.getId(), tossResponse.status(), tossResponse.status(), maskPaymentKey(payment.getPaymentKey()));
+        log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
+                LogEvents.PAYMENT_CONFIRM_SUCCESS, orderId, payment.getId(), reservationGroupId, tossResponse.status(), tossResponse.status(), maskPaymentKey(payment.getPaymentKey()));
 
         return payment;
     }
@@ -184,21 +177,21 @@ public class PaymentService {
         Payment payment = getPayment(paymentId);
 
         List<Reservation> reservations = getReservationsForPayment(payment);
-        Reservation primaryReservation = reservations.get(0);
-        log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
-                LogEvents.PAYMENT_FAIL_START, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "REQUEST");
+        Long reservationGroupId = payment.getReservationGroup().getId();
+        log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
+                LogEvents.PAYMENT_FAIL_START, payment.getOrderId(), payment.getId(), reservationGroupId, "REQUEST");
 
         payment.fail();
 
         if (!isExpired(payment, reservations, LocalDateTime.now())) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
-                    LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "FAIL_ONLY");
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
+                    LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_ONLY");
             return;
         }
 
         expireReservations(reservations);
-        log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
-                LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "FAIL_AND_EXPIRE");
+        log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
+                LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_AND_EXPIRE");
     }
 
     // 결제취소
@@ -207,25 +200,25 @@ public class PaymentService {
                 .orElseThrow(() -> new EntityNotFoundException("결제를 찾을 수 없습니다."));
 
         List<Reservation> reservations = getReservationsForPayment(payment);
-        Reservation primaryReservation = reservations.get(0);
-        log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                LogEvents.PAYMENT_CANCEL_START, payment.getOrderId(), payment.getId(), primaryReservation.getId(), cancelReason, maskPaymentKey(payment.getPaymentKey()));
+        Long reservationGroupId = payment.getReservationGroup().getId();
+        log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                LogEvents.PAYMENT_CANCEL_START, payment.getOrderId(), payment.getId(), reservationGroupId, cancelReason, maskPaymentKey(payment.getPaymentKey()));
 
         if (payment.getStatus() == PaymentStatus.CANCELED) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} pgStatus={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_SUCCESS, payment.getOrderId(), payment.getId(), primaryReservation.getId(), payment.getPgStatus(), payment.getPgStatus(), maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, payment.getPgStatus(), payment.getPgStatus(), maskPaymentKey(payment.getPaymentKey()));
             return;
         }
 
         if (payment.getStatus() != PaymentStatus.APPROVED) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "INVALID_PAYMENT_STATUS", maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "INVALID_PAYMENT_STATUS", maskPaymentKey(payment.getPaymentKey()));
             throw new IllegalStateException("승인된 결제만 취소할 수 있습니다.");
         }
 
         if (payment.getPaymentKey() == null || payment.getPaymentKey().isBlank()) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "MISSING_PAYMENT_KEY", maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "MISSING_PAYMENT_KEY", maskPaymentKey(payment.getPaymentKey()));
             throw new IllegalStateException("PG 결제키가 없어 취소할 수 없습니다.");
         }
 
@@ -243,47 +236,42 @@ public class PaymentService {
                     && payment.getCurrency().equals(lookupResponse.currency())
                     && payment.getPaymentKey().equals(lookupResponse.paymentKey())) {
                 applyCancellation(payment, reservations);
-                log.info("event={} orderId={} paymentId={} reservationId={} reason={} pgStatus={} paymentKeyMasked={}",
-                        LogEvents.PAYMENT_CANCEL_SUCCESS, payment.getOrderId(), payment.getId(), primaryReservation.getId(), lookupResponse.status(), lookupResponse.status(), maskPaymentKey(payment.getPaymentKey()));
+                log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
+                        LogEvents.PAYMENT_CANCEL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, lookupResponse.status(), lookupResponse.status(), maskPaymentKey(payment.getPaymentKey()));
                 return;
             }
             throw cancelException;
         }
 
         if (!payment.getPaymentKey().equals(tossResponse.paymentKey())) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "PG_PAYMENT_KEY_MISMATCH", maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "PG_PAYMENT_KEY_MISMATCH", maskPaymentKey(payment.getPaymentKey()));
             throw new IllegalStateException("PG 취소 응답 결제키가 일치하지 않습니다.");
         }
 
         if (!payment.getCurrency().equals(tossResponse.currency())) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "PG_CURRENCY_MISMATCH", maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "PG_CURRENCY_MISMATCH", maskPaymentKey(payment.getPaymentKey()));
             throw new IllegalStateException("PG 취소 응답 통화가 일치하지 않습니다.");
         }
 
         // status 값은 PG 응답 포맷에 맞춰 조정 가능
         if (!"CANCELED".equalsIgnoreCase(tossResponse.status())
                 && !"PARTIAL_CANCELED".equalsIgnoreCase(tossResponse.status())) {
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), primaryReservation.getId(), "PG_CANCEL_STATUS_INVALID", maskPaymentKey(payment.getPaymentKey()));
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "PG_CANCEL_STATUS_INVALID", maskPaymentKey(payment.getPaymentKey()));
             throw new IllegalStateException("PG 취소 상태가 유효하지 않습니다.");
         }
 
         applyCancellation(payment, reservations);
-        log.info("event={} orderId={} paymentId={} reservationId={} reason={} pgStatus={} paymentKeyMasked={}",
-                LogEvents.PAYMENT_CANCEL_SUCCESS, payment.getOrderId(), payment.getId(), primaryReservation.getId(), tossResponse.status(), tossResponse.status(), maskPaymentKey(payment.getPaymentKey()));
+        log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
+                LogEvents.PAYMENT_CANCEL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, tossResponse.status(), tossResponse.status(), maskPaymentKey(payment.getPaymentKey()));
     }
 
     // helper
     private Payment getPayment(Long paymentId) {
         return paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("결제를 찾을 수 없습니다."));
-    }
-
-    private Reservation getReservation(Long reservationId) {
-        return reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new EntityNotFoundException("예약을 찾을 수 없습니다."));
     }
 
     private ReservationGroup getReservationGroup(Long reservationGroupId) {
@@ -346,10 +334,7 @@ public class PaymentService {
     }
 
     private boolean isExpired(Payment payment, List<Reservation> reservations, LocalDateTime now) {
-        if (payment.getReservationGroup() != null) {
-            return payment.getReservationGroup().isExpiredAt(now);
-        }
-        return reservations.stream().anyMatch(reservation -> reservation.isExpiredAt(now));
+        return payment.getReservationGroup().isExpiredAt(now);
     }
 
     private void expireReservations(List<Reservation> reservations) {

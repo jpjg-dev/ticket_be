@@ -42,10 +42,6 @@ public class Reservation {
 
     private LocalDateTime canceledAt;
 
-    public Reservation(User user, Seat seat, LocalDateTime now) {
-        this(user, seat, null, now);
-    }
-
     public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now) {
         this.user = user;
         this.seat = seat;
@@ -69,6 +65,10 @@ public class Reservation {
     public void expire() {
         if (this.status != ReservationStatus.PENDING) throw new IllegalStateException("대기 상태의 예매만 만료 처리할 수 있습니다.");
         this.status = ReservationStatus.EXPIRED;
+    }
+
+    public boolean isPending() {
+        return this.status == ReservationStatus.PENDING;
     }
 
     //만료여부 확인

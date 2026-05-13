@@ -8,7 +8,6 @@ import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
-import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.user.domain.User;
@@ -102,29 +101,37 @@ public class ReservationService {
     // 예약 만료
     public int expireReservations() {
         LocalDateTime now = LocalDateTime.now();
-        List<Reservation> expiredReservations =
-                reservationRepository.findByStatusAndExpiresAtLessThanEqual(ReservationStatus.PENDING, now);
+        List<ReservationGroup> expiredGroups = reservationGroupRepository.findByExpiresAtLessThanEqual(now);
         int expiredCount = 0;
-        for (Reservation reservation : expiredReservations) {
-            Payment payment = paymentRepository.findByReservationId(reservation.getId())
-                    .orElse(null);
+        for (ReservationGroup reservationGroup : expiredGroups) {
+            List<Reservation> reservations = reservationRepository.findByReservationGroupId(reservationGroup.getId());
+            List<Reservation> pendingReservations = reservations.stream()
+                    .filter(Reservation::isPending)
+                    .toList();
+            if (pendingReservations.isEmpty()) {
+                continue;
+            }
+
+            Payment payment = paymentRepository.findByReservationGroupId(reservationGroup.getId()).orElse(null);
 
             String orderId = payment != null ? payment.getOrderId() : "N/A";
             Long paymentId = payment != null ? payment.getId() : null;
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
-                    LogEvents.RESERVATION_EXPIRE_START, orderId, paymentId, reservation.getId(), "REQUEST");
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
+                    LogEvents.RESERVATION_EXPIRE_START, orderId, paymentId, reservationGroup.getId(), "REQUEST");
 
             if (payment != null && payment.getStatus() == PaymentStatus.READY) {
                 payment.fail();
-                log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
-                        LogEvents.PAYMENT_EXPIRE_SUCCESS, orderId, paymentId, reservation.getId(), "READY_TO_FAILED");
+                log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
+                        LogEvents.PAYMENT_EXPIRE_SUCCESS, orderId, paymentId, reservationGroup.getId(), "READY_TO_FAILED");
             }
 
-            reservation.expire();
-            reservation.getSeat().release();
-            log.info("event={} orderId={} paymentId={} reservationId={} reason={}",
-                    LogEvents.RESERVATION_EXPIRE_SUCCESS, orderId, paymentId, reservation.getId(), "EXPIRED_BY_SCHEDULER");
-            expiredCount++;
+            pendingReservations.forEach(reservation -> {
+                reservation.expire();
+                reservation.getSeat().release();
+            });
+            log.info("event={} orderId={} paymentId={} reservationGroupId={} expiredCount={} reason={}",
+                    LogEvents.RESERVATION_EXPIRE_SUCCESS, orderId, paymentId, reservationGroup.getId(), pendingReservations.size(), "EXPIRED_BY_SCHEDULER");
+            expiredCount += pendingReservations.size();
         }
         return expiredCount;
     }

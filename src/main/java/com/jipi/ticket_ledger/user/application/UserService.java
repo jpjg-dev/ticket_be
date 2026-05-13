@@ -97,9 +97,7 @@ public class UserService {
     private Map<Long, List<Reservation>> groupReservations(List<Reservation> reservations) {
         Map<Long, List<Reservation>> reservationMap = new LinkedHashMap<>();
         for (Reservation reservation : reservations) {
-            Long groupId = reservation.getReservationGroup() != null
-                    ? reservation.getReservationGroup().getId()
-                    : reservation.getId();
+            Long groupId = reservation.getReservationGroup().getId();
             reservationMap.computeIfAbsent(groupId, ignored -> new java.util.ArrayList<>()).add(reservation);
         }
         return reservationMap;
@@ -118,11 +116,8 @@ public class UserService {
     }
 
     private ResponseMyPageDTO.PaymentItem toPaymentItem(Payment payment, List<Reservation> reservations) {
-        Long reservationGroupId = payment.getReservationGroup() != null
-                ? payment.getReservationGroup().getId()
-                : reservations.get(0).getId();
         return new ResponseMyPageDTO.PaymentItem(
-                reservationGroupId,
+                payment.getReservationGroup().getId(),
                 payment.getId(),
                 payment.getStatus().name(),
                 payment.getAmount(),
@@ -133,10 +128,7 @@ public class UserService {
     }
 
     private List<Reservation> reservationsForPayment(Payment payment) {
-        if (payment.getReservationGroup() != null) {
-            return reservationRepository.findByReservationGroupId(payment.getReservationGroup().getId());
-        }
-        return List.of(payment.getReservation());
+        return reservationRepository.findByReservationGroupId(payment.getReservationGroup().getId());
     }
 
     private List<ResponseMyPageDTO.SeatItem> toSeatItems(List<Reservation> reservations) {

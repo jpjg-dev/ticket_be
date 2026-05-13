@@ -1,6 +1,5 @@
 package com.jipi.ticket_ledger.payment.domain;
 
-import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -17,10 +16,6 @@ public class Payment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "reservation_id")
-    private Reservation reservation;
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reservation_group_id", unique = true)
@@ -54,20 +49,6 @@ public class Payment {
 
     @Column(nullable = false, length = 10)
     private String currency;
-
-    public Payment(Reservation reservation, Integer amount, LocalDateTime now, String orderId) {
-        this(reservation, amount, now, orderId, "KRW");
-    }
-
-    public Payment(Reservation reservation, Integer amount, LocalDateTime now,String orderId, String currency) {
-        this.reservation = reservation;
-        this.reservationGroup = reservation.getReservationGroup();
-        this.amount = amount;
-        this.status = PaymentStatus.READY;
-        this.requestedAt = now;
-        this.orderId = orderId;
-        this.currency = currency;
-    }
 
     public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId) {
         this(reservationGroup, amount, now, orderId, "KRW");
