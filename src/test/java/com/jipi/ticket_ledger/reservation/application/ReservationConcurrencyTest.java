@@ -13,6 +13,7 @@ import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "logging.level.org.hibernate.orm.jdbc.bind=OFF",
         "logging.level.org.hibernate.type.descriptor.sql=OFF"
 })
+@Slf4j
 class ReservationConcurrencyTest {
 
     @Autowired
@@ -88,21 +91,36 @@ class ReservationConcurrencyTest {
         Seat seatA3 = seatRepository.save(new Seat(schedule, "A-3-" + runId, "VIP", 100000, now));
         List<Long> seatIds = List.of(seatA1.getId(), seatA2.getId(), seatA3.getId());
 
-        User user1 = userRepository.save(new User("group-concurrency-1-" + runId + "@test.com", "password", "테스터1", now));
-        User user2 = userRepository.save(new User("group-concurrency-2-" + runId + "@test.com", "password", "테스터2", now));
-        List<Long> userIds = List.of(user1.getId(), user2.getId());
+        List<User> users = new ArrayList<>();
+        for (int index = 1; index <= 10; index++) {
+            users.add(userRepository.save(new User(
+                    "group-concurrency-" + index + "-" + runId + "@test.com",
+                    "password",
+                    "테스터" + index,
+                    now
+            )));
+        }
+        List<Long> userIds = new ArrayList<>();
+        for (User user : users) {
+            userIds.add(user.getId());
+        }
 
-        ExecutorService executorService = Executors.newFixedThreadPool(2);
-        CountDownLatch readyLatch = new CountDownLatch(2);
+        ExecutorService executorService = Executors.newFixedThreadPool(10);
+        CountDownLatch readyLatch = new CountDownLatch(10);
         CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch doneLatch = new CountDownLatch(2);
+        CountDownLatch doneLatch = new CountDownLatch(10);
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failCount = new AtomicInteger(0);
 
-        List<Runnable> requests = List.of(
-                () -> reservationService.createReservation(user1.getId(), List.of(seatA1.getId(), seatA2.getId())),
-                () -> reservationService.createReservation(user2.getId(), List.of(seatA2.getId(), seatA3.getId()))
-        );
+        List<Runnable> requests = new ArrayList<>();
+        boolean useFirstPair = true;
+        for (User user : users) {
+            List<Long> requestSeatIds = useFirstPair
+                    ? List.of(seatA1.getId(), seatA2.getId())
+                    : List.of(seatA2.getId(), seatA3.getId());
+            requests.add(() -> reservationService.createReservation(user.getId(), requestSeatIds));
+            useFirstPair = !useFirstPair;
+        }
 
         for (Runnable request : requests) {
             executorService.submit(() -> {
@@ -141,8 +159,10 @@ class ReservationConcurrencyTest {
                 + ", groups=" + savedGroupCount
                 + ", heldSeats=" + heldSeatCount;
 
+        log.info("\n ================== " + resultSummary + " ==================");
+
         assertEquals(1, successCount.get(), "겹치는 좌석 묶음은 한 요청만 성공해야 합니다. " + resultSummary);
-        assertEquals(1, failCount.get(), "겹치는 좌석 묶음 중 한 요청은 실패해야 합니다. " + resultSummary);
+        assertEquals(9, failCount.get(), "겹치는 좌석 묶음 중 나머지 요청은 실패해야 합니다. " + resultSummary);
         assertEquals(2, savedReservations.size(), "성공한 group의 좌석 2개만 reservation으로 저장되어야 합니다. " + resultSummary);
         assertEquals(1, savedGroupCount, "저장된 reservation은 하나의 group에만 속해야 합니다. " + resultSummary);
         assertEquals(2, heldSeatCount, "성공한 group의 좌석 2개만 HELD 상태여야 합니다. " + resultSummary);
