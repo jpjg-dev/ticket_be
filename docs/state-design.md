@@ -16,9 +16,9 @@
 
 | 상태        | 설명                  |
 | --------- | ------------------- |
-| AVAILABLE | 선택 가능한 상태           |
-| HELD      | 사용자가 선택하여 임시 점유된 상태 |
-| BOOKED    | 결제가 완료되어 확정된 상태     |
+| AVAILABLE | 예약 가능 상태           |
+| HELD      | 예약 중 (일시적으로 보류된 상태) |
+| BOOKED    | 예약 확정 상태          |
 
 ---
 
@@ -28,6 +28,7 @@
 AVAILABLE → HELD
 HELD → BOOKED
 HELD → AVAILABLE
+BOOKED → AVAILABLE
 ```
 
 ---
@@ -37,6 +38,7 @@ HELD → AVAILABLE
 * AVAILABLE 상태에서만 좌석 선택 가능
 * HELD 상태는 일정 시간 이후 자동 해제될 수 있음
 * BOOKED 상태는 변경 불가 (불변 상태)
+* BOOKED 상태는 취소 후 AVAILABLE로 복구 가능
 
 ---
 
@@ -44,7 +46,6 @@ HELD → AVAILABLE
 
 ```text
 BOOKED → HELD ❌
-BOOKED → AVAILABLE ❌
 AVAILABLE → BOOKED ❌ (결제 없이 확정 불가)
 ```
 
@@ -137,24 +138,33 @@ READY → CANCELED ❌
 
 # 4. 상태 간 관계
 
-## 좌석 ↔ 예매
+## 좌석 ↔ 예매 묶음
 
-* 좌석 HELD 상태는 특정 예매(PENDING)와 연결됨
-* 예매가 CONFIRMED 되면 좌석은 BOOKED 상태로 변경됨
-* 예매가 CANCELED 또는 EXPIRED 되면 좌석은 AVAILABLE로 복구됨
-
----
-
-## 예매 ↔ 결제
-
-* 예매(PENDING)는 결제(READY)와 연결됨
-* 결제 APPROVED → 예매 CONFIRMED
-* 결제 FAILED → 예매 EXPIRED 또는 유지 (정책 선택)
-* 결제 CANCELED → 예매 CANCELED
+* 좌석 HELD 상태는 특정 예매 묶음의 Reservation(PENDING)과 연결됨
+* 예매 묶음의 결제가 승인되면 묶음 안의 Reservation은 CONFIRMED, 좌석은 BOOKED로 변경됨
+* 예매 묶음이 취소 또는 만료되면 묶음 안의 좌석은 AVAILABLE로 복구됨
 
 ---
 
-# 5. 설계 의도
+## 예매 묶음 ↔ 결제
+
+* ReservationGroup은 하나의 결제(READY)와 연결됨
+* 결제 APPROVED → group 안의 Reservation CONFIRMED
+* 결제 FAILED → group 만료 전이면 Reservation/Seat 유지, group 만료 후면 Reservation EXPIRED 및 Seat AVAILABLE
+* 결제 CANCELED → group 안의 Reservation CANCELED
+* PG 응답이 애매하면 `paymentKey`/`orderId` 조회 결과를 기준으로 내부 상태를 확정함
+
+---
+
+# 5. 상태 조회/재확인 정책
+
+* `GET /payments/{paymentId}/status`로 현재 `Payment / Reservation / Seat` 상태를 조회할 수 있음
+* `confirm/cancel` 응답이 애매한 경우 프론트는 상태 조회 API를 폴링해 최종 상태를 확인함
+* `failUrl`은 상태 전이 경로가 아니라 실패 코드/메시지 로깅 경로로만 사용함
+
+---
+
+# 6. 설계 의도
 
 * 상태를 통해 모든 흐름을 명확하게 표현
 * 각 상태는 단일 책임을 가지도록 분리
@@ -163,6 +173,6 @@ READY → CANCELED ❌
 
 ---
 
-# 6. 한 줄 요약
+# 7. 한 줄 요약
 
 **이 시스템은 상태 전이를 기반으로 예매와 결제의 정합성을 보장한다.**

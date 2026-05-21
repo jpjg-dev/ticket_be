@@ -1,0 +1,13 @@
+*
+
+!build.gradle
+!settings.gradle
+!gradlew
+!gradle/
+!gradle/**
+!src/
+!src/main/
+!src/main/**
+
+src/main/resources/application-dev.yaml
+src/main/resources/application-test.yaml

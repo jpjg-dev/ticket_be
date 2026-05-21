@@ -11,27 +11,29 @@ spring:
       username: ${DB_USERNAME}
       password: ${DB_PASSWORD}
       driver-class-name: org.postgresql.Driver
-  jpa:
-    hibernate:
-      ddl-auto: none
-    properties:
-      hibernate:
-        format_sql: true
-        highlight_sql: true
-        use_sql_comments: true
 
 server:
   port: ${PORT}
 
-logging:
-  level:
-    org:
-      hibernate:
-        SQL: DEBUG
-        type:
-          descriptor:
-            sql: trace
 jwt:
   secret: ${JWT_SECRET}
-  access-token-expiration: 300000 # 5 minutes
+  access-token-expiration: 300000  # 5 minutes
   refresh-token-expiration: 86400000 # 24 hours
+
+springdoc:
+  api-docs:
+    path: /api-docs
+
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+toss:
+  payments:
+    base-url: https://api.tosspayments.com
+    secret-key: ${TOSS_SECRET_KEY}
+
+reservation:
+  expire-scheduler:
+    fixed-delay-ms: 15000 # 15 seconds

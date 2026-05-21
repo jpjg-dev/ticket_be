@@ -1,0 +1,18 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        format_sql: false
+        highlight_sql: false
+        use_sql_comments: false
+
+logging:
+  level:
+    root: info
+    com.jipi.ticket_ledger: info
+    org.springframework: warn
+    org.hibernate: warn
+    org.hibernate.SQL: warn
+    org.hibernate.orm.jdbc.bind: off

@@ -1,5 +1,7 @@
-.env
+.env*
+!.env.example
 AGENTS.md
+certs/
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
@@ -36,3 +38,4 @@ out/
 
 ### VS Code ###
 .vscode/
+/docs/private/
