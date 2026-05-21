@@ -62,6 +62,14 @@ jobs:
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
             docker compose --env-file .env config
-            docker stop ticket-backend || true
-            docker rm ticket-backend || true
+
             docker compose --env-file .env up -d --pull always backend
+
+            if docker compose --env-file .env ps --status running --services | grep -qx nginx; then
+              docker compose --env-file .env exec -T nginx nginx -t
+              docker compose --env-file .env exec -T nginx nginx -s reload
+            else
+              docker stop ticket-nginx || true
+              docker rm ticket-nginx || true
+              docker compose --env-file .env up -d --pull missing nginx
+            fi
