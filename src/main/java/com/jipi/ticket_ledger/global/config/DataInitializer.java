@@ -37,21 +37,21 @@ public class DataInitializer implements ApplicationRunner {
                 "오페라의 유령",
                 "파리 오페라하우스를 배경으로 한 클래식 뮤지컬",
                 "블루스퀘어 신한카드홀",
-                base.minusDays(30),
+                base.minusDays(45),
                 now
         );
         Event lesMiserables = createEvent(
                 "레미제라블",
                 "혁명과 구원의 감정을 밀도 있게 다루는 대형 뮤지컬",
                 "샤롯데씨어터",
-                base.minusDays(20),
+                base.minusDays(30),
                 now
         );
         Event wicked = createEvent(
                 "위키드",
                 "초록 마녀와 마법 세계를 중심으로 한 판타지 뮤지컬",
                 "예술의전당 오페라극장",
-                base.minusDays(7),
+                base.minusDays(14),
                 now
         );
         Event chicago = createEvent(
@@ -72,46 +72,46 @@ public class DataInitializer implements ApplicationRunner {
                 "하데스타운",
                 "신화를 현대적으로 해석한 음악 중심의 뮤지컬",
                 "충무아트센터 대극장",
-                base.plusDays(2),
+                base.plusDays(3),
                 now
         );
         Event kinkyBoots = createEvent(
                 "킹키부츠",
                 "에너지와 퍼포먼스가 강한 팝 스타일 뮤지컬",
                 "LG아트센터 서울",
-                base.plusDays(5),
+                base.plusDays(7),
                 now
         );
 
         createSchedulesWithSeats(phantom, now, List.of(
-                base.minusDays(18).withHour(19),
-                base.minusDays(17).withHour(14),
-                base.minusDays(16).withHour(18)
+                base.minusDays(20).withHour(19),
+                base.minusDays(19).withHour(14),
+                base.minusDays(18).withHour(18)
         ));
         createSchedulesWithSeats(lesMiserables, now, List.of(
-                base.minusDays(10).withHour(19),
-                base.minusDays(9).withHour(15),
-                base.minusDays(8).withHour(19)
+                base.minusDays(12).withHour(19),
+                base.minusDays(11).withHour(15),
+                base.minusDays(10).withHour(19)
         ));
         createSchedulesWithSeats(wicked, now, List.of(
-                base.minusHours(1),
+                base.minusDays(1).withHour(20),
                 base.plusDays(1).withHour(19)
         ));
         createSchedulesWithSeats(chicago, now, List.of(
-                base.plusHours(2),
+                base.minusHours(1),
                 base.plusDays(2).withHour(15)
         ));
         createSchedulesWithSeats(matahari, now, List.of(
-                base.plusDays(4).withHour(19),
-                base.plusDays(5).withHour(14)
+                base.plusDays(1).withHour(20),
+                base.plusDays(2).withHour(14)
         ));
         createSchedulesWithSeats(hadestown, now, List.of(
-                base.plusDays(7).withHour(19),
-                base.plusDays(8).withHour(15)
+                base.plusDays(5).withHour(19),
+                base.plusDays(6).withHour(15)
         ));
         createSchedulesWithSeats(kinkyBoots, now, List.of(
-                base.plusDays(11).withHour(19),
-                base.plusDays(12).withHour(14)
+                base.plusDays(9).withHour(19),
+                base.plusDays(10).withHour(14)
         ));
     }
 

@@ -1,6 +1,0 @@
-server:
-  ssl:
-    enabled: true
-    key-store: file:certs/localhost.p12
-    key-store-password: changeit
-    key-store-type: PKCS12

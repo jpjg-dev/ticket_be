@@ -110,11 +110,8 @@ public class PaymentService {
         }
 
         if (isExpired(payment, reservations, LocalDateTime.now())) {
-            payment.fail();
-            expireReservations(reservations);
             log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
                     LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "RESERVATION_EXPIRED", maskPaymentKey(paymentKey));
-
             throw new IllegalStateException("예약 시간이 만료되어 결제를 승인할 수 없습니다.");
         }
 
