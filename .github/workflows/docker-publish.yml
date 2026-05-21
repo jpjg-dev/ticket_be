@@ -63,6 +63,11 @@ jobs:
 
             docker compose --env-file .env config
 
+            if docker ps -a --format '{{.Names}}' | grep -qx ticket-be; then
+              docker stop ticket-be
+              docker rm ticket-be
+            fi
+
             docker compose --env-file .env up -d --pull always backend
 
             if docker compose --env-file .env ps --status running --services | grep -qx nginx; then
