@@ -20,7 +20,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     Optional<Seat> findByIdForUpdate(@Param("seatId") Long seatId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select s from Seat s where s.id in :seatIds")
+    @Query("select s from Seat s where s.id in :seatIds order by s.id asc")
     List<Seat> findAllByIdInForUpdate(@Param("seatIds") Collection<Long> seatIds);
 
     //특정 회차 좌석 목록

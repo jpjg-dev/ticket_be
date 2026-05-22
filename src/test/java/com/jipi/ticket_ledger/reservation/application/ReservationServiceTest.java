@@ -96,6 +96,27 @@ class ReservationServiceTest {
     }
 
     @Test
+    @DisplayName("createReservation: 다중 좌석은 정렬된 id 순서로 비관적 락 조회를 요청한다")
+    void createReservationSortsSeatIdsBeforeLockQuery() {
+        User user = createUser();
+        Seat seat1 = createSeat();
+        Seat seat2 = createSeat();
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(seatRepository.findAllByIdInForUpdate(List.of(10L, 20L))).thenReturn(List.of(seat1, seat2));
+        when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
+            ReservationGroup reservationGroup = invocation.getArgument(0);
+            ReflectionTestUtils.setField(reservationGroup, "id", 77L);
+            return reservationGroup;
+        });
+
+        reservationService.createReservation(1L, List.of(20L, 10L));
+
+        verify(seatRepository).findAllByIdInForUpdate(List.of(10L, 20L));
+        verify(reservationRepository).saveAll(any());
+    }
+
+    @Test
     @DisplayName("createReservation: 사용자가 없으면 예외가 발생한다")
     void createReservationUserNotFound() {
         when(userRepository.findById(anyLong())).thenReturn(Optional.empty());
