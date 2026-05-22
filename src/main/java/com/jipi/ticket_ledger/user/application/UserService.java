@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.user.application;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
@@ -40,10 +41,11 @@ public class UserService {
      */
     public String signUp(RequestSignUpDTO request) {
         if (userRepository.existsByEmail(request.email())) {
+            log.warn("event={} email={} reason={}", LogEvents.USER_SIGNUP_REJECT, request.email(), "DUPLICATE_EMAIL");
             throw new IllegalStateException("이미 존재하는 이메일입니다.");
         }
-        userRepository.save(new User(request.email(), passwordEncoder.encode(request.password()), request.name(), LocalDateTime.now()));
-        log.info("회원가입 완료: email={}, name={}", request.email(), request.name());
+        User user = userRepository.save(new User(request.email(), passwordEncoder.encode(request.password()), request.name(), LocalDateTime.now()));
+        log.info("event={} userId={} email={} name={}", LogEvents.USER_SIGNUP_SUCCESS, user.getId(), request.email(), request.name());
         return "회원가입이 완료되었습니다.";
     }
 
@@ -65,9 +67,13 @@ public class UserService {
      */
     public ResponseMyPageDTO getUserInfo(Long userId, Long principalUserId) {
         if (!userRepository.existsById(userId)) {
+            log.warn("event={} requestedUserId={} principalUserId={} reason={}",
+                    LogEvents.USER_MYPAGE_REJECT, userId, principalUserId, "USER_NOT_FOUND");
             throw new EntityNotFoundException("일치하는 사용자가 없습니다.");
         }
         if (!userId.equals(principalUserId)) {
+            log.warn("event={} requestedUserId={} principalUserId={} reason={}",
+                    LogEvents.USER_MYPAGE_REJECT, userId, principalUserId, "FORBIDDEN_MYPAGE_ACCESS");
             throw new IllegalStateException("잘못된 접근 입니다.");
         }
 

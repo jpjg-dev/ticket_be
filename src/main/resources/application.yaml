@@ -13,7 +13,7 @@ spring:
       driver-class-name: org.postgresql.Driver
 
 server:
-  port: ${PORT}
+  port: ${PORT:8080}
 
 jwt:
   secret: ${JWT_SECRET}
@@ -33,7 +33,3 @@ toss:
   payments:
     base-url: https://api.tosspayments.com
     secret-key: ${TOSS_SECRET_KEY}
-
-reservation:
-  expire-scheduler:
-    fixed-delay-ms: 15000 # 15 seconds

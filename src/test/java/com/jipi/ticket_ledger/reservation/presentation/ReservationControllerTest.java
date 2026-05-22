@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.reservation.presentation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
+import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.reservation.application.ReservationService;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -43,6 +44,9 @@ class ReservationControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private CsrfOriginFilter csrfOriginFilter;
 
     @MockitoBean
     private UserRepository userRepository;
