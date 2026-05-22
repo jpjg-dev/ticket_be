@@ -2,6 +2,7 @@ package com.jipi.ticket_ledger.user.presentation;
 
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
+import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.user.application.UserService;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.presentation.dto.ResponseMeDTO;
@@ -41,6 +42,9 @@ class UserControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private CsrfOriginFilter csrfOriginFilter;
 
     @MockitoBean
     private UserRepository userRepository;

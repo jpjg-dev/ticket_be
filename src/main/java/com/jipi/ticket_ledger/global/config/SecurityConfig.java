@@ -3,8 +3,11 @@ package com.jipi.ticket_ledger.global.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtAuthenticationFilter;
 import com.jipi.ticket_ledger.global.exception.ErrorResponse;
+import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
+import com.jipi.ticket_ledger.global.security.CsrfOriginProperties;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -26,21 +29,22 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@EnableConfigurationProperties(CsrfOriginProperties.class)
 @RequiredArgsConstructor
 public class SecurityConfig {
 
     private final ObjectMapper objectMapper;
+    private final CsrfOriginFilter csrfOriginFilter;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     // 권한계층 상수관리
-    public static final String[] HIERARCHY = {
-            "ROLE_ADMIN > ROLE_USER"
-    };
+    public static final String[] HIERARCHY = {"ROLE_ADMIN > ROLE_USER"};
 
     // spring password 암호화
     @Bean
@@ -55,9 +59,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, CorsConfigurationSource corsConfigurationSource) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable);
@@ -66,36 +70,30 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
                 .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()
-                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).hasRole("USER")
-                .anyRequest().denyAll());
+                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS)
+                .hasRole("USER").anyRequest().denyAll());
 
-        http.exceptionHandling(exception -> exception
-                .authenticationEntryPoint((request, response, authException) -> {
-                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    response.setCharacterEncoding("UTF-8");
-                    objectMapper.writeValue(response.getWriter(),
-                            new ErrorResponse("AUTH_REQUIRED", "인증이 필요합니다."));
-                })
-                .accessDeniedHandler(((request, response, accessDeniedException) -> {
-                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    response.setCharacterEncoding("UTF-8");
-                    objectMapper.writeValue(response.getWriter(),
-                            new ErrorResponse("ACCESS_DENIED", "접근 권한이 없습니다."));
-                })));
+        http.exceptionHandling(exception -> exception.authenticationEntryPoint((request, response, authException) -> {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            response.setCharacterEncoding("UTF-8");
+            objectMapper.writeValue(response.getWriter(), new ErrorResponse("AUTH_REQUIRED", "인증이 필요합니다."));
+        }).accessDeniedHandler(((request, response, accessDeniedException) -> {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            response.setCharacterEncoding("UTF-8");
+            objectMapper.writeValue(response.getWriter(), new ErrorResponse("ACCESS_DENIED", "접근 권한이 없습니다."));
+        })));
 
+        http.addFilterBefore(csrfOriginFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    public CorsConfigurationSource corsConfigurationSource(CsrfOriginProperties properties) {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of(
-                "http://localhost:*",
-                "http://127.0.0.1:*"
-        ));
+        configuration.setAllowedOrigins(properties.getAllowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setExposedHeaders(List.of("Authorization"));
@@ -110,4 +108,5 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
         return configuration.getAuthenticationManager();
     }
+
 }

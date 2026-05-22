@@ -22,3 +22,15 @@ logging:
     org.springframework: warn
     org.hibernate.SQL: debug
     org.hibernate.orm.jdbc.bind: trace
+
+#예약 만료 스케쥴러
+reservation:
+  expire-scheduler:
+    fixed-delay-ms: 15000 # 15 seconds
+
+security:
+  csrf-origin:
+    allowed-origins:
+      - https://localhost:3000
+      - http://localhost:3000
+      - http://127.0.0.1:3000
