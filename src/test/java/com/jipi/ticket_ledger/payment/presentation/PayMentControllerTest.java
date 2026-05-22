@@ -2,6 +2,7 @@ package com.jipi.ticket_ledger.payment.presentation;
 
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
+import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
@@ -47,6 +48,9 @@ class PayMentControllerTest {
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    @MockitoBean
+    private CsrfOriginFilter csrfOriginFilter;
 
     @MockitoBean
     private UserRepository userRepository;

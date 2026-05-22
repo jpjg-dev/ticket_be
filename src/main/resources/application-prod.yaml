@@ -8,6 +8,11 @@ spring:
         highlight_sql: false
         use_sql_comments: false
 
+#예약 만료 스케쥴러
+reservation:
+  expire-scheduler:
+    fixed-delay-ms: 60000 # 15 seconds
+
 logging:
   level:
     root: info
@@ -16,3 +21,9 @@ logging:
     org.hibernate: warn
     org.hibernate.SQL: warn
     org.hibernate.orm.jdbc.bind: off
+
+security:
+  csrf-origin:
+    allowed-origins:
+      - https://ticketledger.dev
+      - https://www.ticketledger.dev
