@@ -16,7 +16,20 @@ public final class LogEvents {
     public static final String PAYMENT_CANCEL_REJECT = "PAYMENT_CANCEL_REJECT";
     public static final String PAYMENT_CANCEL_SUCCESS = "PAYMENT_CANCEL_SUCCESS";
 
+    public static final String RESERVATION_CREATE_START = "RESERVATION_CREATE_START";
+    public static final String RESERVATION_CREATE_REJECT = "RESERVATION_CREATE_REJECT";
+    public static final String RESERVATION_CREATE_SUCCESS = "RESERVATION_CREATE_SUCCESS";
     public static final String RESERVATION_EXPIRE_START = "RESERVATION_EXPIRE_START";
     public static final String RESERVATION_EXPIRE_SUCCESS = "RESERVATION_EXPIRE_SUCCESS";
     public static final String PAYMENT_EXPIRE_SUCCESS = "PAYMENT_EXPIRE_SUCCESS";
+
+    public static final String AUTH_LOGIN_SUCCESS = "AUTH_LOGIN_SUCCESS";
+    public static final String AUTH_LOGIN_REJECT = "AUTH_LOGIN_REJECT";
+    public static final String AUTH_REISSUE_SUCCESS = "AUTH_REISSUE_SUCCESS";
+    public static final String AUTH_REISSUE_REJECT = "AUTH_REISSUE_REJECT";
+    public static final String AUTH_LOGOUT_SUCCESS = "AUTH_LOGOUT_SUCCESS";
+
+    public static final String USER_SIGNUP_SUCCESS = "USER_SIGNUP_SUCCESS";
+    public static final String USER_SIGNUP_REJECT = "USER_SIGNUP_REJECT";
+    public static final String USER_MYPAGE_REJECT = "USER_MYPAGE_REJECT";
 }

@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.auth.infrastructure.TokenHasher;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthRequestLoginDTO;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
 import com.jipi.ticket_ledger.global.exception.AuthUnauthorizedException;
+import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.domain.UserStatus;
@@ -53,7 +54,7 @@ public class AuthService {
                 LocalDateTime.now()
         ));
 
-        log.info("로그인 성공: email={}", request.email());
+        log.info("event={} userId={} email={}", LogEvents.AUTH_LOGIN_SUCCESS, user.getId(), request.email());
         return new AuthResponseLoginDTO(accessToken, refreshToken);
     }
 
@@ -62,11 +63,13 @@ public class AuthService {
     public AuthResponseLoginDTO reissue(String refreshToken) {
         // 토큰이 비어있으면 인증 실패로 처리한다.
         if (refreshToken == null || refreshToken.isBlank()) {
+            log.warn("event={} reason={}", LogEvents.AUTH_REISSUE_REJECT, "MISSING_REFRESH_TOKEN");
             throw new AuthUnauthorizedException();
         }
 
         // 토큰이 유효하지 않거나 Refresh Token이 아니면 재발급을 허용하지 않는다.
         if (!jwtTokenProvider.isValidToken(refreshToken) || !jwtTokenProvider.isRefreshToken(refreshToken)) {
+            log.warn("event={} reason={}", LogEvents.AUTH_REISSUE_REJECT, "INVALID_REFRESH_TOKEN");
             throw new AuthUnauthorizedException();
         }
 
@@ -117,7 +120,7 @@ public class AuthService {
         ));
 
         // 재발급 성공 로그를 남기고 새 토큰을 반환한다.
-        log.info("토큰 재발급 성공: userId={}", user.getId());
+        log.info("event={} userId={}", LogEvents.AUTH_REISSUE_SUCCESS, user.getId());
         return new AuthResponseLoginDTO(newAccessToken, newRefreshToken);
     }
 
@@ -126,11 +129,13 @@ public class AuthService {
     public void logout(String refreshToken) {
         // 요청에 토큰이 없거나 공백이면 로그아웃 처리 없이 종료한다.
         if (refreshToken == null || refreshToken.isBlank()) {
+            log.debug("logout ignored because refresh token is missing");
             return;
         }
 
         // 토큰이 유효하지 않거나 Refresh Token이 아니면 처리하지 않는다.
         if (!jwtTokenProvider.isValidToken(refreshToken) || !jwtTokenProvider.isRefreshToken(refreshToken)) {
+            log.warn("event={} reason={}", LogEvents.AUTH_REISSUE_REJECT, "INVALID_LOGOUT_REFRESH_TOKEN");
             return;
         }
 
@@ -147,16 +152,21 @@ public class AuthService {
                 // 이미 폐기된 토큰은 중복 처리하지 않는다.
                 .filter(savedToken -> !savedToken.isRevoked())
                 // 조건을 모두 통과한 토큰에 대해 폐기 시점을 기록한다.
-                .ifPresent(savedToken -> savedToken.revoke(LocalDateTime.now()));
+                .ifPresent(savedToken -> {
+                    savedToken.revoke(LocalDateTime.now());
+                    log.info("event={} userId={}", LogEvents.AUTH_LOGOUT_SUCCESS, userId);
+                });
     }
 
     // 로그인 가능한 사용자 상태와 비밀번호 일치 여부를 검증한다.
     private void validateLoginUser(AuthRequestLoginDTO request, User user) {
         if (user.getStatus() != UserStatus.ACTIVE) {
+            log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "INACTIVE_USER");
             throw new IllegalStateException("활성화된 사용자만 로그인할 수 있습니다.");
         }
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+            log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "PASSWORD_MISMATCH");
             throw new IllegalStateException("비밀번호가 일치하지 않습니다.");
         }
     }
