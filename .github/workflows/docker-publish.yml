@@ -61,20 +61,13 @@ jobs:
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-            docker compose --env-file .env config
-
-            if docker ps -a --format '{{.Names}}' | grep -qx ticket-be; then
-              docker stop ticket-be
-              docker rm ticket-be
-            fi
-
+            docker compose --env-file .env config -q
+            
             docker compose --env-file .env up -d --pull always backend
-
-            if docker compose --env-file .env ps --status running --services | grep -qx nginx; then
-              docker compose --env-file .env exec -T nginx nginx -t
-              docker compose --env-file .env exec -T nginx nginx -s reload
+            
+            if docker compose --env-file .env ps --status running --services | grep -qx backend; then
+              echo "backend is running"
             else
-              docker stop ticket-nginx || true
-              docker rm ticket-nginx || true
-              docker compose --env-file .env up -d --pull missing nginx
+              docker compose --env-file .env logs --tail=100 backend
+              exit 1
             fi
