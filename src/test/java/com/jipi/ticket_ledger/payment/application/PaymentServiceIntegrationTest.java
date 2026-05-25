@@ -387,13 +387,9 @@ class PaymentServiceIntegrationTest {
         ));
         scheduleIds.add(schedule.getId());
 
-        ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now));
+        LocalDateTime expiresAt = expiredReservation ? now.minusMinutes(1) : now.plusMinutes(5);
+        ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
         reservationGroupIds.add(reservationGroup.getId());
-
-        if (expiredReservation) {
-            ReflectionTestUtils.setField(reservationGroup, "expiresAt", now.minusMinutes(1));
-            reservationGroup = reservationGroupRepository.save(reservationGroup);
-        }
 
         java.util.List<Long> fixturesavedReservationIds = new java.util.ArrayList<>();
         java.util.List<Long> fixtureSeatIds = new java.util.ArrayList<>();
@@ -414,11 +410,7 @@ class PaymentServiceIntegrationTest {
             seatIds.add(seat.getId());
             fixtureSeatIds.add(seat.getId());
 
-            Reservation reservation = reservationRepository.save(new Reservation(user, seat, reservationGroup, now));
-            if (expiredReservation) {
-                ReflectionTestUtils.setField(reservation, "expiresAt", now.minusMinutes(1));
-                reservation = reservationRepository.save(reservation);
-            }
+            Reservation reservation = reservationRepository.save(new Reservation(user, seat, reservationGroup, now, expiresAt));
             savedReservationIds.add(reservation.getId());
             fixturesavedReservationIds.add(reservation.getId());
             totalPrice += seat.getPrice();

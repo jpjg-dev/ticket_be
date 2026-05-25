@@ -1,7 +1,7 @@
 spring:
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: validate
     properties:
       hibernate:
         format_sql: false
@@ -10,8 +10,9 @@ spring:
 
 #예약 만료 스케쥴러
 reservation:
+  hold-duration: 5m
   expire-scheduler:
-    fixed-delay-ms: 60000 # 15 seconds
+    fixed-delay-ms: 60000 # 1 minute
 
 logging:
   level:

@@ -27,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -62,6 +63,7 @@ class ReservationServiceTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(reservationService, "holdDuration", Duration.ofMinutes(5));
         lenient().when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
                 .thenReturn(List.of());
         lenient().when(paymentRepository.findByReservationGroupId(anyLong())).thenReturn(Optional.empty());
@@ -92,7 +94,8 @@ class ReservationServiceTest {
         assertEquals(ReservationStatus.PENDING, savedReservation.getStatus());
         assertNotNull(savedReservation.getReservationGroup());
         assertNotNull(savedReservation.getExpiresAt());
-        assertFalse(savedReservation.getExpiresAt().isBefore(savedReservation.getReservedAt()));
+        assertEquals(savedReservation.getReservedAt().plus(Duration.ofMinutes(5)), savedReservation.getExpiresAt());
+        assertEquals(savedReservation.getReservationGroup().getExpiresAt(), savedReservation.getExpiresAt());
     }
 
     @Test
@@ -212,16 +215,16 @@ class ReservationServiceTest {
     @DisplayName("expireReservations: 만료된 group 안의 모든 예약과 좌석을 함께 만료 처리한다")
     void expireReservationsForReservationGroup() {
         User user = createUser();
-        ReservationGroup reservationGroup = new ReservationGroup(user, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        ReservationGroup reservationGroup = new ReservationGroup(user, now, now.minusSeconds(1));
         ReflectionTestUtils.setField(reservationGroup, "id", 3L);
-        ReflectionTestUtils.setField(reservationGroup, "expiresAt", LocalDateTime.now().minusSeconds(1));
 
         Seat seat1 = createSeat();
         Seat seat2 = createSeat();
         seat1.hold();
         seat2.hold();
-        Reservation reservation1 = new Reservation(user, seat1, reservationGroup, LocalDateTime.now());
-        Reservation reservation2 = new Reservation(user, seat2, reservationGroup, LocalDateTime.now());
+        Reservation reservation1 = new Reservation(user, seat1, reservationGroup, now, reservationGroup.getExpiresAt());
+        Reservation reservation2 = new Reservation(user, seat2, reservationGroup, now, reservationGroup.getExpiresAt());
         Payment payment = new Payment(reservationGroup, 200000, LocalDateTime.now(), "order-expire-group", "KRW");
 
         when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
@@ -257,10 +260,10 @@ class ReservationServiceTest {
     private Reservation createPendingReservationWithHeldSeat() {
         Seat seat = createSeat();
         seat.hold();
-        ReservationGroup reservationGroup = new ReservationGroup(createUser(), LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        ReservationGroup reservationGroup = new ReservationGroup(createUser(), now, now.minusSeconds(1));
         ReflectionTestUtils.setField(reservationGroup, "id", 1L);
-        ReflectionTestUtils.setField(reservationGroup, "expiresAt", LocalDateTime.now().minusSeconds(1));
-        return new Reservation(createUser(), seat, reservationGroup, LocalDateTime.now());
+        return new Reservation(createUser(), seat, reservationGroup, now, reservationGroup.getExpiresAt());
     }
 
     private Seat createSeat() {

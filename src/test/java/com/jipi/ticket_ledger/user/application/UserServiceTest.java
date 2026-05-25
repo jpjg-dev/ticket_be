@@ -180,7 +180,7 @@ class UserServiceTest {
                 .mapToObj(index -> {
                     Seat seat = new Seat(schedule, seatNumbers[index], "VIP", 100000, now);
                     seat.hold();
-                    Reservation reservation = new Reservation(user, seat, reservationGroup, now);
+                    Reservation reservation = new Reservation(user, seat, reservationGroup, now, reservationGroup.getExpiresAt());
                     ReflectionTestUtils.setField(reservation, "id", reservationGroup.getId() * 10 + index);
                     return reservation;
                 })
@@ -188,7 +188,7 @@ class UserServiceTest {
     }
 
     private ReservationGroup createReservationGroup(User user, Long reservationGroupId, LocalDateTime now) {
-        ReservationGroup reservationGroup = new ReservationGroup(user, now);
+        ReservationGroup reservationGroup = new ReservationGroup(user, now, now.plusMinutes(5));
         ReflectionTestUtils.setField(reservationGroup, "id", reservationGroupId);
         return reservationGroup;
     }

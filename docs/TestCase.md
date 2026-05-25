@@ -8,7 +8,8 @@
 - [x] 정상적으로 예약 group이 생성된다
 - [x] 선택 좌석들의 Seat 상태: `AVAILABLE -> HELD`
 - [x] group 안의 Reservation 상태: `PENDING`
-- [x] `expiresAt`이 정상 설정된다
+- [x] 환경 설정의 선점 유지 시간으로 `expiresAt`이 설정된다
+- [x] 하나의 group과 group 안의 Reservation은 동일한 `expiresAt`을 공유한다
 - [x] 겹치는 좌석 묶음 동시 요청 시 하나의 group만 성공한다
 
 #### 실패 케이스

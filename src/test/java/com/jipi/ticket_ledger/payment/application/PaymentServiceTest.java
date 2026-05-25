@@ -327,9 +327,7 @@ class PaymentServiceTest {
         Seat seat = createSeat();
         seat.hold();
 
-        Reservation reservation = new Reservation(createUser(), seat, reservationGroup, LocalDateTime.now());
-        ReflectionTestUtils.setField(reservation, "expiresAt", expiresAt);
-        return reservation;
+        return new Reservation(createUser(), seat, reservationGroup, LocalDateTime.now(), expiresAt);
     }
 
     private void stubReservationsForPayment(Payment payment, Reservation... reservations) {
@@ -338,9 +336,8 @@ class PaymentServiceTest {
     }
 
     private ReservationGroup createReservationGroup(LocalDateTime expiresAt) {
-        ReservationGroup reservationGroup = new ReservationGroup(createUser(), LocalDateTime.now());
+        ReservationGroup reservationGroup = new ReservationGroup(createUser(), LocalDateTime.now(), expiresAt);
         ReflectionTestUtils.setField(reservationGroup, "id", 1L);
-        ReflectionTestUtils.setField(reservationGroup, "expiresAt", expiresAt);
         return reservationGroup;
     }
 

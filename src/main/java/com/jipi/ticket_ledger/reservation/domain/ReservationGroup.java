@@ -37,10 +37,10 @@ public class ReservationGroup {
     @Column(nullable = false)
     private LocalDateTime expiresAt;
 
-    public ReservationGroup(User user, LocalDateTime now) {
+    public ReservationGroup(User user, LocalDateTime now, LocalDateTime expiresAt) {
         this.user = user;
         this.createdAt = now;
-        this.expiresAt = now.plusSeconds(30);
+        this.expiresAt = expiresAt;
     }
 
     public boolean isExpiredAt(LocalDateTime now) {

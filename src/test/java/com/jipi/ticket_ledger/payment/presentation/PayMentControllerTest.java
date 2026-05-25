@@ -156,9 +156,9 @@ class PayMentControllerTest {
         Seat seat = new Seat(schedule, "A-1", "VIP", 100000, now);
         seat.hold();
         User user = new User("ready@test.com", "pw", "유저", now);
-        ReservationGroup reservationGroup = new ReservationGroup(user, now);
+        ReservationGroup reservationGroup = new ReservationGroup(user, now, now.plusMinutes(5));
         org.springframework.test.util.ReflectionTestUtils.setField(reservationGroup, "id", 1L);
-        Reservation reservation = new Reservation(user, seat, reservationGroup, now);
+        Reservation reservation = new Reservation(user, seat, reservationGroup, now, reservationGroup.getExpiresAt());
         Payment payment = new Payment(reservationGroup, 100000, now, "order-1", "KRW");
 
         org.springframework.test.util.ReflectionTestUtils.setField(payment, "id", 1L);

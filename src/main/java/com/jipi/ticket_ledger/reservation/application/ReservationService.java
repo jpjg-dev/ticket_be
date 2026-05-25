@@ -15,9 +15,11 @@ import com.jipi.ticket_ledger.user.domain.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -28,13 +30,14 @@ import java.util.Set;
 @Transactional
 @Slf4j
 public class ReservationService {
-    private static final long RESERVATION_HOLD_MINUTES = 10L;
-
     private final ReservationRepository reservationRepository;
     private final UserRepository userRepository;
     private final SeatRepository seatRepository;
     private final PaymentRepository paymentRepository;
     private final ReservationGroupRepository reservationGroupRepository;
+
+    @Value("${reservation.hold-duration}")
+    private Duration holdDuration;
 
     public Long createReservation(Long userId, List<Long> seatIds) {
         log.info("event={} userId={} requestedSeatCount={}",
@@ -61,12 +64,13 @@ public class ReservationService {
 
         // 2) 좌석 상태를 AVAILABLE -> HELD로 변경해 임시 선점한다.
         LocalDateTime now = LocalDateTime.now();
-        ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now));
+        LocalDateTime expiresAt = now.plus(holdDuration);
+        ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
 
         List<Reservation> reservations = seats.stream()
                 .map(seat -> {
                     seat.hold();
-                    return new Reservation(user, seat, reservationGroup, now);
+                    return new Reservation(user, seat, reservationGroup, now, expiresAt);
                 })
                 .toList();
         reservationRepository.saveAll(reservations);
