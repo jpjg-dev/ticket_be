@@ -16,10 +16,6 @@ import java.util.Optional;
 public interface SeatRepository extends JpaRepository<Seat, Long> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select s from Seat s where s.id = :seatId")
-    Optional<Seat> findByIdForUpdate(@Param("seatId") Long seatId);
-
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Seat s where s.id in :seatIds order by s.id asc")
     List<Seat> findAllByIdInForUpdate(@Param("seatIds") Collection<Long> seatIds);
 
@@ -28,6 +24,4 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
 
     List<Seat> findByScheduleIdIn(Collection<Long> scheduleIds);
 
-    //특정 회차에 특정 좌석 찾기
-    Optional<Seat> findByScheduleIdAndSeatNumber(Long scheduleId, String seatNumber);
 }
