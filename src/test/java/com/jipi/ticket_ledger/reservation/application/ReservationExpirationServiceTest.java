@@ -8,6 +8,7 @@ import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -59,6 +60,7 @@ class ReservationExpirationServiceTest {
         int expiredCount = reservationExpirationService.expireAll();
 
         assertEquals(2, expiredCount);
+        assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
         assertEquals(PaymentStatus.FAILED, fixture.payment().getStatus());
         assertEquals(ReservationStatus.EXPIRED, fixture.reservations().get(0).getStatus());
         assertEquals(ReservationStatus.EXPIRED, fixture.reservations().get(1).getStatus());
@@ -79,6 +81,7 @@ class ReservationExpirationServiceTest {
         int expiredCount = reservationExpirationService.expireByScheduleId(99L);
 
         assertEquals(2, expiredCount);
+        assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
         assertEquals(ReservationStatus.EXPIRED, fixture.reservations().get(0).getStatus());
         verify(reservationGroupRepository).findExpiredByScheduleId(eq(99L), any(LocalDateTime.class));
     }
@@ -97,6 +100,7 @@ class ReservationExpirationServiceTest {
         int expiredCount = reservationExpirationService.expireAll();
 
         assertEquals(2, expiredCount);
+        assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
         assertEquals(PaymentStatus.FAILED, fixture.payment().getStatus());
         assertEquals(ReservationStatus.EXPIRED, fixture.reservations().get(0).getStatus());
     }
@@ -111,6 +115,7 @@ class ReservationExpirationServiceTest {
         int expiredCount = reservationExpirationService.expireAll();
 
         assertEquals(0, expiredCount);
+        assertEquals(ReservationGroupStatus.PENDING, fixture.group().getStatus());
         assertEquals(PaymentStatus.READY, fixture.payment().getStatus());
         assertEquals(ReservationStatus.PENDING, fixture.reservations().get(0).getStatus());
         assertEquals(SeatStatus.HELD, fixture.reservations().get(0).getSeat().getStatus());

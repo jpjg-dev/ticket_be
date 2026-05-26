@@ -7,10 +7,10 @@ spring:
     name: ticket-ledger
 
   datasource:
-      url: ${DB_URL}
-      username: ${DB_USERNAME}
-      password: ${DB_PASSWORD}
-      driver-class-name: org.postgresql.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
 
 server:
   port: ${PORT:8080}
@@ -33,3 +33,4 @@ toss:
   payments:
     base-url: https://api.tosspayments.com
     secret-key: ${TOSS_SECRET_KEY}
+

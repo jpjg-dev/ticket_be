@@ -5,8 +5,8 @@ import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
-import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.presentation.dto.RequestSignUpDTO;
@@ -77,9 +77,9 @@ public class UserService {
             throw new IllegalStateException("잘못된 접근 입니다.");
         }
 
-        List<Reservation> reservations = reservationRepository.findByUserIdAndStatusIn(
+        List<Reservation> reservations = reservationRepository.findByReservationGroupUserIdAndReservationGroupStatusIn(
                 userId,
-                List.of(ReservationStatus.CONFIRMED, ReservationStatus.CANCELED),
+                List.of(ReservationGroupStatus.CONFIRMED, ReservationGroupStatus.CANCELED),
                 Sort.by(Sort.Direction.DESC, "id")
         );
 
@@ -113,7 +113,7 @@ public class UserService {
         Reservation firstReservation = reservations.get(0);
         return new ResponseMyPageDTO.ReservationGroupItem(
                 reservationGroupId,
-                firstReservation.getStatus().name(),
+                firstReservation.getReservationGroup().getStatus().name(),
                 firstReservation.getSeat().getSchedule().getEvent().getTitle(),
                 firstReservation.getSeat().getSchedule().getEvent().getVenue(),
                 firstReservation.getSeat().getSchedule().getStartAt(),

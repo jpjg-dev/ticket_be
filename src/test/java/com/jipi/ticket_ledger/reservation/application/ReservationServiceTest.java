@@ -4,6 +4,7 @@ import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
@@ -80,6 +81,7 @@ class ReservationServiceTest {
         Reservation savedReservation = captor.getValue().iterator().next();
         assertEquals(ReservationStatus.PENDING, savedReservation.getStatus());
         assertNotNull(savedReservation.getReservationGroup());
+        assertEquals(ReservationGroupStatus.PENDING, savedReservation.getReservationGroup().getStatus());
         assertNotNull(savedReservation.getExpiresAt());
         assertEquals(savedReservation.getReservedAt().plus(Duration.ofMinutes(5)), savedReservation.getExpiresAt());
         assertEquals(savedReservation.getReservationGroup().getExpiresAt(), savedReservation.getExpiresAt());

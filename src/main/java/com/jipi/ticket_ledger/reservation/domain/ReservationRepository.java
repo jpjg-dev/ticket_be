@@ -8,8 +8,11 @@ import java.util.List;
 
 @Repository
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
-    //ID 기반 예약상태별 조회
-    List<Reservation> findByUserIdAndStatusIn(Long userId, List<ReservationStatus> statusList, Sort sort);
+    List<Reservation> findByReservationGroupUserIdAndReservationGroupStatusIn(
+            Long userId,
+            List<ReservationGroupStatus> statusList,
+            Sort sort
+    );
 
     List<Reservation> findByReservationGroupId(Long reservationGroupId);
 }

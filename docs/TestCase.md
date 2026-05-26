@@ -6,6 +6,7 @@
 
 #### 성공 케이스
 - [x] 정상적으로 예약 group이 생성된다
+- [x] 생성된 ReservationGroup 상태: `PENDING`
 - [x] 선택 좌석들의 Seat 상태: `AVAILABLE -> HELD`
 - [x] group 안의 Reservation 상태: `PENDING`
 - [x] 환경 설정의 선점 유지 시간으로 `expiresAt`이 설정된다
@@ -23,6 +24,7 @@
 
 #### 성공 케이스
 - [x] 만료된 group 안의 pending Reservation은 `PENDING -> EXPIRED`
+- [x] 만료된 ReservationGroup은 `PENDING -> EXPIRED`
 - [x] 만료된 group 안의 좌석은 `HELD -> AVAILABLE`
 - [x] 만료된 group에 연결된 결제가 `READY`면 `FAILED`로 전이된다
 - [x] 스케줄러용 전체 만료 처리와 좌석 조회용 회차별 만료 처리가 분리된다
@@ -60,7 +62,7 @@
 - [ ] Payment 상태가 `READY`일 때 승인된다
 - [x] group 안의 Reservation 상태가 모두 `PENDING`일 때 승인된다
 - [ ] amount(총액, VAT 포함) 검증 통과 시 승인된다
-- [x] 승인 성공 시 `Payment APPROVED / group 안의 Reservation CONFIRMED / Seat BOOKED`
+- [x] 승인 성공 시 `Payment APPROVED / ReservationGroup CONFIRMED / group 안의 Reservation CONFIRMED / Seat BOOKED`
 - [ ] `paymentKey`, `method`, `pgStatus`가 저장된다
 - [ ] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정한다
 - [ ] 로그 이벤트 키가 `PAYMENT_CONFIRM_*` 규칙으로 출력된다
@@ -80,7 +82,7 @@
 #### 성공 케이스
 - [ ] `READY -> FAILED`
 - [x] group이 미만료면 Reservation/Seat 상태는 유지된다
-- [x] group이 만료면 group 안의 `Reservation EXPIRED`, `Seat AVAILABLE`로 전이된다
+- [x] group이 만료면 `ReservationGroup EXPIRED`, group 안의 `Reservation EXPIRED`, `Seat AVAILABLE`로 전이된다
 
 #### 실패 케이스
 - [ ] `READY`가 아니면 `IllegalStateException`
@@ -91,7 +93,7 @@
 
 #### 성공 케이스
 - [ ] `APPROVED` 결제만 취소 가능하다
-- [x] PG 취소 성공 후 `Payment CANCELED / group 안의 Reservation CANCELED / Seat AVAILABLE`
+- [x] PG 취소 성공 후 `Payment CANCELED / ReservationGroup CANCELED / group 안의 Reservation CANCELED / Seat AVAILABLE`
 - [ ] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정한다
 - [ ] 로그 이벤트 키가 `PAYMENT_CANCEL_*` 규칙으로 출력된다
 
@@ -138,7 +140,8 @@
 ### 4.2 mypage
 - [x] 본인 userId만 조회 가능하다
 - [x] 다른 사용자 조회 시 `IllegalStateException`
-- [x] `CONFIRMED`, `CANCELED` 예약을 group 기준으로 반환한다
+- [x] `ReservationGroup.status`가 `CONFIRMED`, `CANCELED`인 예매를 group 기준으로 반환한다
+- [x] 마이페이지 예매 상태 값은 `ReservationGroup.status`를 사용한다
 - [x] `APPROVED`, `CANCELED` 결제를 group 기준으로 반환한다
 - [x] 결제 취소에 필요한 `paymentId`와 좌석 목록을 포함한다
 - [x] 컨트롤러가 path variable userId와 principal userId를 서비스로 전달한다

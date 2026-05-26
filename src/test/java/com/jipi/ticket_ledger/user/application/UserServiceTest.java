@@ -6,8 +6,8 @@ import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
-import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
@@ -84,9 +84,9 @@ class UserServiceTest {
         ReservationFixture canceledFixture = createCanceledReservationFixture(user, 20L, 200L, "B-1");
 
         when(userRepository.existsById(1L)).thenReturn(true);
-        when(reservationRepository.findByUserIdAndStatusIn(
+        when(reservationRepository.findByReservationGroupUserIdAndReservationGroupStatusIn(
                 eq(1L),
-                eq(List.of(ReservationStatus.CONFIRMED, ReservationStatus.CANCELED)),
+                eq(List.of(ReservationGroupStatus.CONFIRMED, ReservationGroupStatus.CANCELED)),
                 eq(Sort.by(Sort.Direction.DESC, "id"))
         )).thenReturn(List.of(
                 approvedFixture.reservations().get(0),
@@ -128,9 +128,9 @@ class UserServiceTest {
         when(userRepository.existsById(404L)).thenReturn(false);
 
         assertThrows(EntityNotFoundException.class, () -> userService.getUserInfo(404L, 404L));
-        verify(reservationRepository, never()).findByUserIdAndStatusIn(
+        verify(reservationRepository, never()).findByReservationGroupUserIdAndReservationGroupStatusIn(
                 eq(404L),
-                eq(List.of(ReservationStatus.CONFIRMED, ReservationStatus.CANCELED)),
+                eq(List.of(ReservationGroupStatus.CONFIRMED, ReservationGroupStatus.CANCELED)),
                 eq(Sort.by(Sort.Direction.DESC, "id"))
         );
     }
@@ -159,6 +159,7 @@ class UserServiceTest {
             reservation.confirm();
             reservation.getSeat().book();
         });
+        reservationGroup.confirm();
         return new ReservationFixture(reservations, payment);
     }
 
@@ -169,6 +170,7 @@ class UserServiceTest {
             reservation.cancel();
             reservation.getSeat().releaseBooked();
         });
+        fixture.reservations().get(0).getReservationGroup().cancel();
         return fixture;
     }
 

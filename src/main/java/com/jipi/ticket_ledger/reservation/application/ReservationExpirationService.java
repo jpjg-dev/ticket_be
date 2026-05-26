@@ -62,6 +62,7 @@ public class ReservationExpirationService {
                         LogEvents.PAYMENT_EXPIRE_SUCCESS, orderId, paymentId, reservationGroup.getId(), "READY_TO_FAILED");
             }
 
+            reservationGroup.expire();
             pendingReservations.forEach(reservation -> {
                 reservation.expire();
                 reservation.getSeat().release();
