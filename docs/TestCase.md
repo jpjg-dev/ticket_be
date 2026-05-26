@@ -19,17 +19,20 @@
 
 ---
 
-### 1.2 expireReservations()
+### 1.2 ReservationExpirationService
 
 #### 성공 케이스
 - [x] 만료된 group 안의 pending Reservation은 `PENDING -> EXPIRED`
 - [x] 만료된 group 안의 좌석은 `HELD -> AVAILABLE`
 - [x] 만료된 group에 연결된 결제가 `READY`면 `FAILED`로 전이된다
+- [x] 스케줄러용 전체 만료 처리와 좌석 조회용 회차별 만료 처리가 분리된다
+- [x] 좌석 조회 시 현재 `scheduleId`의 만료 group만 먼저 정리한다
 
 #### 검증 포인트
 - [x] 만료 대상 group이 없으면 상태 변화가 없다
 - [x] 결제가 없거나 `READY`가 아니면 결제 상태는 변경하지 않는다
-- [x] `expireReservations()` 반환값(expiredCount)이 실제 만료 처리 reservation 건수와 일치한다
+- [x] 만료 처리 반환값(`expiredCount`)이 실제 만료 처리 reservation 건수와 일치한다
+- [x] `createReservation()`은 전체 만료 정리를 호출하지 않고 좌석 선점 생성만 담당한다
 
 ---
 
@@ -148,7 +151,7 @@
 2. [x] `PaymentService.cancelPayment()`
 3. [x] `PaymentService.readyPayment()`
 4. [x] `PaymentService.getPaymentStatus()`
-5. [x] `ReservationService.expireReservations()`
+5. [x] `ReservationExpirationService.expireAll()` / `expireByScheduleId()`
 6. [x] `ReservationService.createReservation()`
 7. [x] `PaymentService.failPayment()`
 

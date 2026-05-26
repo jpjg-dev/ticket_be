@@ -2,10 +2,6 @@ package com.jipi.ticket_ledger.reservation.application;
 
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
-import com.jipi.ticket_ledger.payment.domain.Payment;
-import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
-import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
-import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
@@ -47,13 +43,7 @@ class ReservationServiceTest {
     private UserRepository userRepository;
 
     @Mock
-    private ScheduleRepository scheduleRepository;
-
-    @Mock
     private SeatRepository seatRepository;
-
-    @Mock
-    private PaymentRepository paymentRepository;
 
     @Mock
     private ReservationGroupRepository reservationGroupRepository;
@@ -64,9 +54,6 @@ class ReservationServiceTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(reservationService, "holdDuration", Duration.ofMinutes(5));
-        lenient().when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
-                .thenReturn(List.of());
-        lenient().when(paymentRepository.findByReservationGroupId(anyLong())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -96,6 +83,7 @@ class ReservationServiceTest {
         assertNotNull(savedReservation.getExpiresAt());
         assertEquals(savedReservation.getReservedAt().plus(Duration.ofMinutes(5)), savedReservation.getExpiresAt());
         assertEquals(savedReservation.getReservationGroup().getExpiresAt(), savedReservation.getExpiresAt());
+        verify(reservationGroupRepository, never()).findByExpiresAtLessThanEqual(any(LocalDateTime.class));
     }
 
     @Test
@@ -162,108 +150,6 @@ class ReservationServiceTest {
                 () -> reservationService.createReservation(1L, List.of(10L)));
 
         verify(reservationRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("expireReservations: 만료된 예약은 EXPIRED로 변경되고 좌석이 복구된다")
-    void expireReservationsSuccess() {
-        Reservation expiredReservation = createPendingReservationWithHeldSeat();
-        ReservationGroup reservationGroup = expiredReservation.getReservationGroup();
-        ReflectionTestUtils.setField(expiredReservation, "expiresAt", LocalDateTime.now().minusSeconds(1));
-        ReflectionTestUtils.setField(expiredReservation, "id", 1L);
-
-        Payment payment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-expire-1", "KRW");
-
-        when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
-                .thenReturn(List.of(reservationGroup));
-        when(reservationRepository.findByReservationGroupId(reservationGroup.getId())).thenReturn(List.of(expiredReservation));
-        when(paymentRepository.findByReservationGroupId(reservationGroup.getId())).thenReturn(Optional.of(payment));
-
-        int expiredCount = reservationService.expireReservations();
-
-        assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
-        assertEquals(SeatStatus.AVAILABLE, expiredReservation.getSeat().getStatus());
-        assertEquals(PaymentStatus.FAILED, payment.getStatus());
-        assertEquals(1, expiredCount);
-    }
-
-    @Test
-    @DisplayName("expireReservations: 연결 결제가 READY가 아니면 결제 상태는 변경하지 않는다")
-    void expireReservationsWithApprovedPayment() {
-        Reservation expiredReservation = createPendingReservationWithHeldSeat();
-        ReservationGroup reservationGroup = expiredReservation.getReservationGroup();
-        ReflectionTestUtils.setField(expiredReservation, "expiresAt", LocalDateTime.now().minusSeconds(1));
-        ReflectionTestUtils.setField(expiredReservation, "id", 2L);
-
-        Payment payment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-expire-2", "KRW");
-        payment.fail();
-
-        when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
-                .thenReturn(List.of(reservationGroup));
-        when(reservationRepository.findByReservationGroupId(reservationGroup.getId())).thenReturn(List.of(expiredReservation));
-        when(paymentRepository.findByReservationGroupId(reservationGroup.getId())).thenReturn(Optional.of(payment));
-
-        int expiredCount = reservationService.expireReservations();
-
-        assertEquals(PaymentStatus.FAILED, payment.getStatus());
-        assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
-        assertEquals(SeatStatus.AVAILABLE, expiredReservation.getSeat().getStatus());
-        assertEquals(1, expiredCount);
-    }
-
-    @Test
-    @DisplayName("expireReservations: 만료된 group 안의 모든 예약과 좌석을 함께 만료 처리한다")
-    void expireReservationsForReservationGroup() {
-        User user = createUser();
-        LocalDateTime now = LocalDateTime.now();
-        ReservationGroup reservationGroup = new ReservationGroup(user, now, now.minusSeconds(1));
-        ReflectionTestUtils.setField(reservationGroup, "id", 3L);
-
-        Seat seat1 = createSeat();
-        Seat seat2 = createSeat();
-        seat1.hold();
-        seat2.hold();
-        Reservation reservation1 = new Reservation(user, seat1, reservationGroup, now, reservationGroup.getExpiresAt());
-        Reservation reservation2 = new Reservation(user, seat2, reservationGroup, now, reservationGroup.getExpiresAt());
-        Payment payment = new Payment(reservationGroup, 200000, LocalDateTime.now(), "order-expire-group", "KRW");
-
-        when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
-                .thenReturn(List.of(reservationGroup));
-        when(reservationRepository.findByReservationGroupId(3L)).thenReturn(List.of(reservation1, reservation2));
-        when(paymentRepository.findByReservationGroupId(3L)).thenReturn(Optional.of(payment));
-
-        int expiredCount = reservationService.expireReservations();
-
-        assertEquals(2, expiredCount);
-        assertEquals(PaymentStatus.FAILED, payment.getStatus());
-        assertEquals(ReservationStatus.EXPIRED, reservation1.getStatus());
-        assertEquals(ReservationStatus.EXPIRED, reservation2.getStatus());
-        assertEquals(SeatStatus.AVAILABLE, seat1.getStatus());
-        assertEquals(SeatStatus.AVAILABLE, seat2.getStatus());
-    }
-
-    @Test
-    @DisplayName("expireReservations: 만료 대상이 없으면 상태가 유지된다")
-    void expireReservationsNoTarget() {
-        Reservation reservation = createPendingReservationWithHeldSeat();
-
-        when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
-                .thenReturn(List.of());
-
-        int expiredCount = reservationService.expireReservations();
-
-        assertEquals(ReservationStatus.PENDING, reservation.getStatus());
-        assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
-        assertEquals(0, expiredCount);
-    }
-
-    private Reservation createPendingReservationWithHeldSeat() {
-        Seat seat = createSeat();
-        seat.hold();
-        LocalDateTime now = LocalDateTime.now();
-        ReservationGroup reservationGroup = new ReservationGroup(createUser(), now, now.minusSeconds(1));
-        ReflectionTestUtils.setField(reservationGroup, "id", 1L);
-        return new Reservation(createUser(), seat, reservationGroup, now, reservationGroup.getExpiresAt());
     }
 
     private Seat createSeat() {

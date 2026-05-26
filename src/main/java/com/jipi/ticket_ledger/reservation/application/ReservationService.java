@@ -1,9 +1,6 @@
 package com.jipi.ticket_ledger.reservation.application;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
-import com.jipi.ticket_ledger.payment.domain.Payment;
-import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
-import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
@@ -33,7 +30,6 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final UserRepository userRepository;
     private final SeatRepository seatRepository;
-    private final PaymentRepository paymentRepository;
     private final ReservationGroupRepository reservationGroupRepository;
 
     @Value("${reservation.hold-duration}")
@@ -42,8 +38,6 @@ public class ReservationService {
     public Long createReservation(Long userId, List<Long> seatIds) {
         log.info("event={} userId={} requestedSeatCount={}",
                 LogEvents.RESERVATION_CREATE_START, userId, seatIds == null ? 0 : seatIds.size());
-        // 수동 요청들어올시 예약만료 검사
-        expireReservations();
         validateSeatIds(seatIds);
         // 1) 요청에 포함된 사용자와 좌석을 조회하고, 없으면 즉시 예외를 던진다.
         User user = userRepository.findById(userId)
@@ -112,43 +106,5 @@ public class ReservationService {
             log.warn("event={} scheduleCount={} reason={}", LogEvents.RESERVATION_CREATE_REJECT, scheduleCount, "DIFFERENT_SCHEDULE");
             throw new IllegalArgumentException("같은 회차의 좌석만 함께 예매할 수 있습니다.");
         }
-    }
-
-    // 예약 만료
-    public int expireReservations() {
-        LocalDateTime now = LocalDateTime.now();
-        List<ReservationGroup> expiredGroups = reservationGroupRepository.findByExpiresAtLessThanEqual(now);
-        int expiredCount = 0;
-        for (ReservationGroup reservationGroup : expiredGroups) {
-            List<Reservation> reservations = reservationRepository.findByReservationGroupId(reservationGroup.getId());
-            List<Reservation> pendingReservations = reservations.stream()
-                    .filter(Reservation::isPending)
-                    .toList();
-            if (pendingReservations.isEmpty()) {
-                continue;
-            }
-
-            Payment payment = paymentRepository.findByReservationGroupId(reservationGroup.getId()).orElse(null);
-
-            String orderId = payment != null ? payment.getOrderId() : "N/A";
-            Long paymentId = payment != null ? payment.getId() : null;
-            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
-                    LogEvents.RESERVATION_EXPIRE_START, orderId, paymentId, reservationGroup.getId(), "REQUEST");
-
-            if (payment != null && payment.getStatus() == PaymentStatus.READY) {
-                payment.fail();
-                log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
-                        LogEvents.PAYMENT_EXPIRE_SUCCESS, orderId, paymentId, reservationGroup.getId(), "READY_TO_FAILED");
-            }
-
-            pendingReservations.forEach(reservation -> {
-                reservation.expire();
-                reservation.getSeat().release();
-            });
-            log.warn("event={} orderId={} paymentId={} reservationGroupId={} expiredCount={} reason={}",
-                    LogEvents.RESERVATION_EXPIRE_SUCCESS, orderId, paymentId, reservationGroup.getId(), pendingReservations.size(), "EXPIRED_BY_SCHEDULER");
-            expiredCount += pendingReservations.size();
-        }
-        return expiredCount;
     }
 }
