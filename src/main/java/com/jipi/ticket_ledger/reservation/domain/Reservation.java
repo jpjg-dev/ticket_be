@@ -42,13 +42,13 @@ public class Reservation {
 
     private LocalDateTime canceledAt;
 
-    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now) {
+    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now, LocalDateTime expiresAt) {
         this.user = user;
         this.seat = seat;
         this.reservationGroup = reservationGroup;
         this.status = ReservationStatus.PENDING;
         this.reservedAt = now;
-        this.expiresAt = now.plusSeconds(30);
+        this.expiresAt = expiresAt;
     }
 
     public void confirm() {

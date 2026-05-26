@@ -25,6 +25,7 @@ logging:
 
 #예약 만료 스케쥴러
 reservation:
+  hold-duration: 30s
   expire-scheduler:
     fixed-delay-ms: 15000 # 15 seconds
 

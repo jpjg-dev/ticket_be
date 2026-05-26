@@ -27,6 +27,11 @@ toss:
   payments:
     secret-key: ${TOSS_SECRET_KEY:test_secret_key}
 
+reservation:
+  hold-duration: 30s
+  expire-scheduler:
+    fixed-delay-ms: 60000
+
 security:
   csrf-origin:
     allowed-origins:

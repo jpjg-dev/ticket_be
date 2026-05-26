@@ -10,11 +10,11 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class ReservationExpirationScheduler {
 
-    private final ReservationService reservationService;
+    private final ReservationExpirationService reservationExpirationService;
 
     @Scheduled(fixedDelayString = "${reservation.expire-scheduler.fixed-delay-ms}")
     public void expireReservations() {
-        int expiredCount = reservationService.expireReservations();
+        int expiredCount = reservationExpirationService.expireAll();
         log.info("Expire reservations completed. expiredCount={}", expiredCount);
     }
 }

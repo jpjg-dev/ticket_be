@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.event.presentation.dto.EventResponse;
 import com.jipi.ticket_ledger.event.presentation.dto.ScheduleResponse;
+import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.presentation.dto.SeatResponse;
@@ -28,6 +29,7 @@ public class EventService {
     private final EventRepository eventRepository;
     private final ScheduleRepository scheduleRepository;
     private final SeatRepository seatRepository;
+    private final ReservationExpirationService reservationExpirationService;
 
     public List<EventResponse> getEvents() {
         List<Event> events = eventRepository.findAllByOrderByBookingOpenAtAsc();
@@ -67,10 +69,13 @@ public class EventService {
         return toEventResponse(event, schedules, seatsByScheduleId);
     }
 
+    @Transactional
     public List<SeatResponse> getSeats(Long scheduleId) {
         if (!scheduleRepository.existsById(scheduleId)) {
             throw new EntityNotFoundException("회차를 찾을 수 없습니다.");
         }
+
+        reservationExpirationService.expireByScheduleId(scheduleId);
 
         return seatRepository.findByScheduleId(scheduleId).stream()
                 .map(seat -> new SeatResponse(

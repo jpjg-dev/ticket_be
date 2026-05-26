@@ -188,7 +188,7 @@ public class PaymentService {
             return;
         }
 
-        expireReservations(reservations);
+        expireReservations(payment.getReservationGroup(), reservations);
         log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
                 LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_AND_EXPIRE");
     }
@@ -338,7 +338,8 @@ public class PaymentService {
         return payment.getReservationGroup().isExpiredAt(now);
     }
 
-    private void expireReservations(List<Reservation> reservations) {
+    private void expireReservations(ReservationGroup reservationGroup, List<Reservation> reservations) {
+        reservationGroup.expire();
         reservations.forEach(reservation -> {
             reservation.expire();
             reservation.getSeat().release();
@@ -355,6 +356,7 @@ public class PaymentService {
 
     private void applyApproval(Payment payment, List<Reservation> reservations, String paymentKey, String method, String pgStatus) {
         payment.approve(paymentKey, method, pgStatus);
+        payment.getReservationGroup().confirm();
         reservations.forEach(reservation -> {
             reservation.confirm();
             reservation.getSeat().book();
@@ -363,6 +365,7 @@ public class PaymentService {
 
     private void applyCancellation(Payment payment, List<Reservation> reservations) {
         payment.cancel(LocalDateTime.now());
+        payment.getReservationGroup().cancel();
         reservations.forEach(reservation -> {
             reservation.cancel();
             reservation.getSeat().releaseBooked();

@@ -11,6 +11,7 @@ import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -106,6 +107,7 @@ class PaymentServiceTest {
         Payment confirmed = paymentService.confirmPayment("pay-key-1", "order-confirm-1", 11000);
 
         assertEquals(PaymentStatus.APPROVED, confirmed.getStatus());
+        assertEquals(ReservationGroupStatus.CONFIRMED, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, reservation.getSeat().getStatus());
         assertEquals("pay-key-1", confirmed.getPaymentKey());
@@ -126,6 +128,7 @@ class PaymentServiceTest {
                 () -> paymentService.confirmPayment("pay-key-2", "order-confirm-2", 10000));
 
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.PENDING, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
     }
@@ -136,6 +139,7 @@ class PaymentServiceTest {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-3", "KRW");
         payment.approve("pay-key-3", "CARD", "DONE");
+        reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
 
@@ -171,6 +175,7 @@ class PaymentServiceTest {
         Payment confirmed = paymentService.confirmPayment("pay-key-4", "order-confirm-4", 11000);
 
         assertEquals(PaymentStatus.APPROVED, confirmed.getStatus());
+        assertEquals(ReservationGroupStatus.CONFIRMED, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, reservation.getSeat().getStatus());
         assertEquals("pay-key-4", confirmed.getPaymentKey());
@@ -188,6 +193,7 @@ class PaymentServiceTest {
         paymentService.failPayment(1L);
 
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.PENDING, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
     }
@@ -204,6 +210,7 @@ class PaymentServiceTest {
         paymentService.failPayment(1L);
 
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.EXPIRED, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.EXPIRED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
     }
@@ -229,6 +236,7 @@ class PaymentServiceTest {
         ReflectionTestUtils.setField(payment, "id", 1L);
 
         payment.approve("pay-key-3", "CARD", "DONE");
+        reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
 
@@ -241,6 +249,7 @@ class PaymentServiceTest {
         paymentService.cancelPayment(1L, "사용자 요청");
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CANCELED, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
     }
@@ -265,6 +274,7 @@ class PaymentServiceTest {
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-9");
         ReflectionTestUtils.setField(payment, "id", 1L);
         payment.approve("pay-key-9", "CARD", "DONE");
+        reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
         payment.cancel(LocalDateTime.now());
@@ -287,6 +297,7 @@ class PaymentServiceTest {
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-10");
         ReflectionTestUtils.setField(payment, "id", 1L);
         payment.approve("pay-key-10", "CARD", "DONE");
+        reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
 
@@ -307,6 +318,7 @@ class PaymentServiceTest {
         paymentService.cancelPayment(1L, "사용자 요청");
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CANCELED, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
     }
@@ -327,9 +339,7 @@ class PaymentServiceTest {
         Seat seat = createSeat();
         seat.hold();
 
-        Reservation reservation = new Reservation(createUser(), seat, reservationGroup, LocalDateTime.now());
-        ReflectionTestUtils.setField(reservation, "expiresAt", expiresAt);
-        return reservation;
+        return new Reservation(createUser(), seat, reservationGroup, LocalDateTime.now(), expiresAt);
     }
 
     private void stubReservationsForPayment(Payment payment, Reservation... reservations) {
@@ -338,9 +348,8 @@ class PaymentServiceTest {
     }
 
     private ReservationGroup createReservationGroup(LocalDateTime expiresAt) {
-        ReservationGroup reservationGroup = new ReservationGroup(createUser(), LocalDateTime.now());
+        ReservationGroup reservationGroup = new ReservationGroup(createUser(), LocalDateTime.now(), expiresAt);
         ReflectionTestUtils.setField(reservationGroup, "id", 1L);
-        ReflectionTestUtils.setField(reservationGroup, "expiresAt", expiresAt);
         return reservationGroup;
     }
 

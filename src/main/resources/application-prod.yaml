@@ -1,17 +1,18 @@
 spring:
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: validate
     properties:
       hibernate:
         format_sql: false
         highlight_sql: false
         use_sql_comments: false
 
-#예약 만료 스케쥴러
+#예약 만료기간 설정 및 만료 스케쥴러
 reservation:
+  hold-duration: 5m # 5 minutes 뒤 만료
   expire-scheduler:
-    fixed-delay-ms: 60000 # 15 seconds
+    fixed-delay-ms: 60000 # 1 minute 마다 만료된 예약 확인 후 정리
 
 logging:
   level:
