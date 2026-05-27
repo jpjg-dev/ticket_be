@@ -76,7 +76,7 @@ public class UserService {
                     LogEvents.USER_MYPAGE_REJECT, userId, principalUserId, "FORBIDDEN_MYPAGE_ACCESS");
             throw new IllegalStateException("잘못된 접근 입니다.");
         }
-
+        log.info("=========================mypage 쿼리 발생 시작======================================");
         List<Reservation> reservations = reservationRepository.findByReservationGroupUserIdAndReservationGroupStatusIn(
                 userId,
                 List.of(ReservationGroupStatus.CONFIRMED, ReservationGroupStatus.CANCELED),
@@ -88,6 +88,7 @@ public class UserService {
                 List.of(PaymentStatus.APPROVED, PaymentStatus.CANCELED),
                 Sort.by(Sort.Direction.DESC, "requestedAt")
         );
+        log.info("=========================mypage 쿼리 발생 끝======================================");
 
         List<ResponseMyPageDTO.ReservationGroupItem> reservationItems = groupReservations(reservations).entrySet().stream()
                 .map(entry -> toReservationGroupItem(entry.getKey(), entry.getValue()))
@@ -96,7 +97,6 @@ public class UserService {
         List<ResponseMyPageDTO.PaymentItem> paymentItems = payments.stream()
                 .map(payment -> toPaymentItem(payment, reservationsForPayment(payment)))
                 .toList();
-
         return new ResponseMyPageDTO(reservationItems, paymentItems);
     }
 

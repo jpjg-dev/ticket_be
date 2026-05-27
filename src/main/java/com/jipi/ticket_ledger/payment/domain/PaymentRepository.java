@@ -14,9 +14,6 @@ import java.util.Optional;
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findByReservationGroupId(Long reservationGroupId);
 
-    //토스 결제 승인 요청 시 orderId로 결제 조회
-    Optional<Payment> findByOrderId(String orderId);
-
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.reservationGroup.id = :reservationGroupId")
     Optional<Payment> findByReservationGroupIdForUpdate(Long reservationGroupId);
