@@ -10,9 +10,11 @@ import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
+import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -36,10 +38,16 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
@@ -55,6 +63,9 @@ class PaymentServiceIntegrationTest {
 
     @Autowired
     private PaymentService paymentService;
+
+    @Autowired
+    private ReservationExpirationService reservationExpirationService;
 
     @Autowired
     private PaymentRepository paymentRepository;
@@ -177,6 +188,126 @@ class PaymentServiceIntegrationTest {
 
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
+    @Test
+    @DisplayName("confirmPayment: 승인과 만료가 경합하면 먼저 락을 획득한 승인 상태만 남는다")
+    void confirmPaymentWinsAgainstConcurrentExpiration() throws Exception {
+        Fixture fixture = createPendingReservationFixture(false);
+        ReservationGroup reservationGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(2);
+        ReflectionTestUtils.setField(reservationGroup, "expiresAt", expiresAt);
+        reservationGroupRepository.saveAndFlush(reservationGroup);
+
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+        CountDownLatch confirmReachedPg = new CountDownLatch(1);
+        CountDownLatch releasePg = new CountDownLatch(1);
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenAnswer(invocation -> {
+                    confirmReachedPg.countDown();
+                    if (!releasePg.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("PG 응답 대기 제어에 실패했습니다.");
+                    }
+                    return new TossConfirmResponse(
+                            "pay-key-concurrent-confirm",
+                            ready.getOrderId(),
+                            "DONE",
+                            "CARD",
+                            totalAmountWithVat,
+                            "KRW"
+                    );
+                });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Payment> confirmFuture = executor.submit(
+                    () -> paymentService.confirmPayment("pay-key-concurrent-confirm", ready.getOrderId(), totalAmountWithVat)
+            );
+            assertTrue(confirmReachedPg.await(10, TimeUnit.SECONDS), "승인 요청이 PG 호출 지점까지 진입해야 합니다.");
+
+            long millisUntilExpired = java.time.Duration.between(LocalDateTime.now(), expiresAt).toMillis();
+            if (millisUntilExpired > 0) {
+                Thread.sleep(millisUntilExpired + 100);
+            }
+
+            Future<Integer> expirationFuture = executor.submit(
+                    () -> reservationExpirationService.expireByScheduleId(fixture.scheduleId)
+            );
+
+            Thread.sleep(200);
+            assertFalse(expirationFuture.isDone(), "만료 처리는 승인 요청이 보유한 Payment 락을 기다려야 합니다.");
+
+            releasePg.countDown();
+
+            assertEquals(PaymentStatus.APPROVED, confirmFuture.get(10, TimeUnit.SECONDS).getStatus());
+            assertEquals(0, expirationFuture.get(10, TimeUnit.SECONDS));
+        } finally {
+            releasePg.countDown();
+            executor.shutdownNow();
+        }
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
+        List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
+
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CONFIRMED, group.getStatus());
+        assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CONFIRMED));
+        assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.BOOKED));
+    }
+
+    @Test
+    @DisplayName("confirmPayment: 이미 만료된 결제에 승인과 만료가 경합하면 만료 상태만 남는다")
+    void expirationWinsAgainstConcurrentConfirmPayment() throws Exception {
+        Fixture fixture = createPendingReservationFixture(true);
+        Payment ready = paymentRepository.save(new Payment(
+                reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
+                fixture.price,
+                LocalDateTime.now(),
+                "expired-concurrent-order-" + System.nanoTime()
+        ));
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+        CountDownLatch startLatch = new CountDownLatch(1);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Payment> confirmFuture = executor.submit(() -> {
+                startLatch.await();
+                return paymentService.confirmPayment("pay-key-expired-concurrent", ready.getOrderId(), totalAmountWithVat);
+            });
+            Future<Integer> expirationFuture = executor.submit(() -> {
+                startLatch.await();
+                return reservationExpirationService.expireByScheduleId(fixture.scheduleId);
+            });
+
+            startLatch.countDown();
+
+            Exception confirmationFailure = assertThrows(
+                    Exception.class,
+                    () -> confirmFuture.get(10, TimeUnit.SECONDS)
+            );
+            assertInstanceOf(IllegalStateException.class, confirmationFailure.getCause());
+            assertEquals(1, expirationFuture.get(10, TimeUnit.SECONDS));
+        } finally {
+            startLatch.countDown();
+            executor.shutdownNow();
+        }
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
+        List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
+
+        assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.EXPIRED, group.getStatus());
+        assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.EXPIRED));
+        assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
+        verifyNoInteractions(tossPaymentClient);
     }
 
     @Test
@@ -420,7 +551,7 @@ class PaymentServiceIntegrationTest {
             }
         }
 
-        return new Fixture(reservationGroup.getId(), firstReservationId, firstSeatId, totalPrice, fixturesavedReservationIds, fixtureSeatIds);
+        return new Fixture(reservationGroup.getId(), schedule.getId(), firstReservationId, firstSeatId, totalPrice, fixturesavedReservationIds, fixtureSeatIds);
     }
 
     private int amountWithVat(int amount) {
@@ -429,6 +560,7 @@ class PaymentServiceIntegrationTest {
 
     private record Fixture(
             Long reservationGroupId,
+            Long scheduleId,
             Long firstReservationId,
             Long seatId,
             Integer price,

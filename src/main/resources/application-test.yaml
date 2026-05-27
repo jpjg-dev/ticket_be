@@ -1,12 +1,21 @@
 spring:
+  config:
+    import: optional:file:.env.test[.properties]
+
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: false
         highlight_sql: false
         use_sql_comments: false
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
 
 logging:
   level:
