@@ -4,16 +4,29 @@ import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
+import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
+import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
+import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
+import com.jipi.ticket_ledger.user.domain.User;
+import com.jipi.ticket_ledger.user.domain.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
@@ -22,6 +35,11 @@ public class DataInitializer implements ApplicationRunner {
     private final EventRepository eventRepository;
     private final ScheduleRepository scheduleRepository;
     private final SeatRepository seatRepository;
+    private final ReservationGroupRepository reservationGroupRepository;
+    private final ReservationRepository reservationRepository;
+    private final PaymentRepository paymentRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     @Transactional
@@ -113,6 +131,8 @@ public class DataInitializer implements ApplicationRunner {
                 base.plusDays(9).withHour(19),
                 base.plusDays(10).withHour(14)
         ));
+
+        createReservationAndPayments(now);
     }
 
     private Event createEvent(String title, String description, String venue, LocalDateTime bookingOpenAt, LocalDateTime now) {
@@ -149,5 +169,176 @@ public class DataInitializer implements ApplicationRunner {
                 new Seat(schedule, "C-1", "S", 1000, now),
                 new Seat(schedule, "C-2", "S", 1000, now)
         ));
+    }
+
+    private void createReservationAndPayments(LocalDateTime now) {
+        List<User> users = createSeedUsers(now, 100);
+
+        List<Seat> allSeats = seatRepository.findAll();
+        if (allSeats.isEmpty()) {
+            throw new IllegalStateException("좌석 데이터가 없습니다.");
+        }
+
+        List<GroupSeed> confirmedSeeds = buildSeeds(ReservationGroupStatus.CONFIRMED, 30, 30);
+        List<GroupSeed> canceledSeeds = buildSeeds(ReservationGroupStatus.CANCELED, 10, 10);
+        List<GroupSeed> expiredSeeds = buildSeeds(ReservationGroupStatus.EXPIRED, 10, 10);
+
+        List<Seat> confirmedSeatPool = new ArrayList<>(allSeats);
+        int[] confirmedCursor = {0};
+        Set<Long> bookedSeatIds = new HashSet<>();
+        int orderSequence = 1;
+        int[] userCursor = {0};
+
+        for (GroupSeed seed : confirmedSeeds) {
+            User user = nextUser(users, userCursor);
+            orderSequence = createGroupWithStatus(user, seed, confirmedSeatPool, confirmedCursor, bookedSeatIds, now, orderSequence);
+        }
+
+        List<Seat> reusableSeatPool = new ArrayList<>();
+        for (Seat seat : allSeats) {
+            if (!bookedSeatIds.contains(seat.getId())) {
+                reusableSeatPool.add(seat);
+            }
+        }
+        int[] reusableCursor = {0};
+
+        for (GroupSeed seed : canceledSeeds) {
+            User user = nextUser(users, userCursor);
+            orderSequence = createGroupWithStatus(user, seed, reusableSeatPool, reusableCursor, null, now, orderSequence);
+        }
+        for (GroupSeed seed : expiredSeeds) {
+            User user = nextUser(users, userCursor);
+            orderSequence = createGroupWithStatus(user, seed, reusableSeatPool, reusableCursor, null, now, orderSequence);
+        }
+    }
+
+    private List<User> createSeedUsers(LocalDateTime now, int count) {
+        String encodedPassword = passwordEncoder.encode("a123456789");
+        List<User> users = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            users.add(new User(
+                    "test" + i + "@email.com",
+                    encodedPassword,
+                    "user" + i,
+                    now
+            ));
+        }
+        return userRepository.saveAll(users);
+    }
+
+    private User nextUser(List<User> users, int[] cursor) {
+        User user = users.get(cursor[0] % users.size());
+        cursor[0]++;
+        return user;
+    }
+
+    private List<GroupSeed> buildSeeds(ReservationGroupStatus status, int twoSeatCount, int oneSeatCount) {
+        List<GroupSeed> seeds = new ArrayList<>();
+        for (int i = 0; i < twoSeatCount; i++) {
+            seeds.add(new GroupSeed(status, 2));
+        }
+        for (int i = 0; i < oneSeatCount; i++) {
+            seeds.add(new GroupSeed(status, 1));
+        }
+        return seeds;
+    }
+
+    private int createGroupWithStatus(
+            User user,
+            GroupSeed seed,
+            List<Seat> seatPool,
+            int[] cursor,
+            Set<Long> bookedSeatIds,
+            LocalDateTime now,
+            int orderSequence
+    ) {
+        LocalDateTime expiresAt = seed.status == ReservationGroupStatus.EXPIRED
+                ? now.minusMinutes(1)
+                : now.plusMinutes(10);
+
+        ReservationGroup group = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
+        List<Seat> seatsForGroup = new ArrayList<>();
+        for (int i = 0; i < seed.seatCount; i++) {
+            seatsForGroup.add(nextSeat(seatPool, cursor, bookedSeatIds));
+        }
+
+        int amount = 0;
+        List<Reservation> reservations = new ArrayList<>();
+        for (Seat seat : seatsForGroup) {
+            seat.hold();
+            Reservation reservation = new Reservation(user, seat, group, now, expiresAt);
+            reservations.add(reservation);
+            amount += seat.getPrice();
+        }
+        reservationRepository.saveAll(reservations);
+
+        String orderId = "order-" + orderSequence++;
+        Payment payment = paymentRepository.save(new Payment(group, amount, now, orderId));
+
+        if (seed.status == ReservationGroupStatus.CONFIRMED) {
+            for (Seat seat : seatsForGroup) {
+                seat.book();
+                if (bookedSeatIds != null) {
+                    bookedSeatIds.add(seat.getId());
+                }
+            }
+            payment.approve("paykey-" + orderId, "CARD", "DONE");
+            group.confirm();
+            for (Reservation reservation : reservations) {
+                reservation.confirm();
+            }
+        } else if (seed.status == ReservationGroupStatus.CANCELED) {
+            for (Seat seat : seatsForGroup) {
+                seat.book();
+            }
+            payment.approve("paykey-" + orderId, "CARD", "DONE");
+            group.confirm();
+            for (Reservation reservation : reservations) {
+                reservation.confirm();
+            }
+
+            payment.cancel(now);
+            for (Reservation reservation : reservations) {
+                reservation.cancel();
+            }
+            group.cancel();
+            for (Seat seat : seatsForGroup) {
+                seat.releaseBooked();
+            }
+        } else {
+            payment.fail();
+            for (Reservation reservation : reservations) {
+                reservation.expire();
+            }
+            group.expire();
+            for (Seat seat : seatsForGroup) {
+                seat.release();
+            }
+        }
+
+        return orderSequence;
+    }
+
+    private Seat nextSeat(List<Seat> seatPool, int[] cursor, Set<Long> bookedSeatIds) {
+        int attempts = 0;
+        while (attempts < seatPool.size()) {
+            Seat seat = seatPool.get(cursor[0] % seatPool.size());
+            cursor[0]++;
+            attempts++;
+            if (bookedSeatIds == null || !bookedSeatIds.contains(seat.getId())) {
+                return seat;
+            }
+        }
+        throw new IllegalStateException("좌석이 부족합니다.");
+    }
+
+    private static class GroupSeed {
+        private final ReservationGroupStatus status;
+        private final int seatCount;
+
+        private GroupSeed(ReservationGroupStatus status, int seatCount) {
+            this.status = status;
+            this.seatCount = seatCount;
+        }
     }
 }

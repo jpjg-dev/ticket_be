@@ -87,6 +87,11 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 | 2026-05-27 | seat-list / expiration-first-hit | `groupId=1`, `scheduleId=7`, expired `PENDING` group, `HELD` seats `50,51` | `1 / 1 iteration` | 1 | 0.00% | 18.57 ms | `group/reservation=EXPIRED`, `seat=AVAILABLE`, `payment=FAILED` 확인 |
 | 2026-05-27 | seat-list / expiration-concurrency | `groupId=2`, `scheduleId=9`, expired `PENDING` group, `HELD` seats `66,67` | `20 / 1 iteration each` | 20 | 40.00% | 56.42 ms | 실패: `IllegalStateException: 예약된 좌석만 해제할 수 있습니다.`; 최종 DB 상태는 일관됨 |
 | 2026-05-27 | seat-list / expiration-concurrency after lock fix | `groupId=3`, `scheduleId=9`, expired `PENDING` group, `HELD` seats `66,67` | `20 / 1 iteration each` | 20 | 0.00% | 74.81 ms | `Payment` 비관적 락 및 락 이후 상태 재확인 적용; `group/reservation=EXPIRED`, `seat=AVAILABLE`, `payment=FAILED` 확인 |
+| 2026-05-28 | mypage / groups-1 smoke | `userId=1`, group `1`, payment `1`, reservation `2` | `1 / 10s` | 1,426 | 0.00% | 9.63 ms | 인증 Cookie 기반 smoke; reservations/payments 모두 응답 |
+| 2026-05-28 | mypage / groups-1 baseline | `userId=1`, group `1`, payment `1`, reservation `2` | `10 / 30s` | 41,779 | 0.00% | 8.25 ms | N+1 비교 전 최소 데이터셋 기준값; SQL 쿼리 수는 별도 로그 카운트 필요 |
+| 2026-05-28 | mypage / groups-20 baseline | `userId=1`, group `20`, payment `20`, reservation `40` | `10 / 30s` | 7,815 | 0.00% | 47.58 ms | 데이터 증가에 따라 p95 상승 및 처리량 감소 확인 |
+| 2026-05-28 | mypage / groups-100 baseline | `userId=1`, group `100`, payment `100`, reservation `200` | `10 / 30s` | 1,829 | 0.00% | 202.75 ms | N+1/반복 조회 개선 전 기준값; 처리량 `60.73 req/s` |
+| 2026-05-28 | mypage / groups-100 after query optimization | `userId=1`, group `100`, payment `100`, reservation `200` | `10 / 30s` | 19,911 | 0.00% | 17.52 ms | reservation Map 재사용, reservation/payment fetch join 적용 후 재측정 |
 
 ### Initial Observation
 
@@ -97,6 +102,9 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 - `expiration-first-hit`는 첫 조회 한 번에서 만료 group과 좌석 복구가 수행됐고, HTTP 체크 및 사후 DB 상태 확인까지 통과했다. 일반 조회 `10 VU` p95와 직접 비교할 수는 없지만, 만료 복구 경로의 기준값은 `18.57 ms`로 기록한다.
 - `expiration-concurrency`는 최종 DB 상태가 `group/reservation=EXPIRED`, `seat=AVAILABLE`, `payment=FAILED`로 정리됐으나, 동일 만료 대상을 동시에 처리한 `20`개 조회 중 `8`개가 `Seat.release()` 상태 검증 예외로 실패했다. 만료 처리 대상 선정과 상태 전이를 직렬화하거나 조건부 처리하는 보강이 필요하다.
 - `Payment` row의 `PESSIMISTIC_WRITE` 락과 락 이후 group 상태 재확인을 적용한 재실행에서는 동일 조건의 `20`개 조회가 모두 성공했고 최종 상태도 일관됐다. p95는 `56.42 ms -> 74.81 ms`로 상승했으므로, 오류 제거의 대가로 경합 요청의 대기 시간이 증가하는 트레이드오프를 확인했다.
+- 마이페이지 조회는 동일 `10 VU / 30s` 조건에서 group `1 -> 20 -> 100` 증가 시 p95가 `8.25 ms -> 47.58 ms -> 202.75 ms`로 상승했고, 처리량은 `1,392 req/s -> 260 req/s -> 60.73 req/s`로 감소했다.
+- 이는 현재 `UserService.getUserInfo()`의 DTO 변환 과정에서 LAZY 연관 조회와 `reservationsForPayment(payment)` 반복 조회가 데이터 건수 증가에 따라 비용을 키우는 구조임을 보여주는 baseline이다.
+- 1차 개선으로 이미 조회한 reservation 목록을 groupId 기준 `Map`으로 재사용하고, reservation/payment 조회에 fetch join을 적용했다. 동일 `groups-100`, `10 VU / 30s` 조건에서 p95는 `202.75 ms -> 17.52 ms`로 감소했고 처리량은 `60.73 req/s -> 663.46 req/s`로 증가했다.
 
 ## Phase 2: MyPage N+1 Baseline
 
@@ -121,6 +129,16 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 - `GET /api/v1/users/{userId}`의 p95와 실패율
 - 개선 전후 동일 데이터셋 결과
 - 필요 시 `EXPLAIN ANALYZE` 기반 `reservations(reservation_group_id)` 인덱스 적용 전후 결과
+
+측정 스크립트:
+
+- `performance/k6/mypage-baseline.js`
+
+데이터 준비 스크립트:
+
+- `performance/sql/mypage-seed-groups.sql`
+
+초기 실행은 최대 처리량 측정이 아니라 데이터 건수별 증가 패턴 확인이 목적이다. 따라서 먼저 `1 VU / 10s` smoke로 인증 쿠키와 응답 구조를 확인하고, 이후 동일 데이터셋에서 `10 VU / 30s` 기준값을 기록한다.
 
 ### Improvement Candidates To Compare
 
@@ -204,10 +222,45 @@ k6 run performance/k6/expiration-concurrency.js
 
 실행 후 서버 로그에서 상태 전이 예외 또는 5xx 응답이 없는지도 함께 확인한다.
 
+### MyPage N+1 Baseline
+
+마이페이지 API는 인증이 필요하므로 브라우저 개발자 도구에서 현재 로그인 사용자의 `Cookie` 헤더 값을 복사해 사용한다.
+
+Smoke 예시:
+
+```powershell
+$env:USER_ID="<user id>"
+$env:COOKIE="<browser cookie header>"
+$env:DATA_SET="groups-2"
+$env:VUS="1"
+$env:DURATION="10s"
+k6 run performance/k6/mypage-baseline.js
+```
+
+Baseline 예시:
+
+```powershell
+$env:USER_ID="<user id>"
+$env:COOKIE="<browser cookie header>"
+$env:DATA_SET="groups-20"
+$env:VUS="10"
+$env:DURATION="30s"
+k6 run performance/k6/mypage-baseline.js
+```
+
+확인값:
+
+- `mypage_duration`
+- `mypage_failed = 0`
+- `mypage_empty_reservations = 0`
+- `mypage_empty_payments = 0`
+- SQL 로그 기준 총 쿼리 수
+- `Payment` 건수 증가에 따라 `findByReservationGroupId()` 반복 조회가 증가하는지 여부
+
 ## Next Measurement
 
-1. 별도 만료 데이터를 준비해 `expiration-first-hit`와 `expiration-concurrency` 결과를 수집한다.
-2. 마이페이지의 group 수를 달리한 시나리오를 추가해 N+1 제거 및 `reservations(reservation_group_id)` 인덱스 검증 전 기준값을 수집한다.
+1. 마이페이지의 group 수를 달리한 시나리오를 추가해 N+1 제거 및 `reservations(reservation_group_id)` 인덱스 검증 전 기준값을 수집한다.
+2. `UserService.getUserInfo()`의 반복 조회를 제거한 뒤 동일 조건으로 재측정한다.
 3. 운영 유사 성능 주장이 필요해지는 시점에는 SQL 상세 로그를 낮춘 별도 profile과 실제 사용자 간격/도착률 시나리오를 구성한다.
 
 ## References
