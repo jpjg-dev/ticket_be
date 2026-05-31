@@ -92,6 +92,17 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 | 2026-05-28 | mypage / groups-20 baseline | `userId=1`, group `20`, payment `20`, reservation `40` | `10 / 30s` | 7,815 | 0.00% | 47.58 ms | 데이터 증가에 따라 p95 상승 및 처리량 감소 확인 |
 | 2026-05-28 | mypage / groups-100 baseline | `userId=1`, group `100`, payment `100`, reservation `200` | `10 / 30s` | 1,829 | 0.00% | 202.75 ms | N+1/반복 조회 개선 전 기준값; 처리량 `60.73 req/s` |
 | 2026-05-28 | mypage / groups-100 after query optimization | `userId=1`, group `100`, payment `100`, reservation `200` | `10 / 30s` | 19,911 | 0.00% | 17.52 ms | reservation Map 재사용, reservation/payment fetch join 적용 후 재측정 |
+| 2026-05-30 | reservation-create / unique seats after warm-up | `userId=1`, unique seat ids `331~350`, 2 seats/request | `10 / 10 shared iterations` | 10 | 0.00% | 21.42 ms | local dev, warm-up 이후 write baseline, 233.02 req/s, DB 사후 검증: group 10 / reservation 20 / HELD seat 20 |
+| 2026-05-30 | reservation-create / unique seats after warm-up | `userId=1`, unique seat ids `351~390`, 2 seats/request | `20 / 20 shared iterations` | 20 | 0.00% | 18.25 ms | local dev, warm-up 이후 write expansion, 326.67 req/s, DB 사후 검증: group 20 / reservation 40 / HELD seat 40 |
+| 2026-05-30 | reservation-create / load seats | `userId=1`, `scheduleId=18`, unique seat ids `391~590`, 2 seats/request | `10 / 100 shared iterations` | 100 | 0.00% | 16.27 ms | local dev, load dataset, 766.67 req/s, DB 사후 검증: group 100 / reservation 200 / HELD seat 200 |
+| 2026-05-30 | reservation-create / load seats | `userId=1`, `scheduleId=18`, unique seat ids `391~790`, 2 seats/request | `20 / 200 shared iterations` | 200 | 0.00% | 23.74 ms | local dev, load dataset, 916.82 req/s, DB 사후 검증: group 200 / reservation 400 / HELD seat 400 |
+| 2026-05-30 | reservation-create / load seats | `userId=1`, `scheduleId=18`, unique seat ids `391~1390`, 2 seats/request | `50 / 500 shared iterations` | 500 | 0.00% | 98.07 ms | local dev, load dataset, 740.74 req/s, DB 사후 검증: group 500 / reservation 1000 / HELD seat 1000 |
+| 2026-05-30 | reservation-create / same-seat contention | `userId=1`, `scheduleId=18`, same seat ids `391,392`, 2 seats/request | `10 / 10 shared iterations` | 10 | expected reject 9 | 38.84 ms | local dev, success 1 / rejected 9 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 |
+| 2026-05-30 | reservation-create / same-seat contention | `userId=1`, `scheduleId=18`, same seat ids `391,392`, 2 seats/request | `20 / 20 shared iterations` | 20 | expected reject 19 | 17.68 ms | local dev, success 1 / rejected 19 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 |
+| 2026-05-30 | reservation-create / same-seat contention | `userId=1`, `scheduleId=18`, same seat ids `391,392`, 2 seats/request | `50 / 50 shared iterations` | 50 | expected reject 49 | 26.45 ms | local dev, success 1 / rejected 49 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 |
+| 2026-05-30 | reservation-create / overlapping-seat contention | `userId=1`, `scheduleId=18`, alternating seat pairs `391,392` and `392,393` | `10 / 10 shared iterations` | 10 | expected reject 9 | 17.98 ms | local dev, success 1 / rejected 9 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seats `392,393` |
+| 2026-05-30 | reservation-create / overlapping-seat contention | `userId=1`, `scheduleId=18`, alternating seat pairs `391,392` and `392,393` | `20 / 20 shared iterations` | 20 | expected reject 19 | 24.40 ms | local dev, success 1 / rejected 19 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seats `391,392` |
+| 2026-05-30 | reservation-create / overlapping-seat contention | `userId=1`, `scheduleId=18`, alternating seat pairs `391,392` and `392,393` | `50 / 50 shared iterations` | 50 | expected reject 49 | 35.11 ms | local dev, success 1 / rejected 49 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seats `391,392` |
 
 ### Initial Observation
 
@@ -134,9 +145,11 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 
 - `performance/k6/mypage-baseline.js`
 
-데이터 준비 스크립트:
+개발 환경 초기 데이터:
 
-- `performance/sql/mypage-seed-groups.sql`
+- `dev` profile의 `DataInitializer`는 `test1@email.com` 사용자에게 마이페이지 성능 비교용 확정 예매 group `100`건, 결제 `100`건, 예약 row `200`건이 되도록 초기 데이터를 보강한다.
+- 운영 기본 데이터와 성능 측정용 데이터가 섞이는 것을 막기 위해 이 성능 seed는 `dev` profile에서만 생성한다.
+- DB를 초기화한 뒤 `dev` profile로 애플리케이션을 실행하면 동일 기준의 성능 비교 데이터가 자동으로 생성된다.
 
 초기 실행은 최대 처리량 측정이 아니라 데이터 건수별 증가 패턴 확인이 목적이다. 따라서 먼저 `1 VU / 10s` smoke로 인증 쿠키와 응답 구조를 확인하고, 이후 동일 데이터셋에서 `10 VU / 30s` 기준값을 기록한다.
 
@@ -145,6 +158,61 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 1. 이미 조회한 reservation 목록을 `reservationGroupId` 기준 `Map`으로 묶고 payment DTO 변환에서도 재사용한다.
 2. 마이페이지 전용 조회에서 필요한 연관 데이터는 `fetch join` 또는 DTO projection으로 한 번에 조회한다.
 3. bulk 조회 적용 후에도 스캔 비용이 크면 `reservations(reservation_group_id)` 인덱스를 측정 기반으로 결정한다.
+
+### Applied Query Optimization
+
+개선 전 구조:
+
+- `Payment` 목록을 순회하면서 결제 건마다 `findByReservationGroupId(payment.reservationGroup.id)`를 다시 호출했다.
+- `Reservation` DTO 변환 중 `Seat`, `Schedule`, `Event`, `ReservationGroup` LAZY 조회가 예약 row 수만큼 추가될 수 있었다.
+- 따라서 사용자 이력이 많아질수록 HTTP 요청 1회 안에서 DB round-trip과 LAZY 조회 비용이 함께 증가했다.
+
+개선 후 구조:
+
+- 사용자 기준 reservation 목록은 한 번 조회하고, Java에서 `reservationGroupId -> List<Reservation>` 형태의 `Map`으로 묶는다.
+- payment DTO를 만들 때 DB를 다시 조회하지 않고 이미 만든 `Map`에서 같은 group의 reservation을 꺼내 재사용한다.
+- reservation 조회에는 `reservationGroup`, `seat`, `schedule`, `event`를 `fetch join`으로 함께 가져오고, payment 조회에는 `reservationGroup`을 `fetch join`으로 가져온다.
+
+이 방식은 `IN` 쿼리만 추가하는 방식보다 현재 코드에 더 잘 맞는다. 이미 필요한 reservation 목록을 한 번 조회하고 있으므로, 같은 데이터를 payment 변환에서 재사용하면 추가 repository 호출 자체를 제거할 수 있다. 즉, DB 조회를 한 번 더 잘하는 문제가 아니라 불필요한 조회를 없애는 방향이다.
+
+측정 결과:
+
+- `groups-100`, `10 VU / 30s` 기준 p95: `202.75 ms -> 17.52 ms`
+- 처리량: `60.73 req/s -> 663.46 req/s`
+- 실패율: `0.00%` 유지
+
+### Index Review: `reservations(reservation_group_id)`
+
+PostgreSQL은 외래키 컬럼에 인덱스를 자동 생성하지 않는다. 따라서 `reservations.reservation_group_id`로 조회하거나 join하는 쿼리가 많다면 별도 인덱스를 검토해야 한다.
+
+적용 시 기대 효과:
+
+- `findByReservationGroupId(...)`
+- `where reservation_group_id in (...)`
+- `reservation_groups -> reservations` 방향의 group 기준 join
+- 마이페이지, 결제 취소, 결제 상세처럼 group 단위로 예약 row를 다시 묶어 보는 read 경로
+
+비용:
+
+- reservation 생성 시 row insert뿐 아니라 인덱스 엔트리도 함께 갱신된다.
+- 좌석을 여러 장 예매할수록 reservation row가 늘어나므로 write 비용도 같이 증가한다.
+- 인덱스 저장 공간이 추가로 필요하다.
+
+현재 판단:
+
+- 마이페이지 1차 개선은 `Map` 재사용과 `fetch join`만으로도 p95가 크게 개선됐다.
+- 따라서 현재 단계에서는 인덱스를 바로 적용하지 않고 후보로 보류한다.
+- 이유는 마이페이지 조회가 좌석 선점/결제 승인처럼 핵심 경합 구간이 아니고, 사용자별 이력이 계속 커지는 문제는 먼저 페이징, 기간 필터, 아카이빙으로 풀어야 하는 성격이 강하기 때문이다.
+- 만약 DB가 reservation에서 시작해 group으로 join하는 계획을 선택하고 스캔 비용이 낮다면 인덱스 효과가 작을 수 있다.
+- 반대로 group id 목록을 기준으로 reservation을 자주 찾는 실행 계획이 확인되면 `reservations(reservation_group_id)` 인덱스는 read 성능 개선 가치가 높다.
+- 추후 데이터 증가 후에도 group 기준 조회가 병목으로 확인되면 `EXPLAIN ANALYZE`와 k6 전후 비교를 통해 적용 여부를 다시 판단한다.
+
+후보 DDL:
+
+```sql
+CREATE INDEX idx_reservations_reservation_group_id
+    ON reservations (reservation_group_id);
+```
 
 ## Phase 3 And 4: Consistency Evidence
 
@@ -157,6 +225,66 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 | 결제 취소 | 같은 취소 요청이 중복 도착 | 취소 결과가 정책대로 멱등 처리되고 좌석이 한 번만 복구됨 |
 
 결제 외부 PG 자체의 처리량을 측정하려고 대량 승인 요청을 보내지 않는다. 이 프로젝트에서는 내부 상태 전이와 중복 요청 방어를 검증 대상으로 삼는다.
+
+### Reservation Create Consistency Result
+
+2026-05-28 기준 `ReservationConcurrencyTest`로 예약 생성 정합성을 먼저 검증했다.
+
+- 시나리오: 10명의 사용자가 `[A-1, A-2]`, `[A-2, A-3]`처럼 겹치는 2좌석 묶음을 동시에 예약 요청
+- 기대값: 하나의 group만 성공하고 나머지는 실패
+- 결과: 성공 1건, 실패 9건, reservation 2건, group 1건, HELD 좌석 2건
+
+이 테스트는 처리량 측정보다 정합성 검증이 목적이다. 다음 단계의 k6 예약 생성 write baseline은 이 정합성이 유지되는 상태에서 p95, 실패율, 락 대기 영향을 관찰하는 보조 지표로 사용한다.
+
+### Reservation Create Write Baseline
+
+예약 생성 write baseline은 같은 좌석을 반복 호출하지 않는다. 예약 생성은 상태를 변경하는 API이므로, 동일 좌석을 여러 번 사용하면 첫 요청 이후부터는 정상적인 성능 측정이 아니라 이미 선점된 좌석에 대한 실패 측정이 된다.
+
+측정 기준:
+
+- `shared-iterations` 방식으로 총 요청 수를 고정한다.
+- `SEAT_IDS`에는 `iterations * seatsPerRequest` 이상의 사용 가능한 좌석 id를 전달한다.
+- 각 iteration은 고유한 좌석 묶음을 사용한다.
+- 결과는 성공 write 기준 p95, 실패율, 처리량을 기록한다.
+
+측정 스크립트:
+
+- `performance/k6/reservation-create-baseline.js`
+
+이 테스트는 중복 좌석 정합성 검증을 대체하지 않는다. 겹치는 좌석에 대한 정합성은 `ReservationConcurrencyTest`가 담당하고, k6 write baseline은 정상 예약 생성 경로의 처리 비용을 관찰한다.
+
+현재 예약 생성 write 측정값은 baseline 성격이다. `10~20`건 수준의 짧은 `shared-iterations` 결과는 warm-up, JVM/DB 캐시, 스레드 스케줄링 영향으로 p95와 처리량이 쉽게 흔들릴 수 있으므로 절대 성능이나 VU별 우열로 주장하지 않는다. 추후 부하 테스트 단계에서는 충분한 좌석과 요청 데이터를 준비하고, 각 VU 구간을 최소 `100~500 iterations` 이상으로 반복 측정한 뒤 중간값 또는 반복 평균을 비교한다.
+
+개발 환경 예약 생성 부하 데이터:
+
+- `PERF_LOAD_TEST_EVENT` 이벤트와 `scheduleId=18` 회차를 예약 생성 부하 테스트 전용 데이터로 사용한다.
+- `LOAD-0001 ~ LOAD-1000` 좌석 `1,000`개를 사용하며, 현재 좌석 id 범위는 `391~1390`이다.
+- 요청당 2좌석 기준 최대 `500`건의 정상 예약 생성 write 테스트가 가능하다.
+- 재측정 전에는 `performance/reset-load-test-seats.ps1`로 해당 부하 테스트 전용 좌석, 예약, 결제, group을 초기화한다.
+
+### Reservation Create Contention Baseline
+
+같은 좌석 묶음에 여러 요청을 동시에 보내는 경합 테스트는 HTTP 실패율이 높게 나오는 것이 정상이다. 이 테스트의 성공 기준은 모든 요청이 `200`을 받는 것이 아니라, 정확히 하나의 요청만 예약 group을 생성하고 나머지 요청은 이미 선점된 좌석으로 거부되는 것이다.
+
+경합 시나리오는 두 가지로 나눈다.
+
+| Scenario | Request shape | Purpose |
+| --- | --- | --- |
+| Same-seat contention | 모든 요청이 같은 `seatIds`를 사용한다. 예: `[391,392]` vs `[391,392]` | 완전히 동일한 좌석 묶음 중복 선점 방지 |
+| Overlapping-seat contention | 요청이 서로 다르지만 일부 좌석이 겹친다. 예: `[391,392]` vs `[392,393]` | 하나라도 겹치면 실패 요청 전체가 롤백되는지 확인 |
+
+측정 기준:
+
+- 모든 iteration이 같은 `seatIds`를 사용한다.
+- k6에서는 `success`, `expected rejection`, `unexpected`를 분리해 기록한다.
+- HTTP `4xx`는 기대 가능한 거부로 분류한다.
+- HTTP `5xx`, 네트워크 오류, 인증 오류는 unexpected로 분류한다.
+- 실행 후 DB에서 group `1`, reservation `2`, HELD seat `2`만 남는지 검증한다.
+
+측정 스크립트:
+
+- `performance/k6/reservation-contention.js`
+- `performance/k6/reservation-overlap-contention.js`
 
 ## Run Commands
 
@@ -257,10 +385,82 @@ k6 run performance/k6/mypage-baseline.js
 - SQL 로그 기준 총 쿼리 수
 - `Payment` 건수 증가에 따라 `findByReservationGroupId()` 반복 조회가 증가하는지 여부
 
+### Reservation Create Write Baseline
+
+예약 생성 API는 인증과 CSRF Origin 검증이 필요하다. 브라우저에서 로그인한 뒤 `Cookie` 값을 복사하고, 테스트에 사용할 사용 가능한 좌석 id 목록을 준비한다.
+
+Access Token 쿠키명은 `__Host-access_token`이다. 단순히 토큰 문자열만 넣거나 `access_token` 이름으로 넣으면 인증 필터가 읽지 못해 `401 AUTH_REQUIRED`가 발생한다.
+
+```powershell
+$env:COOKIE="__Host-access_token=<access token>"
+$env:ORIGIN="https://localhost:3000"
+$env:SEAT_IDS="<seat id,seat id,seat id,seat id>"
+$env:VUS="2"
+$env:ITERATIONS="2"
+$env:SEATS_PER_REQUEST="2"
+$env:CASE_NAME="reservation-create-unique"
+k6 run performance/k6/reservation-create-baseline.js
+```
+
+확인값:
+
+- `reservation_create_duration`
+- `reservation_create_failed = 0`
+- `reservationGroupId` 응답 존재
+- 실행 후 DB에서 생성된 group 수와 HELD 좌석 수가 요청 수와 일치하는지 확인
+
+부하 테스트 전용 좌석 초기화:
+
+```powershell
+.\performance\reset-load-test-seats.ps1
+```
+
+위 스크립트는 `PERF_LOAD_TEST_EVENT`의 `LOAD-*` 좌석만 대상으로 한다. 연결된 `reservations`, `payments`, `reservation_groups`를 제거하고 좌석 상태를 `AVAILABLE`로 되돌린다.
+
+### Reservation Create Contention
+
+```powershell
+$env:COOKIE="__Host-access_token=<access token>"
+$env:ORIGIN="https://localhost:3000"
+$env:SEAT_IDS="391,392"
+$env:VUS="10"
+$env:ITERATIONS="10"
+$env:CASE_NAME="reservation-contention-10vu"
+k6 run performance/k6/reservation-contention.js
+```
+
+확인값:
+
+- `reservation_contention_success = 1`
+- `reservation_contention_rejected = iterations - 1`
+- `reservation_contention_unexpected_rate = 0`
+- 실행 후 DB에서 group `1`, reservation `2`, HELD seat `2` 확인
+
+### Reservation Create Overlap Contention
+
+```powershell
+$env:COOKIE="__Host-access_token=<access token>"
+$env:ORIGIN="https://localhost:3000"
+$env:SEAT_PAIRS="391,392|392,393"
+$env:VUS="10"
+$env:ITERATIONS="10"
+$env:CASE_NAME="reservation-overlap-contention-10vu"
+k6 run performance/k6/reservation-overlap-contention.js
+```
+
+확인값:
+
+- `reservation_overlap_success = 1`
+- `reservation_overlap_rejected = iterations - 1`
+- `reservation_overlap_unexpected_rate = 0`
+- 실행 후 DB에서 group `1`, reservation `2` 확인
+- HELD seat 조합은 `391,392` 또는 `392,393` 중 하나여야 한다.
+- `391`만 HELD 또는 `393`만 HELD 같은 부분 성공 상태가 없어야 한다.
+
 ## Next Measurement
 
-1. 마이페이지의 group 수를 달리한 시나리오를 추가해 N+1 제거 및 `reservations(reservation_group_id)` 인덱스 검증 전 기준값을 수집한다.
-2. `UserService.getUserInfo()`의 반복 조회를 제거한 뒤 동일 조건으로 재측정한다.
+1. 예약 생성 write baseline, same-seat contention, overlapping-seat contention은 `10`, `20`, `50` VU 구간에서 1차 재측정했으므로, 같은 조건을 2~3회 반복해 중간값 또는 반복 평균을 산출한다.
+2. 결제 승인/취소 중복 요청 상태 전이를 통합 테스트 결과와 함께 문서화한다.
 3. 운영 유사 성능 주장이 필요해지는 시점에는 SQL 상세 로그를 낮춘 별도 profile과 실제 사용자 간격/도착률 시나리오를 구성한다.
 
 ## References

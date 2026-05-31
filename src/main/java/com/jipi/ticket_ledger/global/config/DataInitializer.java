@@ -18,12 +18,14 @@ import com.jipi.ticket_ledger.user.domain.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -31,6 +33,9 @@ import java.util.Set;
 @Component
 @RequiredArgsConstructor
 public class DataInitializer implements ApplicationRunner {
+    private static final String PERFORMANCE_USER_EMAIL = "test1@email.com";
+    private static final int MYPAGE_PERFORMANCE_GROUP_COUNT = 100;
+    private static final int MYPAGE_PERFORMANCE_SEATS_PER_GROUP = 2;
 
     private final EventRepository eventRepository;
     private final ScheduleRepository scheduleRepository;
@@ -40,6 +45,7 @@ public class DataInitializer implements ApplicationRunner {
     private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final Environment environment;
 
     @Override
     @Transactional
@@ -133,6 +139,7 @@ public class DataInitializer implements ApplicationRunner {
         ));
 
         createReservationAndPayments(now);
+        createMyPagePerformanceSeed(now);
     }
 
     private Event createEvent(String title, String description, String venue, LocalDateTime bookingOpenAt, LocalDateTime now) {
@@ -210,6 +217,72 @@ public class DataInitializer implements ApplicationRunner {
             User user = nextUser(users, userCursor);
             orderSequence = createGroupWithStatus(user, seed, reusableSeatPool, reusableCursor, null, now, orderSequence);
         }
+    }
+
+    private void createMyPagePerformanceSeed(LocalDateTime now) {
+        if (!isDevProfile()) {
+            return;
+        }
+
+        User user = userRepository.findByEmail(PERFORMANCE_USER_EMAIL)
+                .orElseThrow(() -> new IllegalStateException("마이페이지 성능 테스트 사용자 데이터가 없습니다."));
+
+        int existingConfirmedGroups = (int) reservationGroupRepository.findAll().stream()
+                .filter(group -> group.getUser().getId().equals(user.getId()))
+                .filter(group -> group.getStatus() == ReservationGroupStatus.CONFIRMED)
+                .count();
+        int groupsToCreate = Math.max(MYPAGE_PERFORMANCE_GROUP_COUNT - existingConfirmedGroups, 0);
+        if (groupsToCreate == 0) {
+            return;
+        }
+
+        Event event = createEvent(
+                "[성능테스트] 마이페이지 이력",
+                "마이페이지 조회 성능 측정을 위한 개발 환경 전용 데이터",
+                "Performance Test Hall",
+                now.minusDays(1),
+                now
+        );
+        Schedule schedule = scheduleRepository.save(new Schedule(
+                event,
+                now.plusDays(30).withHour(19).withMinute(0).withSecond(0).withNano(0),
+                now.plusDays(30).withHour(21).withMinute(30).withSecond(0).withNano(0),
+                now
+        ));
+
+        for (int i = 1; i <= groupsToCreate; i++) {
+            int sequence = existingConfirmedGroups + i;
+            ReservationGroup group = reservationGroupRepository.save(new ReservationGroup(user, now, now.plusMinutes(10)));
+            List<Seat> seats = createPerformanceSeats(schedule, sequence, now);
+
+            int amount = 0;
+            List<Reservation> reservations = new ArrayList<>();
+            for (Seat seat : seats) {
+                seat.hold();
+                seat.book();
+                Reservation reservation = new Reservation(user, seat, group, now, now.plusMinutes(10));
+                reservation.confirm();
+                reservations.add(reservation);
+                amount += seat.getPrice();
+            }
+            reservationRepository.saveAll(reservations);
+
+            Payment payment = paymentRepository.save(new Payment(group, amount, now, "perf-mypage-order-" + sequence));
+            payment.approve("perf-mypage-paykey-" + sequence, "CARD", "DONE");
+            group.confirm();
+        }
+    }
+
+    private List<Seat> createPerformanceSeats(Schedule schedule, int groupSequence, LocalDateTime now) {
+        List<Seat> seats = new ArrayList<>();
+        for (int i = 1; i <= MYPAGE_PERFORMANCE_SEATS_PER_GROUP; i++) {
+            seats.add(new Seat(schedule, "P-" + groupSequence + "-" + i, "R", 1000, now));
+        }
+        return seatRepository.saveAll(seats);
+    }
+
+    private boolean isDevProfile() {
+        return Arrays.asList(environment.getActiveProfiles()).contains("dev");
     }
 
     private List<User> createSeedUsers(LocalDateTime now, int count) {

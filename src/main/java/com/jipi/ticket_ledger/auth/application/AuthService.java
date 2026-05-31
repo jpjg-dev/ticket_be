@@ -37,7 +37,7 @@ public class AuthService {
     @Transactional
     public AuthResponseLoginDTO login(AuthRequestLoginDTO request) {
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new IllegalStateException("존재하지 않는 이메일입니다."));
+                .orElseThrow(() -> new IllegalStateException("아이디 또는 비밀번호를 확인해주세요."));
 
         validateLoginUser(request, user);
 
@@ -167,7 +167,7 @@ public class AuthService {
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "PASSWORD_MISMATCH");
-            throw new IllegalStateException("비밀번호가 일치하지 않습니다.");
+            throw new IllegalStateException("아이디 또는 비밀번호를 확인해주세요.");
         }
     }
 }
