@@ -86,20 +86,13 @@ public class AuthService {
                 .filter(foundUser -> foundUser.getStatus() == UserStatus.ACTIVE)
                 .orElseThrow(AuthUnauthorizedException::new);
 
-        // DB에 저장된 Refresh Token이 존재하고 유효한지 검증한다.
-        RefreshToken savedToken = refreshTokenRepository.findByJtiAndUserId(jti, userId)
-                // 해시가 일치해야 같은 토큰으로 인정한다.
-                .filter(foundToken -> refreshTokenHash.equals(foundToken.getTokenHash()))
-                // 이미 폐기된 토큰은 재사용하지 않는다.
-                .filter(foundToken -> !foundToken.isRevoked())
-                // 만료된 토큰이면 재발급을 허용하지 않는다.
-                .filter(foundToken -> !foundToken.isExpiredAt(now))
-                .orElseThrow(AuthUnauthorizedException::new);
-
-        // 재발급 처리 시점을 기록한다.
-        savedToken.markUsed(now);
-        // 기존 Refresh Token은 즉시 폐기한다(재사용 방지).
-        savedToken.revoke(now);
+        // 유효한 Refresh Token row 하나만 조건부 갱신해 동일 토큰의 중복 소비를 방지한다.
+        int consumedTokenCount = refreshTokenRepository.consumeIfActive(jti, userId, refreshTokenHash, now);
+        if (consumedTokenCount != 1) {
+            log.warn("event={} userId={} reason={}",
+                    LogEvents.AUTH_REISSUE_REJECT, userId, "RT가 이미 사용되었거나 유효하지 않음");
+            throw new AuthUnauthorizedException();
+        }
 
         // 새 Access Token을 발급한다.
         String newAccessToken = jwtTokenProvider.createAccessToken(user.getId());
