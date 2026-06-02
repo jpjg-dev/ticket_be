@@ -235,6 +235,32 @@ CREATE INDEX idx_reservations_reservation_group_id
     ON reservations (reservation_group_id);
 ```
 
+2026-06-02 로컬 DevDB 임시 인덱스 적용 실험:
+
+- 비교 인덱스: `idx_reservations_reservation_group_id`
+- 실험 절차: 적용 전 측정, 임시 인덱스 생성, `ANALYZE reservations`, 동일 조건 재측정, 임시 인덱스 제거
+- 마이페이지 데이터: `userId=1`, `CONFIRMED/CANCELED group 100`, reservation `200`
+- 예약 생성 데이터: `scheduleId=18`, `LOAD-0001 ~ LOAD-1000`, 요청당 좌석 `2`
+
+마이페이지 `10 VU / 30s`, 3회 중앙값:
+
+| Condition | p95 median | Throughput median | Failure rate |
+| --- | ---: | ---: | ---: |
+| 인덱스 적용 전 | 17.07 ms | 666.54 req/s | 0.00% |
+| 인덱스 적용 후 | 15.06 ms | 714.64 req/s | 0.00% |
+
+예약 생성 write baseline, 각 3회 중앙값:
+
+| VUs / Iterations | 적용 전 p95 | 적용 후 p95 | 적용 전 처리량 | 적용 후 처리량 | Failure rate |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `10 / 100` | 17.59 ms | 8.79 ms | 691.00 req/s | 990.94 req/s | 0.00% |
+| `20 / 200` | 15.48 ms | 17.06 ms | 1,235.79 req/s | 1,193.24 req/s | 0.00% |
+| `50 / 500` | 47.57 ms | 51.69 ms | 1,242.94 req/s | 1,130.59 req/s | 0.00% |
+
+`EXPLAIN (ANALYZE, BUFFERS)`에서 인덱스 적용 전후 모두 planner가 `Seq Scan on reservations`를 선택했다. 측정 당시 load reset 후 `reservations`는 `508 rows`였고, 마이페이지 reservation 조회 실행 시간은 적용 전 `0.524 ms`, 적용 후 `0.496 ms`였다. 현재 데이터 규모에서는 마이페이지 read 개선이 인덱스 사용에 따른 효과라고 보기 어렵다.
+
+인덱스 적용 후 마이페이지 조회 지표는 소폭 개선됐다. 그러나 실행 계획에서는 인덱스가 사용되지 않아 인덱스 적용에 따른 개선이라고 판단하기 어렵다. 또한 예약 생성 write는 `20`, `50 VU` 구간에서 적용 후 중앙값이 악화됐다. `10 VU` 구간 개선은 로컬 환경 변동 범위로 판단한다. 따라서 현재 데이터 규모와 트래픽 조건에서는 읽기 성능 개선 근거가 부족하고 쓰기 비용이 추가될 가능성이 있어 임시 인덱스를 제거했으며 Flyway migration에는 반영하지 않았다. 데이터 증가 후 group 기준 조회가 병목으로 다시 확인되면 같은 절차로 재검토한다.
+
 ## Phase 3 And 4: Consistency Evidence
 
 예약 선점과 결제 상태 전이는 단순 응답 시간보다 정합성이 우선이다.
