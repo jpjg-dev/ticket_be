@@ -679,7 +679,7 @@ k6 run performance/k6/event-open-mixed-spike.js
 1. 예약 생성 write baseline은 `10 / 100`, `20 / 200`, `50 / 500 shared iterations` 구간을 각각 3회 반복해 중앙값을 기록했다.
 2. Event Open Mixed Spike는 수동 만료 포함 조건과 `hold-duration=2m` 순수 비교 조건을 각각 3회 반복해 중앙값을 기록했다.
 3. 결제 승인/취소 중복 요청 상태 전이는 통합 테스트로 검증하고 결과를 문서화했다.
-4. Refresh Token 재발급은 조건부 update를 적용해 동일 토큰 동시 요청 중 하나만 성공하도록 검증했다. 같은 사용자의 서로 다른 Refresh Token은 각각 정상 재발급된다.
+4. Refresh Token 재발급은 조건부 update를 적용해 동일 토큰 `20`개 동시 요청 중 하나만 성공하고 나머지 `19`개는 거부하도록 검증했다. 같은 사용자의 서로 다른 Refresh Token은 각각 정상 재발급된다.
 5. 다음 결제 검증은 PG 응답 불일치, 잘못된 상태 전이, `paymentKey` 누락 등 예외 흐름을 보강한다.
 6. 최종 성능 검증은 인기 공연 조회부터 결제 완료까지 이어지는 사용자 여정 기반 E2E Spike로 수행한다.
    - 흐름: 인기 공연 조회, 회차 조회, 좌석 조회, 인기 좌석 선택, 예약 생성, 결제 준비, Mock PG 승인, 결제 승인, 최종 `BOOKED` 상태 확인

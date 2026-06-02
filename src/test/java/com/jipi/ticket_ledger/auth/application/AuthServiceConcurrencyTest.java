@@ -31,6 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 })
 class AuthServiceConcurrencyTest {
 
+    private static final int CONCURRENT_REISSUE_REQUESTS = 20;
+
     @Autowired
     private AuthService authService;
 
@@ -70,14 +72,14 @@ class AuthServiceConcurrencyTest {
                 now
         ));
 
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch readyLatch = new CountDownLatch(2);
+        ExecutorService executor = Executors.newFixedThreadPool(CONCURRENT_REISSUE_REQUESTS);
+        CountDownLatch readyLatch = new CountDownLatch(CONCURRENT_REISSUE_REQUESTS);
         CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch doneLatch = new CountDownLatch(2);
+        CountDownLatch doneLatch = new CountDownLatch(CONCURRENT_REISSUE_REQUESTS);
         AtomicInteger successCount = new AtomicInteger();
         AtomicInteger unauthorizedCount = new AtomicInteger();
 
-        for (int index = 0; index < 2; index++) {
+        for (int index = 0; index < CONCURRENT_REISSUE_REQUESTS; index++) {
             executor.submit(() -> {
                 readyLatch.countDown();
                 try {
@@ -108,7 +110,7 @@ class AuthServiceConcurrencyTest {
                 .count();
 
         assertEquals(1, successCount.get());
-        assertEquals(1, unauthorizedCount.get());
+        assertEquals(CONCURRENT_REISSUE_REQUESTS - 1, unauthorizedCount.get());
         assertEquals(2, savedTokenCount);
         assertEquals(1, activeTokenCount);
 

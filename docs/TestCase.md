@@ -168,7 +168,7 @@
 
 - [x] 정상 재발급 시 기존 Refresh Token을 소비하고 새 토큰을 저장한다
 - [x] 이미 소비된 Refresh Token이면 재발급을 거부한다
-- [x] 동일 Refresh Token 동시 재발급 요청은 하나만 성공한다
+- [x] 동일 Refresh Token `20`개 동시 재발급 요청은 하나만 성공하고 나머지 `19`개는 거부한다
 - [x] 같은 사용자의 서로 다른 Refresh Token은 각각 독립적으로 재발급된다
 
 ---
