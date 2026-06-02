@@ -66,6 +66,7 @@
 - [ ] `paymentKey`, `method`, `pgStatus`가 저장된다
 - [ ] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정한다
 - [ ] 로그 이벤트 키가 `PAYMENT_CONFIRM_*` 규칙으로 출력된다
+- [x] 동일 `orderId` 동시 승인 요청은 PG confirm을 1회만 호출하고 확정 상태를 재사용한다
 
 #### 실패 케이스
 - [ ] 존재하지 않는 orderId면 `EntityNotFoundException`
@@ -96,6 +97,7 @@
 - [x] PG 취소 성공 후 `Payment CANCELED / ReservationGroup CANCELED / group 안의 Reservation CANCELED / Seat AVAILABLE`
 - [ ] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정한다
 - [ ] 로그 이벤트 키가 `PAYMENT_CANCEL_*` 규칙으로 출력된다
+- [x] 동일 `paymentId` 동시 취소 요청은 PG cancel을 1회만 호출하고 취소 상태를 재사용한다
 
 #### 실패 케이스
 - [ ] `APPROVED`가 아니면 `IllegalStateException`

@@ -97,12 +97,33 @@ baseline 단계에서는 HTTP 실패가 없는 유효한 시험인지 먼저 검
 | 2026-05-30 | reservation-create / load seats | `userId=1`, `scheduleId=18`, unique seat ids `391~590`, 2 seats/request | `10 / 100 shared iterations` | 100 | 0.00% | 16.27 ms | local dev, load dataset, 766.67 req/s, DB 사후 검증: group 100 / reservation 200 / HELD seat 200 |
 | 2026-05-30 | reservation-create / load seats | `userId=1`, `scheduleId=18`, unique seat ids `391~790`, 2 seats/request | `20 / 200 shared iterations` | 200 | 0.00% | 23.74 ms | local dev, load dataset, 916.82 req/s, DB 사후 검증: group 200 / reservation 400 / HELD seat 400 |
 | 2026-05-30 | reservation-create / load seats | `userId=1`, `scheduleId=18`, unique seat ids `391~1390`, 2 seats/request | `50 / 500 shared iterations` | 500 | 0.00% | 98.07 ms | local dev, load dataset, 740.74 req/s, DB 사후 검증: group 500 / reservation 1000 / HELD seat 1000 |
+| 2026-06-02 | reservation-create / load seats run 2 | `userId=1`, `scheduleId=18`, unique seat ids `391~590`, 2 seats/request | `10 / 100 shared iterations` | 100 | 0.00% | 153.78 ms | local dev, load dataset run 2, 274.82 req/s |
+| 2026-06-02 | reservation-create / load seats run 2 | `userId=1`, `scheduleId=18`, unique seat ids `391~790`, 2 seats/request | `20 / 200 shared iterations` | 200 | 0.00% | 84.73 ms | local dev, load dataset run 2, 331.93 req/s |
+| 2026-06-02 | reservation-create / load seats run 2 | `userId=1`, `scheduleId=18`, unique seat ids `391~1390`, 2 seats/request | `50 / 500 shared iterations` | 500 | 0.00% | 74.98 ms | local dev, load dataset run 2, 892.67 req/s |
+| 2026-06-02 | reservation-create / load seats run 3 | `userId=1`, `scheduleId=18`, unique seat ids `391~590`, 2 seats/request | `10 / 100 shared iterations` | 100 | 0.00% | 10.95 ms | local dev, load dataset run 3, 822.71 req/s |
+| 2026-06-02 | reservation-create / load seats run 3 | `userId=1`, `scheduleId=18`, unique seat ids `391~790`, 2 seats/request | `20 / 200 shared iterations` | 200 | 0.00% | 33.33 ms | local dev, load dataset run 3, 766.57 req/s |
+| 2026-06-02 | reservation-create / load seats run 3 | `userId=1`, `scheduleId=18`, unique seat ids `391~1390`, 2 seats/request | `50 / 500 shared iterations` | 500 | 0.00% | 93.50 ms | local dev, load dataset run 3, 705.79 req/s, DB 사후 검증: group 500 / reservation 1000 / distinct HELD seat 1000 / duplicate active seat assignment 0 |
 | 2026-05-30 | reservation-create / same-seat contention | `userId=1`, `scheduleId=18`, same seat ids `391,392`, 2 seats/request | `10 / 10 shared iterations` | 10 | expected reject 9 | 38.84 ms | local dev, success 1 / rejected 9 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 |
 | 2026-05-30 | reservation-create / same-seat contention | `userId=1`, `scheduleId=18`, same seat ids `391,392`, 2 seats/request | `20 / 20 shared iterations` | 20 | expected reject 19 | 17.68 ms | local dev, success 1 / rejected 19 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 |
 | 2026-05-30 | reservation-create / same-seat contention | `userId=1`, `scheduleId=18`, same seat ids `391,392`, 2 seats/request | `50 / 50 shared iterations` | 50 | expected reject 49 | 26.45 ms | local dev, success 1 / rejected 49 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 |
 | 2026-05-30 | reservation-create / overlapping-seat contention | `userId=1`, `scheduleId=18`, alternating seat pairs `391,392` and `392,393` | `10 / 10 shared iterations` | 10 | expected reject 9 | 17.98 ms | local dev, success 1 / rejected 9 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seats `392,393` |
 | 2026-05-30 | reservation-create / overlapping-seat contention | `userId=1`, `scheduleId=18`, alternating seat pairs `391,392` and `392,393` | `20 / 20 shared iterations` | 20 | expected reject 19 | 24.40 ms | local dev, success 1 / rejected 19 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seats `391,392` |
 | 2026-05-30 | reservation-create / overlapping-seat contention | `userId=1`, `scheduleId=18`, alternating seat pairs `391,392` and `392,393` | `50 / 50 shared iterations` | 50 | expected reject 49 | 35.11 ms | local dev, success 1 / rejected 49 / unexpected 0, DB 사후 검증: group 1 / reservation 2 / HELD seats `391,392` |
+| 2026-05-31 | reservation-create / same-seat spike | `scheduleId=18`, same seat ids `391,392`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 29,702 | expected reject 29,701 | 1.36 s | local dev spike, success 1 / unexpected 0 / interrupted 193, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 |
+| 2026-06-01 | reservation-create / same-seat spike run 2 | `scheduleId=18`, same seat ids `391,392`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 29,301 | expected reject 29,300 | 1.45 s | local dev spike run 2, success 1 / unexpected 0 / interrupted 225, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 / duplicate active seat assignment 0 |
+| 2026-06-01 | reservation-create / same-seat spike run 3 | `scheduleId=18`, same seat ids `391,392`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 30,837 | expected reject 30,836 | 1.36 s | local dev spike run 3, success 1 / unexpected 0 / interrupted 199, DB 사후 검증: group 1 / reservation 2 / HELD seat 2 / duplicate active seat assignment 0 |
+| 2026-05-31 | reservation-create / overlapping-seat spike | `scheduleId=18`, alternating seat pairs `391,392` and `392,393`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 31,542 | expected reject 31,541 | 1.31 s | local dev spike, success 1 / unexpected 0 / interrupted 184, DB 사후 검증: group 1 / reservation 2 / HELD seats `392,393` |
+| 2026-06-01 | reservation-create / overlapping-seat spike run 2 | `scheduleId=18`, alternating seat pairs `391,392` and `392,393`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 31,517 | expected reject 31,516 | 1.34 s | local dev spike run 2, success 1 / unexpected 0 / interrupted 186, DB 사후 검증: group 1 / reservation 2 / HELD seats `391,392` / duplicate active seat assignment 0 |
+| 2026-06-01 | reservation-create / overlapping-seat spike run 3 | `scheduleId=18`, alternating seat pairs `391,392` and `392,393`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 30,228 | expected reject 30,227 | 1.35 s | local dev spike run 3, success 1 / unexpected 0 / interrupted 204, DB 사후 검증: group 1 / reservation 2 / HELD seats `392,393` / duplicate active seat assignment 0 |
+| 2026-05-31 | reservation-create / random mixed-seat spike | `scheduleId=18`, random seats `391~1390`, request ratio 1 seat `40%` / 2 seats `60%`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 59,171 | expected reject 58,433 | 801.45 ms | local dev spike, success group 738 / unexpected 0 / interrupted 0, DB 사후 검증: reservation 1000 / distinct HELD seat 1000 / duplicate seat assignment 0 |
+| 2026-06-01 | reservation-create / random mixed-seat spike run 2 | `scheduleId=18`, random seats `391~1390`, request ratio 1 seat `40%` / 2 seats `60%`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 55,942 | expected reject 55,217 | 788.37 ms | local dev spike run 2, success group 725 / unexpected 0 / interrupted 0, DB 사후 검증: reservation 1000 / distinct HELD seat 1000 / duplicate seat assignment 0 / invalid group size 0 |
+| 2026-06-01 | reservation-create / random mixed-seat spike run 3 | `scheduleId=18`, random seats `391~1390`, request ratio 1 seat `40%` / 2 seats `60%`, ramping VUs | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 59,006 | expected reject 58,273 | 732.84 ms | local dev spike run 3, success group 733 / unexpected 0 / interrupted 0, DB 사후 검증: reservation 1000 / distinct HELD seat 1000 / duplicate seat assignment 0 / invalid group size 0 |
+| 2026-05-31 | event-open / seat lookup + random reservation mixed spike | `scheduleId=18`, seat lookup `70%`, random reservation `30%`, reservation request ratio 1 seat `40%` / 2 seats `60%` | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 16,854 | expected reject 3,916 | 3.30 s | local dev mixed spike, seat lookup 11,596 / reservation 5,258 / reservation success 1,342 / unexpected 0 / interrupted 720. 좌석 조회의 수동 만료 처리 포함. 최종 active 상태: group 375 / reservation 522 / distinct HELD seat 522 / duplicate active seat assignment 0 |
+| 2026-06-01 | event-open / seat lookup + random reservation mixed spike without expiration | `scheduleId=18`, `hold-duration=2m`, seat lookup `70%`, random reservation `30%`, reservation request ratio 1 seat `40%` / 2 seats `60%` | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 21,238 | expected reject 5,629 | 1.90 s | local dev mixed spike pure comparison, seat lookup 14,889 / reservation 6,349 / reservation success 720 / unexpected 0 / interrupted 375. 수동 만료 개입 없음. 최종 상태: PENDING group 720 / reservation 979 / HELD seat 979 / EXPIRED group 0 / duplicate active seat assignment 0 |
+| 2026-06-01 | event-open / seat lookup + random reservation mixed spike without expiration run 2 | `scheduleId=18`, `hold-duration=2m`, seat lookup `70%`, random reservation `30%`, reservation request ratio 1 seat `40%` / 2 seats `60%` | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 20,927 | expected reject 5,570 | 1.81 s | local dev mixed spike pure comparison run 2, seat lookup 14,645 / reservation 6,282 / reservation success 712 / unexpected 0 / interrupted 368. 최종 상태: PENDING group 712 / reservation 977 / HELD seat 977 / EXPIRED group 0 / duplicate active seat assignment 0 |
+| 2026-06-01 | event-open / seat lookup + random reservation mixed spike without expiration run 3 | `scheduleId=18`, `hold-duration=2m`, seat lookup `70%`, random reservation `30%`, reservation request ratio 1 seat `40%` / 2 seats `60%` | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 18,972 | expected reject 5,059 | 1.97 s | local dev mixed spike pure comparison run 3, seat lookup 13,220 / reservation 5,752 / reservation success 693 / unexpected 0 / interrupted 410. 최종 상태: PENDING group 693 / reservation 983 / HELD seat 983 / EXPIRED group 0 / duplicate active seat assignment 0 |
+| 2026-06-01 | event-open / seat lookup + random reservation mixed spike with expiration run 2 | `scheduleId=18`, `hold-duration=10s`, seat lookup `70%`, random reservation `30%`, reservation request ratio 1 seat `40%` / 2 seats `60%` | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 16,050 | expected reject 3,488 | 3.31 s | local dev mixed spike expiration run 2, seat lookup 11,222 / reservation 4,828 / reservation success 1,340 / unexpected 0 / interrupted 711. 최종 상태: EXPIRED group 1,004 / PENDING group 363 / active reservation 499 / HELD seat 499 / duplicate active seat assignment 0 |
+| 2026-06-01 | event-open / seat lookup + random reservation mixed spike with expiration run 3 | `scheduleId=18`, `hold-duration=10s`, seat lookup `70%`, random reservation `30%`, reservation request ratio 1 seat `40%` / 2 seats `60%` | `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 / 26s` | 16,756 | expected reject 3,916 | 3.47 s | local dev mixed spike expiration run 3, seat lookup 11,501 / reservation 5,255 / reservation success 1,339 / unexpected 0 / interrupted 721. 최종 상태: EXPIRED group 982 / PENDING group 384 / active reservation 527 / HELD seat 527 / duplicate active seat assignment 0 |
 
 ### Initial Observation
 
@@ -224,6 +245,12 @@ CREATE INDEX idx_reservations_reservation_group_id
 | 결제 승인 | 같은 승인 요청이 중복 도착 | 결제 및 예약 확정 상태가 중복 전이되지 않음 |
 | 결제 취소 | 같은 취소 요청이 중복 도착 | 취소 결과가 정책대로 멱등 처리되고 좌석이 한 번만 복구됨 |
 
+2026-06-02 기준 `PaymentServiceIntegrationTest`에서 결제 중복 요청 정합성을 검증했다.
+
+- 승인: 동일 `orderId` 요청 2개를 동시에 실행해 PG confirm Mock 호출이 정확히 1회인지 확인했다. 최종 상태는 `Payment=APPROVED`, `ReservationGroup=CONFIRMED`, 모든 `Reservation=CONFIRMED`, 모든 `Seat=BOOKED`다.
+- 취소: 동일 `paymentId` 요청 2개를 동시에 실행해 PG cancel Mock 호출이 정확히 1회인지 확인했다. 최종 상태는 `Payment=CANCELED`, `ReservationGroup=CANCELED`, 모든 `Reservation=CANCELED`, 모든 `Seat=AVAILABLE`다.
+- 재검증: `PaymentServiceIntegrationTest` 총 `13`개 통과, `failures=0`, `errors=0`, `skipped=0`, `BUILD SUCCESSFUL in 18s`.
+
 결제 외부 PG 자체의 처리량을 측정하려고 대량 승인 요청을 보내지 않는다. 이 프로젝트에서는 내부 상태 전이와 중복 요청 방어를 검증 대상으로 삼는다.
 
 ### Reservation Create Consistency Result
@@ -262,6 +289,18 @@ CREATE INDEX idx_reservations_reservation_group_id
 - 요청당 2좌석 기준 최대 `500`건의 정상 예약 생성 write 테스트가 가능하다.
 - 재측정 전에는 `performance/reset-load-test-seats.ps1`로 해당 부하 테스트 전용 좌석, 예약, 결제, group을 초기화한다.
 
+예약 생성 write baseline 반복 측정:
+
+| VUs / Iterations | Run 1 p95 | Run 2 p95 | Run 3 p95 | p95 중앙값 | Run 1 처리량 | Run 2 처리량 | Run 3 처리량 | 처리량 중앙값 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `10 / 100` | 16.27 ms | 153.78 ms | 10.95 ms | 16.27 ms | 766.67 req/s | 274.82 req/s | 822.71 req/s | 766.67 req/s |
+| `20 / 200` | 23.74 ms | 84.73 ms | 33.33 ms | 33.33 ms | 916.82 req/s | 331.93 req/s | 766.57 req/s | 766.57 req/s |
+| `50 / 500` | 98.07 ms | 74.98 ms | 93.50 ms | 93.50 ms | 740.74 req/s | 892.67 req/s | 705.79 req/s | 740.74 req/s |
+
+세 구간의 유효 실행은 모두 실패율 `0.00%`였다. 마지막 `50 VU / 500 shared iterations` 실행 후 DB 사후 검증에서 `PENDING group 500`, active reservation `1,000`, distinct HELD seat `1,000`, 중복 active 좌석 배정 `0`을 확인했다.
+
+로컬 dev 환경은 k6, 애플리케이션, PostgreSQL이 같은 장비 자원을 공유하고 SQL 상세 로그도 활성화되어 있다. 특히 `10`, `20 VU`의 run 2는 다른 실행보다 지연이 크게 나타났다. 따라서 단일 실행값으로 처리 능력을 주장하지 않고 3회 중앙값을 로컬 비교 baseline으로 사용한다.
+
 ### Reservation Create Contention Baseline
 
 같은 좌석 묶음에 여러 요청을 동시에 보내는 경합 테스트는 HTTP 실패율이 높게 나오는 것이 정상이다. 이 테스트의 성공 기준은 모든 요청이 `200`을 받는 것이 아니라, 정확히 하나의 요청만 예약 group을 생성하고 나머지 요청은 이미 선점된 좌석으로 거부되는 것이다.
@@ -272,6 +311,7 @@ CREATE INDEX idx_reservations_reservation_group_id
 | --- | --- | --- |
 | Same-seat contention | 모든 요청이 같은 `seatIds`를 사용한다. 예: `[391,392]` vs `[391,392]` | 완전히 동일한 좌석 묶음 중복 선점 방지 |
 | Overlapping-seat contention | 요청이 서로 다르지만 일부 좌석이 겹친다. 예: `[391,392]` vs `[392,393]` | 하나라도 겹치면 실패 요청 전체가 롤백되는지 확인 |
+| Random mixed-seat spike | `391~1390` 범위에서 랜덤 좌석을 선택한다. 요청의 `40%`는 1좌석, `60%`는 2좌석을 요청한다. | 실제 오픈 상황에 가까운 좌석 분산 요청, 충돌, 매진 처리 검증 |
 
 측정 기준:
 
@@ -285,6 +325,115 @@ CREATE INDEX idx_reservations_reservation_group_id
 
 - `performance/k6/reservation-contention.js`
 - `performance/k6/reservation-overlap-contention.js`
+- `performance/k6/reservation-spike.js`
+
+### Reservation Create Spike
+
+Spike 테스트는 인기공연 오픈 순간처럼 트래픽이 짧은 시간에 급증했다가 감소하는 상황을 관찰한다. 로컬 dev 환경에서는 `10 -> 100 -> 300 -> 500 -> 1000 -> 1500 -> 2000 -> 10 VU` 단계로 올리고, 절대 처리 능력이 아니라 정합성 유지, 오류율, 지연 증가, 로컬 테스트 환경 한계를 기록한다.
+
+세 모드를 분리한다.
+
+| Mode | Request shape | Expected result |
+| --- | --- | --- |
+| `same` | 모든 요청이 `[391,392]` | 성공 group `1`, reservation `2`, HELD seat `2` |
+| `overlap` | `[391,392]`, `[392,393]` 반복 | 성공 group `1`, reservation `2`, 부분 성공 없음 |
+| `random` | 좌석 `391~1390` 랜덤 선택, 1좌석 `40%`, 2좌석 `60%` | 동일 좌석 중복 배정 없음, HELD seat 수와 reservation 수 일치 |
+
+`ramping-vus` 종료 과정에서 발생한 interrupted iteration은 ramp-down 중 정리된 요청으로 별도 기록한다. unexpected 오류와 DB 정합성 실패 여부를 함께 확인해야 한다.
+
+동일 좌석 Spike 반복 측정:
+
+| Run | 전체 요청 수 | 처리량 | 전체 p95 | 성공 group | 예상 거부 | 예상 밖 오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 29,702 | 1,138.00 req/s | 1.36 s | 1 | 29,701 | 0 |
+| 2 | 29,301 | 1,126.09 req/s | 1.45 s | 1 | 29,300 | 0 |
+| 3 | 30,837 | 1,185.49 req/s | 1.36 s | 1 | 30,836 | 0 |
+| 중앙값 | 29,702 | 1,138.00 req/s | 1.36 s | 1 | 29,701 | 0 |
+
+세 실행 모두 DB 사후 검증에서 `group 1`, `reservation 2`, `HELD seat 2`, 중복 active 좌석 배정 `0`을 확인했다.
+
+겹치는 좌석 Spike 반복 측정:
+
+| Run | 전체 요청 수 | 처리량 | 전체 p95 | 성공 group | 예상 거부 | 예상 밖 오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 31,542 | 1,210.58 req/s | 1.31 s | 1 | 31,541 | 0 |
+| 2 | 31,517 | 1,211.68 req/s | 1.34 s | 1 | 31,516 | 0 |
+| 3 | 30,228 | 1,161.93 req/s | 1.35 s | 1 | 30,227 | 0 |
+| 중앙값 | 31,517 | 1,210.58 req/s | 1.34 s | 1 | 31,516 | 0 |
+
+세 실행 모두 DB 사후 검증에서 `group 1`, `reservation 2`, HELD 좌석은 `391,392` 또는 `392,393` 중 하나, 중복 active 좌석 배정 `0`을 확인했다. 공유 좌석 `392`가 포함되지 않은 부분 성공 상태는 발생하지 않았다.
+
+랜덤 좌석 1장·2장 혼합 Spike 반복 측정:
+
+| Run | 전체 요청 수 | 처리량 | 전체 p95 | 성공 group | 예상 거부 | 예상 밖 오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 59,171 | 2,261.38 req/s | 801.45 ms | 738 | 58,433 | 0 |
+| 2 | 55,942 | 2,150.91 req/s | 788.37 ms | 725 | 55,217 | 0 |
+| 3 | 59,006 | 2,268.63 req/s | 732.84 ms | 733 | 58,273 | 0 |
+| 중앙값 | 59,006 | 2,261.38 req/s | 788.37 ms | 733 | 58,273 | 0 |
+
+세 실행 모두 DB 사후 검증에서 `reservation 1,000`, distinct HELD seat `1,000`, 중복 active 좌석 배정 `0`, 잘못된 group 크기 `0`을 확인했다.
+
+### Event Open Mixed Spike
+
+실제 오픈 상황에 가까운 혼합 Spike는 좌석 조회 `70%`, 랜덤 예약 생성 `30%` 비율로 구성한다. 예약 요청 내부 비율은 1좌석 `40%`, 2좌석 `60%`다.
+
+현재 `EventService.getSeats(scheduleId)`는 좌석을 반환하기 전에 해당 회차의 만료 group을 즉시 정리한다. 따라서 혼합 Spike 결과에는 조회, 예약 생성뿐 아니라 테스트 도중 만료된 좌석의 복구 비용도 함께 포함된다. 순수 API 처리 비용을 비교하려면 별도로 만료 시간을 Spike 전체 실행 시간보다 길게 설정한 뒤 재측정해야 한다.
+
+측정 스크립트:
+
+- `performance/k6/event-open-mixed-spike.js`
+
+### Event Open Mixed Spike Comparison
+
+혼합 Spike의 순수 조회 및 예약 생성 비용을 분리하기 위해 `dev` profile의 `reservation.hold-duration`을 `2m`으로 늘리고 동일한 Spike를 재실행했다. Spike 실행 시간은 `26s`이므로 테스트 중 생성된 group은 만료 대상이 되지 않는다.
+
+| Metric | 수동 만료 포함 3회 중앙값 | 만료 제외 3회 중앙값 | Change |
+| --- | ---: | ---: | ---: |
+| 전체 요청 수 | 16,756 | 20,927 | `+24.9%` |
+| 전체 처리량 | 606.20 req/s | 801.51 req/s | `+32.2%` |
+| 전체 p95 | 3.31 s | 1.90 s | `-42.6%` |
+| 좌석 조회 요청 수 | 11,501 | 14,645 | `+27.3%` |
+| 좌석 조회 p95 | 3.28 s | 1.81 s | `-44.8%` |
+| 예약 생성 요청 수 | 5,255 | 6,282 | `+19.5%` |
+| 예약 생성 p95 | 3.47 s | 1.98 s | `-42.9%` |
+| 예상 밖 오류 | 0 | 0 | 유지 |
+| 중복 active 좌석 배정 | 0 | 0 | 유지 |
+
+수동 만료 포함 반복 측정:
+
+| Run | 전체 요청 수 | 처리량 | 전체 p95 | 좌석 조회 p95 | 예약 생성 p95 | 예상 밖 오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 16,854 | 610.26 req/s | 3.30 s | 3.25 s | 3.34 s | 0 |
+| 2 | 16,050 | 580.87 req/s | 3.31 s | 3.28 s | 3.47 s | 0 |
+| 3 | 16,756 | 606.20 req/s | 3.47 s | 3.42 s | 3.58 s | 0 |
+| 중앙값 | 16,756 | 606.20 req/s | 3.31 s | 3.28 s | 3.47 s | 0 |
+
+만료 제외 순수 비교 반복 측정:
+
+| Run | 전체 요청 수 | 처리량 | 전체 p95 | 좌석 조회 p95 | 예약 생성 p95 | 예상 밖 오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 21,238 | 813.99 req/s | 1.90 s | 1.81 s | 1.98 s | 0 |
+| 2 | 20,927 | 801.51 req/s | 1.81 s | 1.77 s | 1.94 s | 0 |
+| 3 | 18,972 | 723.18 req/s | 1.97 s | 1.92 s | 2.09 s | 0 |
+| 중앙값 | 20,927 | 801.51 req/s | 1.90 s | 1.81 s | 1.98 s | 0 |
+
+순수 비교 실행의 DB 사후 검증:
+
+- 초기 상태: 부하 테스트 전용 좌석 `AVAILABLE 1,000 / 1,000`
+- 3회 모두 active reservation 수와 distinct active seat 수가 일치
+- 3회 모두 동일 seat에 대한 중복 active reservation `0`
+- 3회 모두 group 크기는 1좌석 또는 2좌석이며 잘못된 크기 group `0`
+- 3회 모두 만료된 group `0`
+
+해석:
+
+- 수동 만료 복구를 제외하면 3회 중앙값 기준 전체 p95가 `3.31s -> 1.90s`로 감소하고 처리량은 `606.20 -> 801.51 req/s`로 증가했다.
+- 기존 혼합 Spike는 좌석 조회와 예약 생성만의 비용이 아니라, 조회 시점의 만료 group 탐색 및 상태 복구 비용까지 포함한 운영 시나리오 baseline이다.
+- 수동 만료 포함 조건과 제외 조건을 각각 3회 반복한 중앙값에서도 처리량과 p95 차이가 유지됐다. 따라서 현재 구조에서 조회 연계 만료 정리는 오픈 시점 병목에 영향을 주는 비용으로 분리해 관리할 필요가 있다.
+- 현재 단계에서는 수동 만료 정리를 제거하지 않는다. 스케줄러만 의존하면 주기 사이에 만료된 좌석이 판매 불가 상태로 남아 사용자에게 최신 좌석을 제공하지 못할 수 있다. 예매 시스템에서는 처리량 개선보다 좌석 상태 정합성과 즉시 재판매 가능성이 우선이다.
+- 후속 최적화는 정합성 정책을 유지하는 범위에서 검토한다. 후보는 회차별 만료 대상 조회 범위 축소, 조건부 상태 전이, 만료 처리량 제한, 스케줄러 주기 조정이다.
+- 로컬 dev 환경에서 k6, 애플리케이션, PostgreSQL이 같은 장비 자원을 공유하고 SQL 상세 로그도 활성화되어 있으므로 운영 처리량 보장 수치로 사용하지 않는다.
 
 ## Run Commands
 
@@ -457,11 +606,55 @@ k6 run performance/k6/reservation-overlap-contention.js
 - HELD seat 조합은 `391,392` 또는 `392,393` 중 하나여야 한다.
 - `391`만 HELD 또는 `393`만 HELD 같은 부분 성공 상태가 없어야 한다.
 
+### Reservation Create Spike
+
+```powershell
+$env:COOKIE="__Host-access_token=<access token>"
+$env:ORIGIN="https://localhost:3000"
+$env:MODE="random"
+$env:CASE_NAME="reservation-spike-random-mixed"
+$env:MIN_SEAT_ID="391"
+$env:MAX_SEAT_ID="1390"
+$env:SINGLE_SEAT_RATIO="0.4"
+k6 run performance/k6/reservation-spike.js
+```
+
+확인값:
+
+- `reservation_spike_unexpected_rate = 0`
+- 동일 좌석 중복 reservation이 없어야 한다.
+- 최종 HELD seat 수와 reservation 수가 일치해야 한다.
+- 각 성공 group은 reservation을 `1`개 또는 `2`개만 가져야 한다.
+- 로컬 결과는 운영 처리량 보장이 아니라 운영 유사 시나리오 설계를 위한 기준값으로 사용한다.
+
+### Event Open Mixed Spike
+
+```powershell
+$env:COOKIE="__Host-access_token=<access token>"
+$env:ORIGIN="https://localhost:3000"
+$env:SCHEDULE_ID="18"
+$env:CASE_NAME="event-open-mixed-spike"
+$env:MIN_SEAT_ID="391"
+$env:MAX_SEAT_ID="1390"
+$env:SINGLE_SEAT_RATIO="0.4"
+k6 run performance/k6/event-open-mixed-spike.js
+```
+
+확인값:
+
+- `event_open_seat_lookup_unexpected_rate = 0`
+- `event_open_reservation_unexpected_rate = 0`
+- active 상태의 동일 좌석 중복 reservation이 없어야 한다.
+- 최종 active HELD seat 수와 active reservation 수가 일치해야 한다.
+- 현재 좌석 조회 경로는 수동 만료 처리를 포함하므로, 만료 group 수와 active group 수를 함께 기록한다.
+
 ## Next Measurement
 
-1. 예약 생성 write baseline, same-seat contention, overlapping-seat contention은 `10`, `20`, `50` VU 구간에서 1차 재측정했으므로, 같은 조건을 2~3회 반복해 중간값 또는 반복 평균을 산출한다.
-2. 결제 승인/취소 중복 요청 상태 전이를 통합 테스트 결과와 함께 문서화한다.
-3. 운영 유사 성능 주장이 필요해지는 시점에는 SQL 상세 로그를 낮춘 별도 profile과 실제 사용자 간격/도착률 시나리오를 구성한다.
+1. 예약 생성 write baseline은 `10 / 100`, `20 / 200`, `50 / 500 shared iterations` 구간을 각각 3회 반복해 중앙값을 기록했다.
+2. Event Open Mixed Spike는 수동 만료 포함 조건과 `hold-duration=2m` 순수 비교 조건을 각각 3회 반복해 중앙값을 기록했다.
+3. 결제 승인/취소 중복 요청 상태 전이는 통합 테스트로 검증하고 결과를 문서화했다.
+4. 다음 결제 검증은 PG 응답 불일치, 잘못된 상태 전이, `paymentKey` 누락 등 예외 흐름을 보강한다.
+5. 운영 유사 성능 주장이 필요해지는 시점에는 SQL 상세 로그를 낮춘 별도 profile과 별도 부하 발생 환경을 구성한다.
 
 ## References
 

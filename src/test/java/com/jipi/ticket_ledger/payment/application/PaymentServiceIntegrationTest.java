@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
@@ -47,6 +48,8 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -188,6 +191,69 @@ class PaymentServiceIntegrationTest {
 
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
+    @Test
+    @DisplayName("confirmPayment: 동일 orderId 승인 동시 요청은 PG를 한 번만 호출하고 확정 상태를 재사용한다")
+    void confirmPaymentDuplicateRequestCallsPgOnce() throws Exception {
+        Fixture fixture = createPendingReservationFixture(false, 2);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch confirmReachedPg = new CountDownLatch(1);
+        CountDownLatch releasePg = new CountDownLatch(1);
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenAnswer(invocation -> {
+                    confirmReachedPg.countDown();
+                    if (!releasePg.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("PG 응답 대기 제어에 실패했습니다.");
+                    }
+                    return new TossConfirmResponse(
+                            "pay-key-duplicate-confirm",
+                            ready.getOrderId(),
+                            "DONE",
+                            "CARD",
+                            totalAmountWithVat,
+                            "KRW"
+                    );
+                });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Payment> first = executor.submit(() -> {
+                startLatch.await();
+                return paymentService.confirmPayment("pay-key-duplicate-confirm", ready.getOrderId(), totalAmountWithVat);
+            });
+            Future<Payment> second = executor.submit(() -> {
+                startLatch.await();
+                return paymentService.confirmPayment("pay-key-duplicate-confirm", ready.getOrderId(), totalAmountWithVat);
+            });
+
+            startLatch.countDown();
+            assertTrue(confirmReachedPg.await(10, TimeUnit.SECONDS), "첫 승인 요청이 PG 호출 지점까지 진입해야 합니다.");
+            releasePg.countDown();
+
+            assertEquals(PaymentStatus.APPROVED, first.get(10, TimeUnit.SECONDS).getStatus());
+            assertEquals(PaymentStatus.APPROVED, second.get(10, TimeUnit.SECONDS).getStatus());
+        } finally {
+            startLatch.countDown();
+            releasePg.countDown();
+            executor.shutdownNow();
+        }
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
+        List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
+
+        verify(tossPaymentClient, times(1))
+                .confirm("pay-key-duplicate-confirm", ready.getOrderId(), totalAmountWithVat, "confirm:" + ready.getOrderId());
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CONFIRMED, group.getStatus());
+        assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CONFIRMED));
+        assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.BOOKED));
     }
 
     @Test
@@ -435,6 +501,80 @@ class PaymentServiceIntegrationTest {
         assertEquals(PaymentStatus.CANCELED, canceled.getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+    }
+
+    @Test
+    @DisplayName("cancelPayment: 동일 paymentId 취소 동시 요청은 PG를 한 번만 호출하고 취소 상태를 재사용한다")
+    void cancelPaymentDuplicateRequestCallsPgOnce() throws Exception {
+        Fixture fixture = createPendingReservationFixture(false, 2);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        "pay-key-duplicate-cancel",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+        Payment approved = paymentService.confirmPayment("pay-key-duplicate-cancel", ready.getOrderId(), totalAmountWithVat);
+
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch cancelReachedPg = new CountDownLatch(1);
+        CountDownLatch releasePg = new CountDownLatch(1);
+        when(tossPaymentClient.cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId()))
+                .thenAnswer(invocation -> {
+                    cancelReachedPg.countDown();
+                    if (!releasePg.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("PG 응답 대기 제어에 실패했습니다.");
+                    }
+                    return new TossCancelResponse(
+                            "pay-key-duplicate-cancel",
+                            "CANCELED",
+                            String.valueOf(totalAmountWithVat),
+                            "KRW"
+                    );
+                });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() -> {
+                startLatch.await();
+                paymentService.cancelPayment(approved.getId(), "사용자 요청");
+                return null;
+            });
+            Future<?> second = executor.submit(() -> {
+                startLatch.await();
+                paymentService.cancelPayment(approved.getId(), "사용자 요청");
+                return null;
+            });
+
+            startLatch.countDown();
+            assertTrue(cancelReachedPg.await(10, TimeUnit.SECONDS), "첫 취소 요청이 PG 호출 지점까지 진입해야 합니다.");
+            releasePg.countDown();
+
+            assertNull(first.get(10, TimeUnit.SECONDS));
+            assertNull(second.get(10, TimeUnit.SECONDS));
+        } finally {
+            startLatch.countDown();
+            releasePg.countDown();
+            executor.shutdownNow();
+        }
+
+        Payment payment = paymentRepository.findById(approved.getId()).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
+        List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
+
+        verify(tossPaymentClient, times(1))
+                .cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId());
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
+        assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CANCELED));
+        assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
     }
 
     private Fixture createPendingReservationFixture(boolean expiredReservation) {
