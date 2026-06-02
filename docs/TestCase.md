@@ -58,77 +58,78 @@
 ### 2.2 confirmPayment()
 
 #### 성공 케이스
-- [ ] orderId로 Payment를 조회한다
-- [ ] Payment 상태가 `READY`일 때 승인된다
+- [x] orderId로 Payment를 조회한다
+- [x] Payment 상태가 `READY`일 때 승인된다
 - [x] group 안의 Reservation 상태가 모두 `PENDING`일 때 승인된다
-- [ ] amount(총액, VAT 포함) 검증 통과 시 승인된다
+- [x] amount(총액, VAT 포함) 검증 통과 시 승인된다
 - [x] 승인 성공 시 `Payment APPROVED / ReservationGroup CONFIRMED / group 안의 Reservation CONFIRMED / Seat BOOKED`
-- [ ] `paymentKey`, `method`, `pgStatus`가 저장된다
-- [ ] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정한다
-- [ ] 로그 이벤트 키가 `PAYMENT_CONFIRM_*` 규칙으로 출력된다
+- [x] `paymentKey`, `method`, `pgStatus`가 저장된다
+- [x] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정한다
+- [x] 로그 이벤트 키가 `PAYMENT_CONFIRM_*` 규칙으로 출력된다
 - [x] 동일 `orderId` 동시 승인 요청은 PG confirm을 1회만 호출하고 확정 상태를 재사용한다
 
 #### 실패 케이스
-- [ ] 존재하지 않는 orderId면 `EntityNotFoundException`
-- [ ] Payment 상태가 `READY`가 아니면 `IllegalStateException`
-- [ ] group 안의 Reservation 상태가 `PENDING`이 아니면 `IllegalStateException`
+- [x] 존재하지 않는 orderId면 `EntityNotFoundException`
+- [x] Payment 상태가 `READY`, `APPROVED`가 아니면 `IllegalStateException`
+- [x] group 안의 Reservation 상태가 `PENDING`이 아니면 `IllegalStateException`
 - [x] ReservationGroup이 만료되었으면 `IllegalStateException`
-- [ ] amount 불일치면 `IllegalStateException`
-- [ ] PG 승인 응답 금액/통화 불일치면 `IllegalStateException`
+- [x] amount 불일치면 `IllegalStateException`
+- [x] PG 승인 응답 금액/통화 불일치면 `IllegalStateException`
+- [x] PG 승인 응답 결제키/orderId/status 불일치면 `IllegalStateException`
 
 ---
 
 ### 2.3 failPayment()
 
 #### 성공 케이스
-- [ ] `READY -> FAILED`
+- [x] `READY -> FAILED`
 - [x] group이 미만료면 Reservation/Seat 상태는 유지된다
 - [x] group이 만료면 `ReservationGroup EXPIRED`, group 안의 `Reservation EXPIRED`, `Seat AVAILABLE`로 전이된다
 
 #### 실패 케이스
-- [ ] `READY`가 아니면 `IllegalStateException`
+- [x] `READY`가 아니면 `IllegalStateException`
 
 ---
 
 ### 2.4 cancelPayment()
 
 #### 성공 케이스
-- [ ] `APPROVED` 결제만 취소 가능하다
+- [x] `APPROVED` 결제만 취소 가능하다
 - [x] PG 취소 성공 후 `Payment CANCELED / ReservationGroup CANCELED / group 안의 Reservation CANCELED / Seat AVAILABLE`
-- [ ] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정한다
-- [ ] 로그 이벤트 키가 `PAYMENT_CANCEL_*` 규칙으로 출력된다
+- [x] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정한다
+- [x] 로그 이벤트 키가 `PAYMENT_CANCEL_*` 규칙으로 출력된다
 - [x] 동일 `paymentId` 동시 취소 요청은 PG cancel을 1회만 호출하고 취소 상태를 재사용한다
 
 #### 실패 케이스
-- [ ] `APPROVED`가 아니면 `IllegalStateException`
-- [ ] `paymentKey`가 없으면 `IllegalStateException`
-- [ ] PG 취소 응답의 결제키/통화/상태가 불일치하면 `IllegalStateException`
+- [x] `APPROVED`가 아니면 `IllegalStateException`
+- [x] `paymentKey`가 없으면 `IllegalStateException`
+- [x] PG 취소 응답의 결제키/통화/상태가 불일치하면 `IllegalStateException`
 
 ---
 
 ### 2.5 getPaymentStatus()
 
 #### 성공 케이스
-- [ ] paymentId로 현재 결제 상태를 조회한다
+- [x] paymentId로 현재 결제 상태를 조회한다
 - [x] `Payment / Reservation / Seat` 상태를 함께 반환한다
-- [ ] 프론트 폴링 기준으로 사용할 수 있다
+- [x] 프론트 폴링 기준으로 사용할 수 있다
 
 ---
 
 ## 3. Controller 테스트
 
 ### 3.1 ReservationController
-- [ ] 예약 생성 성공 (200)
-- [ ] validation 실패 (400)
-- [ ] 존재하지 않는 user/seat (404)
+- [x] 예약 생성 성공 (200)
+- [x] validation 실패 (400)
+- [x] 존재하지 않는 user/seat (404)
 
 ### 3.2 PayMentController
-- [ ] `/payments/ready` 성공 (200)
-- [ ] `/payments/confirm` 성공 (200)
-- [ ] `/payments/{id}/status` 성공 (200)
-- [ ] `/payments/{id}/cancel` 성공 (200)
-- [ ] `/payments/fail-redirect` 성공 (200)
-- [ ] 잘못된 상태 전이 (409)
+- [x] `/payments/ready` 성공 (200)
+- [x] `/payments/confirm` 성공 (200)
+- [x] `/payments/{id}/status` 성공 (200)
+- [x] `/payments/{id}/cancel` 성공 (200)
+- [x] `/payments/fail-redirect` 성공 (200)
+- [x] 잘못된 상태 전이 (409)
 
 ---
 

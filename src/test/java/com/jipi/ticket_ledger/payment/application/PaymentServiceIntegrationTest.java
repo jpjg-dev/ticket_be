@@ -454,6 +454,126 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("confirmPayment: PG 승인 응답 금액이 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    void confirmPaymentRejectsPgAmountMismatch() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        "pay-key-pg-amount-mismatch",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat + 1,
+                        "KRW"
+                ));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.confirmPayment("pay-key-pg-amount-mismatch", ready.getOrderId(), totalAmountWithVat));
+
+        assertPaymentApprovalRejected(ready, fixture);
+    }
+
+    @Test
+    @DisplayName("confirmPayment: PG 승인 응답 통화가 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    void confirmPaymentRejectsPgCurrencyMismatch() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        "pay-key-pg-currency-mismatch",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "USD"
+                ));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.confirmPayment("pay-key-pg-currency-mismatch", ready.getOrderId(), totalAmountWithVat));
+
+        assertPaymentApprovalRejected(ready, fixture);
+    }
+
+    @Test
+    @DisplayName("confirmPayment: PG 승인 응답 결제키가 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    void confirmPaymentRejectsPgPaymentKeyMismatch() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        "different-pay-key",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.confirmPayment("pay-key-pg-key-mismatch", ready.getOrderId(), totalAmountWithVat));
+
+        assertPaymentApprovalRejected(ready, fixture);
+    }
+
+    @Test
+    @DisplayName("confirmPayment: PG 승인 응답 주문번호가 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    void confirmPaymentRejectsPgOrderIdMismatch() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        "pay-key-pg-order-mismatch",
+                        "different-order-id",
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.confirmPayment("pay-key-pg-order-mismatch", ready.getOrderId(), totalAmountWithVat));
+
+        assertPaymentApprovalRejected(ready, fixture);
+    }
+
+    @Test
+    @DisplayName("confirmPayment: PG 승인 응답 상태가 DONE이 아니면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    void confirmPaymentRejectsPgStatusMismatch() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        "pay-key-pg-status-mismatch",
+                        ready.getOrderId(),
+                        "WAITING_FOR_DEPOSIT",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.confirmPayment("pay-key-pg-status-mismatch", ready.getOrderId(), totalAmountWithVat));
+
+        assertPaymentApprovalRejected(ready, fixture);
+    }
+
+    @Test
     @DisplayName("confirmPayment: 존재하지 않는 orderId로 승인 요청하면 EntityNotFoundException이 발생한다")
     void confirmPaymentOrderIdNotFound() {
         assertThrows(EntityNotFoundException.class,
@@ -577,6 +697,79 @@ class PaymentServiceIntegrationTest {
         assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
     }
 
+    @Test
+    @DisplayName("cancelPayment: READY 결제는 취소할 수 없고 PG를 호출하지 않는다")
+    void cancelPaymentRejectsReadyPayment() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.cancelPayment(ready.getId(), "사용자 요청"));
+
+        assertEquals(PaymentStatus.READY, paymentRepository.findById(ready.getId()).orElseThrow().getStatus());
+        verifyNoInteractions(tossPaymentClient);
+    }
+
+    @Test
+    @DisplayName("cancelPayment: paymentKey가 없는 APPROVED 결제는 취소할 수 없고 PG를 호출하지 않는다")
+    void cancelPaymentRejectsApprovedPaymentWithoutPaymentKey() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment approvedWithoutPaymentKey = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(approvedWithoutPaymentKey.getId());
+        ReflectionTestUtils.setField(approvedWithoutPaymentKey, "status", PaymentStatus.APPROVED);
+        paymentRepository.save(approvedWithoutPaymentKey);
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.cancelPayment(approvedWithoutPaymentKey.getId(), "사용자 요청"));
+
+        assertEquals(PaymentStatus.APPROVED,
+                paymentRepository.findById(approvedWithoutPaymentKey.getId()).orElseThrow().getStatus());
+        verifyNoInteractions(tossPaymentClient);
+    }
+
+    @Test
+    @DisplayName("cancelPayment: PG 취소 응답 결제키가 다르면 예외가 발생하고 APPROVED/CONFIRMED/BOOKED가 유지된다")
+    void cancelPaymentRejectsPgPaymentKeyMismatch() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-key-mismatch");
+
+        when(tossPaymentClient.cancel("pay-key-cancel-key-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenReturn(new TossCancelResponse("different-pay-key", "CANCELED", "110000", "KRW"));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
+
+        assertPaymentCancellationRejected(fixture);
+    }
+
+    @Test
+    @DisplayName("cancelPayment: PG 취소 응답 통화가 다르면 예외가 발생하고 APPROVED/CONFIRMED/BOOKED가 유지된다")
+    void cancelPaymentRejectsPgCurrencyMismatch() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-currency-mismatch");
+
+        when(tossPaymentClient.cancel("pay-key-cancel-currency-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenReturn(new TossCancelResponse("pay-key-cancel-currency-mismatch", "CANCELED", "110000", "USD"));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
+
+        assertPaymentCancellationRejected(fixture);
+    }
+
+    @Test
+    @DisplayName("cancelPayment: PG 취소 응답 상태가 유효하지 않으면 예외가 발생하고 APPROVED/CONFIRMED/BOOKED가 유지된다")
+    void cancelPaymentRejectsPgStatusMismatch() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-status-mismatch");
+
+        when(tossPaymentClient.cancel("pay-key-cancel-status-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenReturn(new TossCancelResponse("pay-key-cancel-status-mismatch", "DONE", "110000", "KRW"));
+
+        assertThrows(IllegalStateException.class,
+                () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
+
+        assertPaymentCancellationRejected(fixture);
+    }
+
     private Fixture createPendingReservationFixture(boolean expiredReservation) {
         return createPendingReservationFixture(expiredReservation, 1);
     }
@@ -696,6 +889,48 @@ class PaymentServiceIntegrationTest {
 
     private int amountWithVat(int amount) {
         return amount + (int) Math.round(amount * 0.1d);
+    }
+
+    private ApprovedPaymentFixture createApprovedPaymentFixture(String paymentKey) {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenReturn(new TossConfirmResponse(
+                        paymentKey,
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+        paymentService.confirmPayment(paymentKey, ready.getOrderId(), totalAmountWithVat);
+        return new ApprovedPaymentFixture(ready.getId(), fixture);
+    }
+
+    private void assertPaymentApprovalRejected(Payment ready, Fixture fixture) {
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(PaymentStatus.READY, payment.getStatus());
+        assertEquals(ReservationStatus.PENDING, reservation.getStatus());
+        assertEquals(SeatStatus.HELD, seat.getStatus());
+    }
+
+    private void assertPaymentCancellationRejected(ApprovedPaymentFixture fixture) {
+        Payment payment = paymentRepository.findById(fixture.paymentId).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.fixture.seatId).orElseThrow();
+
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
+        assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
+    private record ApprovedPaymentFixture(Long paymentId, Fixture fixture) {
     }
 
     private record Fixture(
