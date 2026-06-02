@@ -674,6 +674,99 @@ k6 run performance/k6/event-open-mixed-spike.js
 - 최종 active HELD seat 수와 active reservation 수가 일치해야 한다.
 - 현재 좌석 조회 경로는 수동 만료 처리를 포함하므로, 만료 group 수와 active group 수를 함께 기록한다.
 
+### Popular Event Payment E2E Spike
+
+인기 공연 조회부터 결제 완료까지 이어지는 사용자 여정은 외부 경량 Mock PG와 함께 측정한다. Mock PG는 테스트 전용 프로필에서만 연결한다. 실제 Toss API에는 부하를 주지 않는다.
+
+Mock PG 실행:
+
+```powershell
+node performance/mock-pg/mock-pg-server.js
+```
+
+백엔드는 IntelliJ 실행 설정에서 active profile을 `dev,test`로 지정해 다시 실행한다. `dev`의 로컬 TLS 설정을 유지하고 `test`의 아래 설정으로 PG 주소만 Mock 서버로 덮어쓴다.
+
+```yaml
+toss:
+  payments:
+    base-url: http://127.0.0.1:18080
+```
+
+Mock PG health 확인:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18080/health
+```
+
+Smoke:
+
+```powershell
+$env:COOKIE="__Host-access_token=<access token>"
+$env:ORIGIN="https://localhost:3000"
+$env:LOAD_PROFILE="smoke"
+$env:SCHEDULE_ID="18"
+$env:MIN_SEAT_ID="391"
+$env:MAX_SEAT_ID="1390"
+k6 run performance/k6/popular-event-payment-e2e-spike.js
+```
+
+Spike:
+
+```powershell
+.\performance\reset-load-test-seats.ps1
+$env:LOAD_PROFILE="spike"
+k6 run performance/k6/popular-event-payment-e2e-spike.js
+```
+
+확인값:
+
+- `e2e_journey_duration`: 전체 사용자 여정 p95
+- `e2e_event_list_duration`, `e2e_event_detail_duration`, `e2e_seat_lookup_duration`: 탐색 단계 p95
+- `e2e_reservation_duration`, `e2e_payment_ready_duration`, `e2e_payment_confirm_duration`: 상태 전이 단계 p95
+- `e2e_reservation_success`: 예약 성공 수
+- `e2e_contention_rejected`: 인기 좌석 경합에 따른 정상 거부 수
+- `e2e_payment_completed`: 결제 완료 수와 초당 완료 건수
+- `e2e_payment_completion_rate`: 예약 성공 이후 결제 완료율
+- `e2e_unexpected_rate`: 예상 밖 오류율
+
+실행 후 DB MCP로 아래 정합성을 확인한다.
+
+- 동일 좌석에 대한 중복 active reservation `0`
+- reservation group의 부분 성공 `0`
+- `Payment=APPROVED`, `ReservationGroup=CONFIRMED`, `Reservation=CONFIRMED`, `Seat=BOOKED` 상태 불일치 `0`
+
+### Popular Event Payment E2E Spike Result
+
+`PERF_LOAD_TEST_EVENT`, 회차 `18`, 인기 좌석 범위 `391~1390`, 최대 `100 VU`, `17s` 조건에서 3회 반복했다. 각 실행 전에 부하 테스트 전용 좌석과 연결 데이터를 reset했다.
+
+| Run | 전체 여정 p95 | 좌석 조회 p95 | 예약 생성 p95 | 결제 준비 p95 | 결제 승인 p95 | 완료 결제 | 정상 경합 거부 | 예상 밖 오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | `353.75 ms` | `120.29 ms` | `49.54 ms` | `49.13 ms` | `52.12 ms` | `1,000` | `2,666` | `0` |
+| 2 | `377.00 ms` | `126.79 ms` | `59.18 ms` | `55.94 ms` | `59.77 ms` | `1,000` | `2,399` | `0` |
+| 3 | `362.00 ms` | `119.15 ms` | `45.10 ms` | `45.56 ms` | `45.38 ms` | `1,000` | `2,653` | `0` |
+| 중앙값 | `362.00 ms` | `120.29 ms` | `49.54 ms` | `49.13 ms` | `52.12 ms` | `1,000` | `2,653` | `0` |
+
+3회 모두 결제 완료율은 `100%`였고 초당 결제 완료 건수는 각각 `58.74`, `58.70`, `58.72`건이었다. 중앙값은 `58.72 payments/s`다.
+
+마지막 실행 후 DB MCP 사후 검증:
+
+| Verification | Result |
+| --- | ---: |
+| 생성된 reservation group | `1,000` |
+| 생성된 payment | `1,000` |
+| 생성된 reservation | `1,000` |
+| `BOOKED` 좌석 | `1,000` |
+| 중복 active 좌석 배정 | `0` |
+| 부분 성공 reservation group | `0` |
+| `APPROVED / CONFIRMED / BOOKED` 상태 불일치 | `0` |
+
+해석:
+
+- 인기 좌석 범위를 공유하는 경합 상황에서도 성공한 `1,000`건은 모두 결제 완료까지 일관되게 전이됐다.
+- 이미 선점된 좌석을 선택한 요청은 정상 경합 거부로 분리했고 예상 밖 오류는 발생하지 않았다.
+- 외부 경량 Mock PG를 사용했으므로 결과는 내부 예약/결제 확정 경로의 로컬 baseline이다. 실제 Toss 네트워크 지연이나 장애 대응 성능을 의미하지 않는다.
+- 대기열 기능 없이 좌석 정합성과 결제 상태 전이의 일관성을 검증했다.
+
 ## Next Measurement
 
 1. 예약 생성 write baseline은 `10 / 100`, `20 / 200`, `50 / 500 shared iterations` 구간을 각각 3회 반복해 중앙값을 기록했다.
@@ -687,6 +780,9 @@ k6 run performance/k6/event-open-mixed-spike.js
    - 예약 실패는 인기 좌석 경합에 따른 정상 거부와 예상 밖 오류를 분리한다.
    - 기록값: 전체 여정 p95, 단계별 p95, 예약 성공률, 결제 완료율, 초당 결제 완료 건수, 예상 밖 오류율
    - DB 사후 검증: 중복 active 좌석 배정 `0`, 부분 성공 group `0`, `APPROVED / CONFIRMED / BOOKED` 상태 불일치 `0`
+   - 외부 경량 Mock PG와 `dev,test` 프로필로 Smoke 및 Spike 측정을 완료했다.
+   - 최대 `100 VU`, `17s`, 3회 중앙값 기준 전체 여정 p95는 `362.00 ms`, 결제 완료는 `1,000`, 완료율은 `100%`, 초당 결제 완료는 `58.72 payments/s`, 예상 밖 오류는 `0`이다.
+   - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 7. 운영 유사 성능 주장이 필요해지는 시점에는 SQL 상세 로그를 낮춘 별도 profile과 별도 부하 발생 환경을 구성한다.
 
 ## References
