@@ -53,9 +53,6 @@ public class RefreshToken {
         this.createdAt = createdAt;
     }
 
-    public void markUsed(LocalDateTime usedAt) {
-        this.lastUsedAt = usedAt;
-    }
 
     public void revoke(LocalDateTime revokedAt) {
         this.revokedAt = revokedAt;

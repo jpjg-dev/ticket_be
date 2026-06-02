@@ -76,7 +76,7 @@ public class UserService {
                     LogEvents.USER_MYPAGE_REJECT, userId, principalUserId, "FORBIDDEN_MYPAGE_ACCESS");
             throw new IllegalStateException("잘못된 접근 입니다.");
         }
-
+        log.debug("=========================mypage 쿼리 발생 시작======================================");
         List<Reservation> reservations = reservationRepository.findByReservationGroupUserIdAndReservationGroupStatusIn(
                 userId,
                 List.of(ReservationGroupStatus.CONFIRMED, ReservationGroupStatus.CANCELED),
@@ -88,15 +88,20 @@ public class UserService {
                 List.of(PaymentStatus.APPROVED, PaymentStatus.CANCELED),
                 Sort.by(Sort.Direction.DESC, "requestedAt")
         );
+        log.debug("=========================mypage 쿼리 발생 끝======================================");
 
-        List<ResponseMyPageDTO.ReservationGroupItem> reservationItems = groupReservations(reservations).entrySet().stream()
+        Map<Long, List<Reservation>> reservationsByGroupId = groupReservations(reservations);
+
+        List<ResponseMyPageDTO.ReservationGroupItem> reservationItems = reservationsByGroupId.entrySet().stream()
                 .map(entry -> toReservationGroupItem(entry.getKey(), entry.getValue()))
                 .toList();
 
         List<ResponseMyPageDTO.PaymentItem> paymentItems = payments.stream()
-                .map(payment -> toPaymentItem(payment, reservationsForPayment(payment)))
+                .map(payment -> toPaymentItem(
+                        payment,
+                        reservationsByGroupId.getOrDefault(payment.getReservationGroup().getId(), List.of())
+                ))
                 .toList();
-
         return new ResponseMyPageDTO(reservationItems, paymentItems);
     }
 
@@ -131,10 +136,6 @@ public class UserService {
                 payment.getRequestedAt(),
                 toSeatItems(reservations)
         );
-    }
-
-    private List<Reservation> reservationsForPayment(Payment payment) {
-        return reservationRepository.findByReservationGroupId(payment.getReservationGroup().getId());
     }
 
     private List<ResponseMyPageDTO.SeatItem> toSeatItems(List<Reservation> reservations) {

@@ -1,7 +1,7 @@
 spring:
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: true
@@ -25,9 +25,9 @@ logging:
 
 #예약 만료 스케쥴러
 reservation:
-  hold-duration: 30s
+  hold-duration: 10s
   expire-scheduler:
-    fixed-delay-ms: 15000 # 15 seconds
+    fixed-delay-ms: 1500000000000 # 15 seconds
 
 security:
   csrf-origin:
@@ -35,3 +35,8 @@ security:
       - https://localhost:3000
       - http://localhost:3000
       - http://127.0.0.1:3000
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics, prometheus

@@ -29,6 +29,8 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -52,10 +54,11 @@ class ReservationExpirationServiceTest {
     void expireAllForReservationGroup() {
         Fixture fixture = createFixture(3L);
 
-        when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
-                .thenReturn(List.of(fixture.group()));
+        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+                .thenReturn(List.of(3L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(3L)).thenReturn(Optional.of(fixture.payment()));
+        when(reservationGroupRepository.findById(3L)).thenReturn(Optional.of(fixture.group()));
         when(reservationRepository.findByReservationGroupId(3L)).thenReturn(fixture.reservations());
-        when(paymentRepository.findByReservationGroupId(3L)).thenReturn(Optional.of(fixture.payment()));
 
         int expiredCount = reservationExpirationService.expireAll();
 
@@ -73,17 +76,22 @@ class ReservationExpirationServiceTest {
     void expireByScheduleIdTargetsOnlyRequestedSchedule() {
         Fixture fixture = createFixture(7L);
 
-        when(reservationGroupRepository.findExpiredByScheduleId(eq(99L), any(LocalDateTime.class)))
-                .thenReturn(List.of(fixture.group()));
+        when(reservationGroupRepository.findExpiredPendingIdsByScheduleId(eq(99L), any(LocalDateTime.class)))
+                .thenReturn(List.of(7L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(7L)).thenReturn(Optional.of(fixture.payment()));
+        when(reservationGroupRepository.findById(7L)).thenReturn(Optional.of(fixture.group()));
         when(reservationRepository.findByReservationGroupId(7L)).thenReturn(fixture.reservations());
-        when(paymentRepository.findByReservationGroupId(7L)).thenReturn(Optional.of(fixture.payment()));
 
         int expiredCount = reservationExpirationService.expireByScheduleId(99L);
 
         assertEquals(2, expiredCount);
         assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
         assertEquals(ReservationStatus.EXPIRED, fixture.reservations().get(0).getStatus());
-        verify(reservationGroupRepository).findExpiredByScheduleId(eq(99L), any(LocalDateTime.class));
+        verify(reservationGroupRepository).findExpiredPendingIdsByScheduleId(eq(99L), any(LocalDateTime.class));
+        var inOrder = inOrder(paymentRepository, reservationGroupRepository, reservationRepository);
+        inOrder.verify(paymentRepository).findByReservationGroupIdForUpdate(7L);
+        inOrder.verify(reservationGroupRepository).findById(7L);
+        inOrder.verify(reservationRepository).findByReservationGroupId(7L);
     }
 
     @Test
@@ -92,10 +100,11 @@ class ReservationExpirationServiceTest {
         Fixture fixture = createFixture(8L);
         fixture.payment().fail();
 
-        when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
-                .thenReturn(List.of(fixture.group()));
+        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+                .thenReturn(List.of(8L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(8L)).thenReturn(Optional.of(fixture.payment()));
+        when(reservationGroupRepository.findById(8L)).thenReturn(Optional.of(fixture.group()));
         when(reservationRepository.findByReservationGroupId(8L)).thenReturn(fixture.reservations());
-        when(paymentRepository.findByReservationGroupId(8L)).thenReturn(Optional.of(fixture.payment()));
 
         int expiredCount = reservationExpirationService.expireAll();
 
@@ -106,10 +115,48 @@ class ReservationExpirationServiceTest {
     }
 
     @Test
+    @DisplayName("expireAll: 결제가 없는 만료 group은 group 락을 획득한 뒤 처리한다")
+    void expireAllLocksGroupWhenPaymentDoesNotExist() {
+        Fixture fixture = createFixture(11L);
+
+        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+                .thenReturn(List.of(11L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(11L)).thenReturn(Optional.empty());
+        when(reservationGroupRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(fixture.group()));
+        when(reservationRepository.findByReservationGroupId(11L)).thenReturn(fixture.reservations());
+
+        int expiredCount = reservationExpirationService.expireAll();
+
+        assertEquals(2, expiredCount);
+        assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
+        assertEquals(SeatStatus.AVAILABLE, fixture.reservations().get(0).getSeat().getStatus());
+        verify(reservationGroupRepository).findByIdForUpdate(11L);
+    }
+
+    @Test
+    @DisplayName("expireAll: 락 대기 중 이미 만료된 group은 좌석을 다시 해제하지 않는다")
+    void expireAllSkipsGroupExpiredBeforeLockedProcessing() {
+        Fixture fixture = createFixture(9L);
+        fixture.group().expire();
+
+        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+                .thenReturn(List.of(9L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(9L)).thenReturn(Optional.of(fixture.payment()));
+        when(reservationGroupRepository.findById(9L)).thenReturn(Optional.of(fixture.group()));
+
+        int expiredCount = reservationExpirationService.expireAll();
+
+        assertEquals(0, expiredCount);
+        assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
+        assertEquals(SeatStatus.HELD, fixture.reservations().get(0).getSeat().getStatus());
+        verify(reservationRepository, never()).findByReservationGroupId(9L);
+    }
+
+    @Test
     @DisplayName("expireAll: 만료 대상이 없으면 상태 변경이 없다")
     void expireAllDoesNothingWithoutExpiredGroups() {
-        Fixture fixture = createFixture(9L);
-        when(reservationGroupRepository.findByExpiresAtLessThanEqual(any(LocalDateTime.class)))
+        Fixture fixture = createFixture(10L);
+        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
         int expiredCount = reservationExpirationService.expireAll();

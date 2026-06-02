@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
+import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,21 +29,31 @@ public class ReservationExpirationService {
 
     public int expireAll() {
         return expireGroups(
-                reservationGroupRepository.findByExpiresAtLessThanEqual(LocalDateTime.now()),
+                reservationGroupRepository.findExpiredPendingIds(LocalDateTime.now()),
                 "SCHEDULER"
         );
     }
 
     public int expireByScheduleId(Long scheduleId) {
         return expireGroups(
-                reservationGroupRepository.findExpiredByScheduleId(scheduleId, LocalDateTime.now()),
+                reservationGroupRepository.findExpiredPendingIdsByScheduleId(scheduleId, LocalDateTime.now()),
                 "SEAT_QUERY"
         );
     }
 
-    private int expireGroups(List<ReservationGroup> expiredGroups, String trigger) {
+    private int expireGroups(List<Long> expiredGroupIds, String trigger) {
         int expiredCount = 0;
-        for (ReservationGroup reservationGroup : expiredGroups) {
+        for (Long reservationGroupId : expiredGroupIds) {
+            Payment payment = paymentRepository.findByReservationGroupIdForUpdate(reservationGroupId).orElse(null);
+            ReservationGroup reservationGroup = payment != null
+                    ? reservationGroupRepository.findById(reservationGroupId).orElse(null)
+                    : reservationGroupRepository.findByIdForUpdate(reservationGroupId).orElse(null);
+            if (reservationGroup == null
+                    || reservationGroup.getStatus() != ReservationGroupStatus.PENDING
+                    || !reservationGroup.isExpiredAt(LocalDateTime.now())) {
+                continue;
+            }
+
             List<Reservation> pendingReservations = reservationRepository.findByReservationGroupId(reservationGroup.getId()).stream()
                     .filter(Reservation::isPending)
                     .toList();
@@ -50,7 +61,6 @@ public class ReservationExpirationService {
                 continue;
             }
 
-            Payment payment = paymentRepository.findByReservationGroupId(reservationGroup.getId()).orElse(null);
             String orderId = payment != null ? payment.getOrderId() : "N/A";
             Long paymentId = payment != null ? payment.getId() : null;
             log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",

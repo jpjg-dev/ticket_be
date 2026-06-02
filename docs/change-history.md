@@ -1,5 +1,24 @@
 # 변경 이력 추적 (결제/예약 흐름)
 
+## 2026-06-02
+
+### 1) 결제 PG 응답 검증 보강
+- `confirmPayment`에서 PG 승인 응답의 `totalAmount`, `currency`뿐 아니라 `paymentKey`, `orderId`, `status=DONE`도 검증한다.
+- 승인 응답 검증 실패 시 내부 `Payment / ReservationGroup / Reservation / Seat` 상태 전이는 반영하지 않는다.
+- `cancelPayment`의 PG 취소 응답은 기존 정책대로 `paymentKey`, `currency`, `status`를 검증한다.
+
+### 2) 결제 예외 흐름 통합 테스트 보강
+- PG 승인 응답의 금액, 통화, 결제키, 주문번호, 상태 불일치 테스트를 추가했다.
+- `READY` 결제 취소, `paymentKey` 없는 `APPROVED` 결제 취소 거부 테스트를 추가했다.
+- PG 취소 응답의 결제키, 통화, 상태 불일치 테스트를 추가했다.
+- 모든 검증 실패에서 트랜잭션 롤백 후 기존 상태 유지 여부를 확인한다.
+
+### 3) 결제 서비스 마감 테스트 보강
+- `getPaymentStatus()`가 `paymentId`로 현재 결제를 조회하는지 명시적으로 검증한다.
+- `FAILED` 결제와 `PENDING`이 아닌 예약은 PG 승인 호출 전에 거부되는지 검증한다.
+- 승인/취소 성공 흐름에서 `PAYMENT_CONFIRM_*`, `PAYMENT_CANCEL_*` 로그 이벤트 키가 출력되는지 검증한다.
+- 기존 Controller 테스트를 재검증하고 `docs/TestCase.md` 체크리스트를 현재 코드 기준으로 동기화했다.
+
 ## 2026-04-24
 
 ### 1) 상태 조회 API 및 프론트 확인중 처리

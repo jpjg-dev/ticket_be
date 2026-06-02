@@ -98,8 +98,6 @@ class UserServiceTest {
                 eq(List.of(com.jipi.ticket_ledger.payment.domain.PaymentStatus.APPROVED, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELED)),
                 eq(Sort.by(Sort.Direction.DESC, "requestedAt"))
         )).thenReturn(List.of(approvedFixture.payment(), canceledFixture.payment()));
-        when(reservationRepository.findByReservationGroupId(10L)).thenReturn(approvedFixture.reservations());
-        when(reservationRepository.findByReservationGroupId(20L)).thenReturn(canceledFixture.reservations());
 
         ResponseMyPageDTO response = userService.getUserInfo(1L, 1L);
 
@@ -120,6 +118,9 @@ class UserServiceTest {
         assertEquals(2, response.payments().get(0).seats().size());
         assertEquals(200L, response.payments().get(1).paymentId());
         assertEquals("CANCELED", response.payments().get(1).status());
+
+        verify(reservationRepository, never()).findByReservationGroupId(10L);
+        verify(reservationRepository, never()).findByReservationGroupId(20L);
     }
 
     @Test

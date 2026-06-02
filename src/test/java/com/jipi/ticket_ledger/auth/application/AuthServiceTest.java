@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -95,7 +96,7 @@ class AuthServiceTest {
         IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> authService.login(new AuthRequestLoginDTO("user@test.com", "password")));
 
-        assertEquals("비밀번호가 일치하지 않습니다.", exception.getMessage());
+        assertEquals("아이디 또는 비밀번호를 확인해주세요.", exception.getMessage());
         verify(refreshTokenRepository, never()).save(org.mockito.Mockito.any());
     }
 
@@ -114,7 +115,7 @@ class AuthServiceTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(user.getStatus()).thenReturn(UserStatus.ACTIVE);
         when(user.getId()).thenReturn(1L);
-        when(refreshTokenRepository.findByJtiAndUserId("old-jti", 1L)).thenReturn(Optional.of(savedToken));
+        when(refreshTokenRepository.consumeIfActive(eq("old-jti"), eq(1L), eq("old-hash"), any(LocalDateTime.class))).thenReturn(1);
         when(jwtTokenProvider.createAccessToken(1L)).thenReturn("new-access");
         when(jwtTokenProvider.createRefreshToken(eq(1L), anyString())).thenReturn("new-refresh");
         when(tokenHasher.hash("new-refresh")).thenReturn("new-hash");
@@ -124,8 +125,6 @@ class AuthServiceTest {
 
         assertEquals("new-access", response.accessToken());
         assertEquals("new-refresh", response.refreshToken());
-        assertNotNull(savedToken.getRevokedAt());
-        assertNotNull(savedToken.getLastUsedAt());
 
         ArgumentCaptor<RefreshToken> captor = ArgumentCaptor.forClass(RefreshToken.class);
         verify(refreshTokenRepository).save(captor.capture());
@@ -134,6 +133,26 @@ class AuthServiceTest {
         assertEquals(user, newToken.getUser());
         assertNotNull(newToken.getJti());
         assertNotEquals("old-jti", newToken.getJti());
+    }
+
+    @Test
+    @DisplayName("reissue: 이미 소비된 Refresh Token이면 재발급을 거부한다")
+    void reissue_rejectsAlreadyConsumedRefreshToken() {
+        User user = org.mockito.Mockito.mock(User.class);
+
+        when(jwtTokenProvider.isValidToken("old-refresh")).thenReturn(true);
+        when(jwtTokenProvider.isRefreshToken("old-refresh")).thenReturn(true);
+        when(jwtTokenProvider.getUserId("old-refresh")).thenReturn(1L);
+        when(jwtTokenProvider.getJti("old-refresh")).thenReturn("old-jti");
+        when(tokenHasher.hash("old-refresh")).thenReturn("old-hash");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(user.getStatus()).thenReturn(UserStatus.ACTIVE);
+        when(refreshTokenRepository.consumeIfActive(eq("old-jti"), eq(1L), eq("old-hash"), any(LocalDateTime.class))).thenReturn(0);
+
+        assertThrows(com.jipi.ticket_ledger.global.exception.AuthUnauthorizedException.class,
+                () -> authService.reissue("old-refresh"));
+
+        verify(refreshTokenRepository, never()).save(org.mockito.Mockito.any());
     }
 
     @Test

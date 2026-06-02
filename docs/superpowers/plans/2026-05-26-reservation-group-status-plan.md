@@ -47,3 +47,17 @@
 - [x] 예매 DTO 상태를 group 상태에서 반환한다.
 - [x] 테스트와 이슈 문서를 현행 상태 모델 기준으로 갱신한다.
 - [x] 관련 테스트를 실행해 검증한다.
+
+### Task 4: 운영 스키마 반영
+
+**Files:**
+- Modify: `build.gradle`
+- Create: `src/main/resources/db/migration/V1__init_schema.sql`
+- Modify: `src/main/resources/application-dev.yaml`
+- Modify: `src/main/resources/application-prod.yaml`
+
+- [x] Flyway와 PostgreSQL 지원 모듈 의존성을 추가한다.
+- [x] 현재 전체 스키마 및 `reservation_groups.status`를 포함한 `V1__init_schema.sql`을 작성한다.
+- [x] `IDENTITY` 컬럼과 중복되는 추출 sequence 생성문을 제거한다.
+- [x] 개발 DB에서 Flyway `V1` 적용과 Hibernate `validate` 기동을 확인한다.
+- [x] 운영 DB를 신규 스키마 기준으로 초기화하고 Flyway `V1` 반영 및 애플리케이션 기동을 확인한다.

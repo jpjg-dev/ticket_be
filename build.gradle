@@ -18,8 +18,6 @@ repositories {
 }
 
 dependencies {
-	implementation 'org.flywaydb:flyway-core'
-    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -37,6 +35,11 @@ dependencies {
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
+	// prometheus
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+	// flyway
+	implementation 'org.flywaydb:flyway-core'
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 	// JWT
 	implementation 'io.jsonwebtoken:jjwt-api:0.12.7'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.7'

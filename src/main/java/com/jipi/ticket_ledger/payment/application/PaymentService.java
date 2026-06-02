@@ -23,6 +23,7 @@ import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -163,6 +164,28 @@ public class PaymentService {
                     LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "PG_CURRENCY_MISMATCH", maskPaymentKey(paymentKey));
             throw new IllegalStateException("PG 통화 코드가 일치하지 않습니다.");
         }
+
+        if (!Objects.equals(paymentKey, tossResponse.paymentKey())) {
+            payment.fail();
+            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "PG_PAYMENT_KEY_MISMATCH", maskPaymentKey(paymentKey));
+            throw new IllegalStateException("PG 승인 응답 결제키가 일치하지 않습니다.");
+        }
+
+        if (!Objects.equals(orderId, tossResponse.orderId())) {
+            payment.fail();
+            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "PG_ORDER_ID_MISMATCH", maskPaymentKey(paymentKey));
+            throw new IllegalStateException("PG 승인 응답 주문번호가 일치하지 않습니다.");
+        }
+
+        if (!isApprovedStatus(tossResponse.status())) {
+            payment.fail();
+            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "PG_CONFIRM_STATUS_INVALID", maskPaymentKey(paymentKey));
+            throw new IllegalStateException("PG 승인 상태가 유효하지 않습니다.");
+        }
+
         //결제 승인
         applyApproval(payment, reservations, tossResponse.paymentKey(), tossResponse.method(), tossResponse.status());
         log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
