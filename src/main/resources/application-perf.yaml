@@ -1,0 +1,28 @@
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+        highlight_sql: false
+        use_sql_comments: false
+
+logging:
+  level:
+    root: warn
+    com.jipi.ticket_ledger: info
+    org.springframework: warn
+    org.hibernate: warn
+    org.hibernate.SQL: off
+    org.hibernate.orm.jdbc.bind: off
+
+jwt:
+  access-token-expiration: 3600000 # 1 hour
+
+toss:
+  payments:
+    base-url: http://127.0.0.1:18080
+
+reservation:
+  hold-duration: 10m
+  expire-scheduler:
+    fixed-delay-ms: 3600000

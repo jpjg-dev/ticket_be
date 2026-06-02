@@ -767,6 +767,106 @@ k6 run performance/k6/popular-event-payment-e2e-spike.js
 - 외부 경량 Mock PG를 사용했으므로 결과는 내부 예약/결제 확정 경로의 로컬 baseline이다. 실제 Toss 네트워크 지연이나 장애 대응 성능을 의미하지 않는다.
 - 대기열 기능 없이 좌석 정합성과 결제 상태 전이의 일관성을 검증했다.
 
+### Popular Event Payment Arrival Rate Spike
+
+기존 `ramping-vus` E2E Spike는 정합성 baseline이다. 로컬 통제 환경에서 오픈 직후 신규 사용자 유입률별 포화 구간을 관찰하려면 별도의 open model 시나리오를 사용한다.
+
+성능 테스트 전용 사용자 `10,000`명과 사용자별 Access Token 쿠키를 생성한다. 생성된 `performance/data/perf-users.json`은 Git에 올리지 않는다.
+
+```powershell
+.\performance\prepare-perf-user-pool.ps1
+```
+
+Mock PG 실행:
+
+```powershell
+node performance/mock-pg/mock-pg-server.js
+```
+
+백엔드는 IntelliJ 실행 설정에서 active profile을 `dev,perf`로 지정해 다시 실행한다. `perf` profile은 SQL 상세 로그를 끄고 Mock PG 주소, `1h` Access Token 만료, `10m` 좌석 hold 시간, `1h` 스케줄러 주기를 사용한다.
+
+Smoke:
+
+```powershell
+.\performance\reset-load-test-seats.ps1
+$env:LOAD_PROFILE="smoke"
+k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
+```
+
+Arrival-rate Spike:
+
+```powershell
+.\performance\reset-load-test-seats.ps1
+$env:LOAD_PROFILE="arrival"
+k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
+```
+
+유입 단계:
+
+| Stage | Target | Duration |
+| --- | ---: | ---: |
+| Warm-up | `10 journeys/s` | `5s` |
+| Low | `100 journeys/s` | `10s` |
+| Normal | `300 journeys/s` | `10s` |
+| High | `500 journeys/s` | `10s` |
+| Peak | `1,000 journeys/s` | `10s` |
+| Cool-down | `100 journeys/s` | `5s` |
+
+확인값:
+
+- `dropped_iterations`: 목표 유입률 중 시작하지 못한 사용자 여정
+- `arrival_e2e_journey_duration`: 전체 사용자 여정 p95, p99
+- `arrival_e2e_*_duration`: 단계별 p95
+- `arrival_e2e_payment_completed`: 완료 결제 건수와 초당 완료 건수
+- `arrival_e2e_contention_rejected`: 인기 좌석 경합에 따른 정상 거부 수
+- `arrival_e2e_user_pool_reuse`: `10,000`명 이후 재방문으로 순환 사용된 사용자 수
+- `arrival_e2e_unexpected_rate`: 예상 밖 오류율
+
+실행 후 DB MCP 정합성 검증은 기존 E2E와 동일하게 수행한다.
+
+### Popular Event Payment Arrival Rate Spike Initial Result
+
+로컬 통제 환경에서 `dev,perf` 프로필, 외부 Mock PG, 테스트 사용자 `10,000`명 AT 풀을 사용해 최초 포화 관찰을 수행했다.
+
+| Metric | Result |
+| --- | ---: |
+| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
+| 실행 시간 | `50s` |
+| 완료 iteration | `11,153` |
+| dropped iteration | `5,694` |
+| 최대 사용 VU | `3,000` |
+| 전체 여정 p95 | `15.60s` |
+| 전체 여정 p99 | `16.27s` |
+| 좌석 조회 p95 | `3.16s` |
+| 예약 생성 p95 | `28.63ms` |
+| 결제 준비 p95 | `26.47ms` |
+| 결제 승인 p95 | `38.17ms` |
+| 완료 결제 | `1,000` |
+| 완료 결제 처리량 | `17.13 payments/s` |
+| 정상 경합 거부 | `10,153` |
+| 예상 밖 오류 | `0` |
+| 사용자 풀 재사용 | `1,153` |
+
+실행 후 DB MCP 사후 검증:
+
+| Verification | Result |
+| --- | ---: |
+| 생성된 reservation group | `1,000` |
+| 생성된 payment | `1,000` |
+| 생성된 reservation | `1,000` |
+| `BOOKED` 좌석 | `1,000` |
+| 중복 active 좌석 배정 | `0` |
+| 부분 성공 reservation group | `0` |
+| `APPROVED / CONFIRMED / BOOKED` 상태 불일치 | `0` |
+
+해석:
+
+- `High~Peak` 유입 구간에서 지연이 누적됐고 k6는 `maxVUs=3000` 상한에 도달해 `dropped_iterations=5,694`를 기록했다.
+- 완료 결제와 정상 경합 거부를 합친 완료 iteration `11,153`건에서 예상 밖 오류는 발생하지 않았다.
+- 좌석이 모두 판매된 뒤에도 공연 목록, 상세, 좌석 조회 요청은 계속 수행되므로 전체 여정 p95는 조회 경로의 지연 누적 영향을 크게 받는다.
+- 이번 값은 최초 포화 관찰이다. `dropped_iterations`에는 서버 지연과 동일 장비에서 실행한 k6 부하 발생기 한계가 함께 영향을 줄 수 있으므로 운영 처리량 보장 수치로 해석하지 않는다.
+- 후속 최적화 전후 비교에서는 동일한 `perf` 프로필과 동일한 arrival-rate 단계를 유지하고, 구간별 p95, dropped iteration, DB 정합성을 비교한다.
+
 ## Next Measurement
 
 1. 예약 생성 write baseline은 `10 / 100`, `20 / 200`, `50 / 500 shared iterations` 구간을 각각 3회 반복해 중앙값을 기록했다.
@@ -784,6 +884,9 @@ k6 run performance/k6/popular-event-payment-e2e-spike.js
    - 최대 `100 VU`, `17s`, 3회 중앙값 기준 전체 여정 p95는 `362.00 ms`, 결제 완료는 `1,000`, 완료율은 `100%`, 초당 결제 완료는 `58.72 payments/s`, 예상 밖 오류는 `0`이다.
    - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 7. 운영 유사 성능 주장이 필요해지는 시점에는 SQL 상세 로그를 낮춘 별도 profile과 별도 부하 발생 환경을 구성한다.
+   - 로컬 통제 환경용 `perf` profile과 사용자 `10,000`명의 AT 풀을 사용하는 `ramping-arrival-rate` E2E 시나리오를 추가했다.
+   - `dev,perf` 프로필 최초 측정에서 완료 iteration `11,153`, dropped iteration `5,694`, 전체 여정 p95 `15.60s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
+   - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 
 ## References
 
