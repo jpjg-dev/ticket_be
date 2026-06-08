@@ -337,12 +337,12 @@ where id in (:seatIds)
 
 ### Event Cache Policy
 
-공연 목록/상세 캐시는 `Spring Cache + Caffeine` 기반의 JVM 로컬 캐시로 적용한다. 캐시는 DB 원본을 대체하지 않고, 반복 조회 비용을 줄이는 보조 계층으로만 사용한다.
+공연 목록/상세 캐시는 `Spring Cache + Caffeine` 기반의 JVM 로컬 캐시로 적용한다. 캐시는 DB 원본을 대체하지 않고, 반복 조회 비용을 줄이는 보조 계층으로만 사용한다. 캐시 이름은 `CacheNames`에서 관리하고, TTL과 최대 크기는 `cache.event.*` 설정으로 profile별 분리한 뒤 `CacheConfig`에서 `@Value`로 주입한다.
 
-| Cache | Target | Key | TTL | Max size | Note |
+| Cache | Target | Key | prod TTL / size | dev TTL / size | Note |
 | --- | --- | --- | ---: | ---: | --- |
-| `eventList` | `GET /api/v1/events` | `SimpleKey.EMPTY` | `60s` | `1` | 홈/인기 공연 목록 반복 조회 비용 축소 |
-| `eventDetail` | `GET /api/v1/events/{eventId}` | `eventId` | `300s` | `500` | 상세 진입 반복 조회 비용 축소 |
+| `eventList` | `GET /api/v1/events` | `SimpleKey.EMPTY` | `60s / 1` | `10s / 1` | 홈/인기 공연 목록 반복 조회 비용 축소 |
+| `eventDetail` | `GET /api/v1/events/{eventId}` | `eventId` | `300s / 500` | `30s / 100` | 상세 진입 반복 조회 비용 축소 |
 
 서버 재시작 또는 프로세스 종료 시 Caffeine 로컬 캐시는 사라진다. 현재 대상 데이터는 공연 목록/상세 조회이고 원본은 DB에 있으므로, 별도 복구 로직이나 Redis warm-up은 적용하지 않는다. 재시작 직후 첫 요청은 DB에서 조회하고 캐시에 다시 적재하는 read-through 흐름을 허용한다.
 

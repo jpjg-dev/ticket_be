@@ -15,8 +15,9 @@
 
 ### 3) 공연 목록/상세 로컬 캐시 적용
 - 공연 목록과 공연 상세 조회에 `Spring Cache + Caffeine` 기반 JVM 로컬 캐시를 적용했다.
-- `eventList` 캐시는 TTL `60s`, 최대 크기 `1`로 홈/인기 공연 목록 반복 조회 비용을 줄인다.
-- `eventDetail` 캐시는 TTL `300s`, 최대 크기 `500`으로 공연 상세 반복 조회 비용을 줄인다.
+- 캐시 이름은 `CacheNames`에서 상수로 관리하고, TTL/최대 크기는 `cache.event.*` 설정을 `CacheConfig`에서 `@Value`로 주입한다.
+- 운영 기본값은 `eventList` TTL `60s`/최대 크기 `1`, `eventDetail` TTL `300s`/최대 크기 `500`이다.
+- 개발 환경은 데이터 변경 확인이 빠르도록 `eventList` TTL `10s`, `eventDetail` TTL `30s`로 낮췄다.
 - 서버 재시작 시 캐시는 사라지며, 첫 요청이 DB에서 다시 조회해 캐시를 채우는 read-through 방식을 사용한다.
 - 좌석 조회, 예약 생성, 결제, 마이페이지는 실시간 상태와 사용자별 상태가 섞이므로 캐시 대상에서 제외했다.
 
