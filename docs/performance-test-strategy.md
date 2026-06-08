@@ -289,6 +289,52 @@ CREATE INDEX idx_reservations_reservation_group_id
 
 이 테스트는 처리량 측정보다 정합성 검증이 목적이다. 다음 단계의 k6 예약 생성 write baseline은 이 정합성이 유지되는 상태에서 p95, 실패율, 락 대기 영향을 관찰하는 보조 지표로 사용한다.
 
+### Reservation Create Lock Strategy Tradeoff
+
+현재 예약 생성은 요청 좌석 id를 정렬한 뒤 `PESSIMISTIC_WRITE`로 좌석 row를 잠그고, 트랜잭션 안에서 `Seat.hold()`를 호출해 `AVAILABLE -> HELD` 상태 전이를 수행한다. 결제 승인 단계는 `Payment` row 비관적 락으로 동일 승인 요청을 직렬화하고, `Seat.book()`으로 `HELD -> BOOKED`를 수행한다. 따라서 좌석 락은 조회부터 결제 완료까지 유지되는 락이 아니라 예약 생성 트랜잭션 동안의 선점 보호 장치다.
+
+인기 공연 E2E arrival-rate 최초 측정에서는 예약 생성보다 조회 경로가 더 큰 병목으로 나타났다.
+
+| Metric | Result |
+| --- | ---: |
+| 전체 여정 p95 | `15.60s` |
+| 좌석 조회 p95 | `3.16s` |
+| 예약 생성 p95 | `28.63ms` |
+| 결제 준비 p95 | `26.47ms` |
+| 결제 승인 p95 | `38.17ms` |
+
+좌석 선점을 조건부 update로 바꾸면 다음처럼 DB update 결과 row 수로 선점 성공 여부를 판단할 수 있다.
+
+```sql
+update seats
+set status = 'HELD'
+where id in (:seatIds)
+  and status = 'AVAILABLE'
+```
+
+영향 row 수가 요청 좌석 수와 같으면 성공, 하나라도 부족하면 실패로 보고 트랜잭션을 롤백한다. PostgreSQL에서 `UPDATE`도 대상 row에 row-level lock을 획득하므로 동시성 제어 자체는 가능하다. 다만 이 방식은 `Seat.hold()` 도메인 메서드의 상태 전이 검증을 우회하고, 상태 전이 정책이 SQL 조건으로 분산된다.
+
+| Strategy | 장점 | 단점 | 현재 판단 |
+| --- | --- | --- | --- |
+| 비관적 락 + 도메인 상태 전이 | `Seat.hold()` / `Seat.book()` 규칙이 유지되고, 다중 좌석 정렬 락으로 데드락 위험을 줄일 수 있다. | 경합 시 실패 요청도 앞선 트랜잭션 종료를 기다린 뒤 거부될 수 있다. | 유지 |
+| 조건부 update | 이미 선점된 좌석에 대한 실패 요청을 빠르게 탈락시킬 수 있고, 엔티티 조회 비용을 줄일 수 있다. | 도메인 메서드를 우회하며, bulk update 후 영속성 컨텍스트 stale 문제를 관리해야 한다. 부분 성공 방지를 위해 영향 row 수 검증과 롤백 정책이 필수다. | 보류 |
+| 낙관적 락 | 도메인 메서드를 유지할 수 있고, 충돌이 적은 일반 수정에는 단순하다. | 인기 좌석처럼 충돌이 의도적으로 많은 구간에서는 실패가 늦게 감지되고 retry 비용이 커질 수 있다. | 우선순위 낮음 |
+| `NOWAIT` 또는 짧은 lock timeout | 도메인 상태 전이를 유지하면서 락 대기 시간을 제한할 수 있다. | 잠깐 점유된 좌석도 즉시 실패 처리될 수 있어 false reject가 늘 수 있다. | 실험 후보 |
+
+따라서 현재 최적화 우선순위는 좌석 선점 조건부 update 전환이 아니라, 공연 목록/상세 캐시와 좌석 조회 연계 만료 처리 비용 축소다. 예약 생성 p95가 후속 측정에서 실제 병목으로 확인될 때만 `NOWAIT`, 짧은 lock timeout, 조건부 update를 동일한 E2E arrival-rate 조건에서 비교한다. 비교 시 성공 결제 수, 정상 경합 거부 수, 예상 밖 오류, 중복 active 좌석 배정, 부분 성공 group을 함께 확인한다.
+
+### Event Cache Prerequisite
+
+공연 목록/상세 캐시는 예매/결제 정합성 영역이 아니라 반복 조회 비용을 줄이기 위한 read-through local cache 후보로 본다. 캐시 적용 전에 서버 응답에서 시간에 따라 변하는 `displayStatus`를 제거했다.
+
+- 백엔드는 `bookingOpenAt`, `runStartAt`, `runEndAt` 같은 원천 시간 데이터만 응답한다.
+- 프론트 서버 컴포넌트 데이터 조합 단계에서 `runStartAt`, `runEndAt` 기준으로 `UPCOMING / NOW_SHOWING / ENDED` 표시 상태를 계산한다.
+- `displayStatus`는 홈 화면 섹션 분류와 배지 표시용 파생값이며 예약/결제 가능 여부의 서버 검증 기준으로 사용하지 않는다.
+- 백엔드는 예약 생성 시 `bookingOpenAt` 이전 요청을 `ReservationGroup` 생성과 `Seat HELD` 전이 전에 거부한다.
+- 좌석 조회는 실시간 좌석 상태와 수동 만료 처리를 포함하므로 캐시 대상에서 제외한다.
+
+이 정리는 공연 목록/상세 캐시 TTL을 정할 때 화면 표시 상태의 stale 문제를 줄이기 위한 선행 작업이다. 캐시 적용 후에는 동일한 `dev,perf` arrival-rate E2E 조건에서 공연 목록 p95, 공연 상세 p95, 전체 여정 p95, dropped iteration, DB 정합성을 다시 비교한다.
+
 ### Reservation Create Write Baseline
 
 예약 생성 write baseline은 같은 좌석을 반복 호출하지 않는다. 예약 생성은 상태를 변경하는 API이므로, 동일 좌석을 여러 번 사용하면 첫 요청 이후부터는 정상적인 성능 측정이 아니라 이미 선점된 좌석에 대한 실패 측정이 된다.
@@ -674,6 +720,199 @@ k6 run performance/k6/event-open-mixed-spike.js
 - 최종 active HELD seat 수와 active reservation 수가 일치해야 한다.
 - 현재 좌석 조회 경로는 수동 만료 처리를 포함하므로, 만료 group 수와 active group 수를 함께 기록한다.
 
+### Popular Event Payment E2E Spike
+
+인기 공연 조회부터 결제 완료까지 이어지는 사용자 여정은 외부 경량 Mock PG와 함께 측정한다. Mock PG는 테스트 전용 프로필에서만 연결한다. 실제 Toss API에는 부하를 주지 않는다.
+
+Mock PG 실행:
+
+```powershell
+node performance/mock-pg/mock-pg-server.js
+```
+
+백엔드는 IntelliJ 실행 설정에서 active profile을 `dev,test`로 지정해 다시 실행한다. `dev`의 로컬 TLS 설정을 유지하고 `test`의 아래 설정으로 PG 주소만 Mock 서버로 덮어쓴다.
+
+```yaml
+toss:
+  payments:
+    base-url: http://127.0.0.1:18080
+```
+
+Mock PG health 확인:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18080/health
+```
+
+Smoke:
+
+```powershell
+$env:COOKIE="__Host-access_token=<access token>"
+$env:ORIGIN="https://localhost:3000"
+$env:LOAD_PROFILE="smoke"
+$env:SCHEDULE_ID="18"
+$env:MIN_SEAT_ID="391"
+$env:MAX_SEAT_ID="1390"
+k6 run performance/k6/popular-event-payment-e2e-spike.js
+```
+
+Spike:
+
+```powershell
+.\performance\reset-load-test-seats.ps1
+$env:LOAD_PROFILE="spike"
+k6 run performance/k6/popular-event-payment-e2e-spike.js
+```
+
+확인값:
+
+- `e2e_journey_duration`: 전체 사용자 여정 p95
+- `e2e_event_list_duration`, `e2e_event_detail_duration`, `e2e_seat_lookup_duration`: 탐색 단계 p95
+- `e2e_reservation_duration`, `e2e_payment_ready_duration`, `e2e_payment_confirm_duration`: 상태 전이 단계 p95
+- `e2e_reservation_success`: 예약 성공 수
+- `e2e_contention_rejected`: 인기 좌석 경합에 따른 정상 거부 수
+- `e2e_payment_completed`: 결제 완료 수와 초당 완료 건수
+- `e2e_payment_completion_rate`: 예약 성공 이후 결제 완료율
+- `e2e_unexpected_rate`: 예상 밖 오류율
+
+실행 후 DB MCP로 아래 정합성을 확인한다.
+
+- 동일 좌석에 대한 중복 active reservation `0`
+- reservation group의 부분 성공 `0`
+- `Payment=APPROVED`, `ReservationGroup=CONFIRMED`, `Reservation=CONFIRMED`, `Seat=BOOKED` 상태 불일치 `0`
+
+### Popular Event Payment E2E Spike Result
+
+`PERF_LOAD_TEST_EVENT`, 회차 `18`, 인기 좌석 범위 `391~1390`, 최대 `100 VU`, `17s` 조건에서 3회 반복했다. 각 실행 전에 부하 테스트 전용 좌석과 연결 데이터를 reset했다.
+
+| Run | 전체 여정 p95 | 좌석 조회 p95 | 예약 생성 p95 | 결제 준비 p95 | 결제 승인 p95 | 완료 결제 | 정상 경합 거부 | 예상 밖 오류 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | `353.75 ms` | `120.29 ms` | `49.54 ms` | `49.13 ms` | `52.12 ms` | `1,000` | `2,666` | `0` |
+| 2 | `377.00 ms` | `126.79 ms` | `59.18 ms` | `55.94 ms` | `59.77 ms` | `1,000` | `2,399` | `0` |
+| 3 | `362.00 ms` | `119.15 ms` | `45.10 ms` | `45.56 ms` | `45.38 ms` | `1,000` | `2,653` | `0` |
+| 중앙값 | `362.00 ms` | `120.29 ms` | `49.54 ms` | `49.13 ms` | `52.12 ms` | `1,000` | `2,653` | `0` |
+
+3회 모두 결제 완료율은 `100%`였고 초당 결제 완료 건수는 각각 `58.74`, `58.70`, `58.72`건이었다. 중앙값은 `58.72 payments/s`다.
+
+마지막 실행 후 DB MCP 사후 검증:
+
+| Verification | Result |
+| --- | ---: |
+| 생성된 reservation group | `1,000` |
+| 생성된 payment | `1,000` |
+| 생성된 reservation | `1,000` |
+| `BOOKED` 좌석 | `1,000` |
+| 중복 active 좌석 배정 | `0` |
+| 부분 성공 reservation group | `0` |
+| `APPROVED / CONFIRMED / BOOKED` 상태 불일치 | `0` |
+
+해석:
+
+- 인기 좌석 범위를 공유하는 경합 상황에서도 성공한 `1,000`건은 모두 결제 완료까지 일관되게 전이됐다.
+- 이미 선점된 좌석을 선택한 요청은 정상 경합 거부로 분리했고 예상 밖 오류는 발생하지 않았다.
+- 외부 경량 Mock PG를 사용했으므로 결과는 내부 예약/결제 확정 경로의 로컬 baseline이다. 실제 Toss 네트워크 지연이나 장애 대응 성능을 의미하지 않는다.
+- 대기열 기능 없이 좌석 정합성과 결제 상태 전이의 일관성을 검증했다.
+
+### Popular Event Payment Arrival Rate Spike
+
+기존 `ramping-vus` E2E Spike는 정합성 baseline이다. 로컬 통제 환경에서 오픈 직후 신규 사용자 유입률별 포화 구간을 관찰하려면 별도의 open model 시나리오를 사용한다.
+
+성능 테스트 전용 사용자 `10,000`명과 사용자별 Access Token 쿠키를 생성한다. 생성된 `performance/data/perf-users.json`은 Git에 올리지 않는다.
+
+```powershell
+.\performance\prepare-perf-user-pool.ps1
+```
+
+Mock PG 실행:
+
+```powershell
+node performance/mock-pg/mock-pg-server.js
+```
+
+백엔드는 IntelliJ 실행 설정에서 active profile을 `dev,perf`로 지정해 다시 실행한다. `perf` profile은 SQL 상세 로그를 끄고 Mock PG 주소, `1h` Access Token 만료, `10m` 좌석 hold 시간, `1h` 스케줄러 주기를 사용한다.
+
+Smoke:
+
+```powershell
+.\performance\reset-load-test-seats.ps1
+$env:LOAD_PROFILE="smoke"
+k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
+```
+
+Arrival-rate Spike:
+
+```powershell
+.\performance\reset-load-test-seats.ps1
+$env:LOAD_PROFILE="arrival"
+k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
+```
+
+유입 단계:
+
+| Stage | Target | Duration |
+| --- | ---: | ---: |
+| Warm-up | `10 journeys/s` | `5s` |
+| Low | `100 journeys/s` | `10s` |
+| Normal | `300 journeys/s` | `10s` |
+| High | `500 journeys/s` | `10s` |
+| Peak | `1,000 journeys/s` | `10s` |
+| Cool-down | `100 journeys/s` | `5s` |
+
+확인값:
+
+- `dropped_iterations`: 목표 유입률 중 시작하지 못한 사용자 여정
+- `arrival_e2e_journey_duration`: 전체 사용자 여정 p95, p99
+- `arrival_e2e_*_duration`: 단계별 p95
+- `arrival_e2e_payment_completed`: 완료 결제 건수와 초당 완료 건수
+- `arrival_e2e_contention_rejected`: 인기 좌석 경합에 따른 정상 거부 수
+- `arrival_e2e_user_pool_reuse`: `10,000`명 이후 재방문으로 순환 사용된 사용자 수
+- `arrival_e2e_unexpected_rate`: 예상 밖 오류율
+
+실행 후 DB MCP 정합성 검증은 기존 E2E와 동일하게 수행한다.
+
+### Popular Event Payment Arrival Rate Spike Initial Result
+
+로컬 통제 환경에서 `dev,perf` 프로필, 외부 Mock PG, 테스트 사용자 `10,000`명 AT 풀을 사용해 최초 포화 관찰을 수행했다.
+
+| Metric | Result |
+| --- | ---: |
+| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
+| 실행 시간 | `50s` |
+| 완료 iteration | `11,153` |
+| dropped iteration | `5,694` |
+| 최대 사용 VU | `3,000` |
+| 전체 여정 p95 | `15.60s` |
+| 전체 여정 p99 | `16.27s` |
+| 좌석 조회 p95 | `3.16s` |
+| 예약 생성 p95 | `28.63ms` |
+| 결제 준비 p95 | `26.47ms` |
+| 결제 승인 p95 | `38.17ms` |
+| 완료 결제 | `1,000` |
+| 완료 결제 처리량 | `17.13 payments/s` |
+| 정상 경합 거부 | `10,153` |
+| 예상 밖 오류 | `0` |
+| 사용자 풀 재사용 | `1,153` |
+
+실행 후 DB MCP 사후 검증:
+
+| Verification | Result |
+| --- | ---: |
+| 생성된 reservation group | `1,000` |
+| 생성된 payment | `1,000` |
+| 생성된 reservation | `1,000` |
+| `BOOKED` 좌석 | `1,000` |
+| 중복 active 좌석 배정 | `0` |
+| 부분 성공 reservation group | `0` |
+| `APPROVED / CONFIRMED / BOOKED` 상태 불일치 | `0` |
+
+해석:
+
+- `High~Peak` 유입 구간에서 지연이 누적됐고 k6는 `maxVUs=3000` 상한에 도달해 `dropped_iterations=5,694`를 기록했다.
+- 완료 결제와 정상 경합 거부를 합친 완료 iteration `11,153`건에서 예상 밖 오류는 발생하지 않았다.
+- 좌석이 모두 판매된 뒤에도 공연 목록, 상세, 좌석 조회 요청은 계속 수행되므로 전체 여정 p95는 조회 경로의 지연 누적 영향을 크게 받는다.
+- 이번 값은 최초 포화 관찰이다. `dropped_iterations`에는 서버 지연과 동일 장비에서 실행한 k6 부하 발생기 한계가 함께 영향을 줄 수 있으므로 운영 처리량 보장 수치로 해석하지 않는다.
+- 후속 최적화 전후 비교에서는 동일한 `perf` 프로필과 동일한 arrival-rate 단계를 유지하고, 구간별 p95, dropped iteration, DB 정합성을 비교한다.
+
 ## Next Measurement
 
 1. 예약 생성 write baseline은 `10 / 100`, `20 / 200`, `50 / 500 shared iterations` 구간을 각각 3회 반복해 중앙값을 기록했다.
@@ -687,11 +926,23 @@ k6 run performance/k6/event-open-mixed-spike.js
    - 예약 실패는 인기 좌석 경합에 따른 정상 거부와 예상 밖 오류를 분리한다.
    - 기록값: 전체 여정 p95, 단계별 p95, 예약 성공률, 결제 완료율, 초당 결제 완료 건수, 예상 밖 오류율
    - DB 사후 검증: 중복 active 좌석 배정 `0`, 부분 성공 group `0`, `APPROVED / CONFIRMED / BOOKED` 상태 불일치 `0`
+   - 외부 경량 Mock PG와 `dev,test` 프로필로 Smoke 및 Spike 측정을 완료했다.
+   - 최대 `100 VU`, `17s`, 3회 중앙값 기준 전체 여정 p95는 `362.00 ms`, 결제 완료는 `1,000`, 완료율은 `100%`, 초당 결제 완료는 `58.72 payments/s`, 예상 밖 오류는 `0`이다.
+   - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 7. 운영 유사 성능 주장이 필요해지는 시점에는 SQL 상세 로그를 낮춘 별도 profile과 별도 부하 발생 환경을 구성한다.
+   - 로컬 통제 환경용 `perf` profile과 사용자 `10,000`명의 AT 풀을 사용하는 `ramping-arrival-rate` E2E 시나리오를 추가했다.
+   - `dev,perf` 프로필 최초 측정에서 완료 iteration `11,153`, dropped iteration `5,694`, 전체 여정 p95 `15.60s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
+   - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
+8. 공연 목록/상세 캐시 적용 전 선행 정리로 `displayStatus`를 백엔드 응답에서 제거하고 프론트 서버 컴포넌트 데이터 조합 단계에서 계산하도록 전환했다.
+   - 예약 생성은 `bookingOpenAt` 이전 요청을 좌석 선점 전에 거부한다.
+   - 다음 측정은 공연 목록/상세 Caffeine 캐시 적용 전후를 동일한 E2E arrival-rate 조건으로 비교한다.
 
 ## References
 
 - Grafana k6, test types: https://grafana.com/docs/k6/latest/testing-guides/test-types/
 - Hibernate ORM User Guide, fetching and N+1: https://docs.jboss.org/hibernate/orm/7.0/userguide/html_single/Hibernate_User_Guide.html
+- Spring Data JPA, Locking: https://docs.spring.io/spring-data/jpa/reference/jpa/locking.html
+- Spring Data JPA, Modifying Queries: https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.modifying-queries
+- PostgreSQL, Explicit Locking: https://www.postgresql.org/docs/17/explicit-locking.html
 - Toss Payments, payment flow: https://docs.tosspayments.com/guides/v2/get-started/payment-flow
 - Toss Payments, idempotency: https://docs.tosspayments.com/blog/what-is-idempotency

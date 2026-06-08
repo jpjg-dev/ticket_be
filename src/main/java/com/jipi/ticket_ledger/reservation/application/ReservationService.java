@@ -58,6 +58,7 @@ public class ReservationService {
 
         // 2) 좌석 상태를 AVAILABLE -> HELD로 변경해 임시 선점한다.
         LocalDateTime now = LocalDateTime.now();
+        validateBookingOpen(seats, now);
         LocalDateTime expiresAt = now.plus(holdDuration);
         ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
 
@@ -105,6 +106,15 @@ public class ReservationService {
         if (scheduleCount != 1) {
             log.warn("event={} scheduleCount={} reason={}", LogEvents.RESERVATION_CREATE_REJECT, scheduleCount, "DIFFERENT_SCHEDULE");
             throw new IllegalArgumentException("같은 회차의 좌석만 함께 예매할 수 있습니다.");
+        }
+    }
+
+    private void validateBookingOpen(List<Seat> seats, LocalDateTime now) {
+        LocalDateTime bookingOpenAt = seats.get(0).getSchedule().getEvent().getBookingOpenAt();
+        if (bookingOpenAt.isAfter(now)) {
+            log.warn("event={} bookingOpenAt={} now={} reason={}",
+                    LogEvents.RESERVATION_CREATE_REJECT, bookingOpenAt, now, "BOOKING_NOT_OPEN");
+            throw new IllegalStateException("예매 오픈 전 공연은 예약할 수 없습니다.");
         }
     }
 }

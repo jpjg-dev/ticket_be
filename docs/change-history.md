@@ -1,5 +1,18 @@
 # 변경 이력 추적 (결제/예약 흐름)
 
+## 2026-06-08
+
+### 1) 공연 표시 상태 책임 분리
+- 백엔드 `EventResponse`에서 `displayStatus`를 제거했다.
+- 백엔드는 `bookingOpenAt`, `runStartAt`, `runEndAt` 같은 원천 시간 데이터만 응답한다.
+- 프론트는 서버 컴포넌트 데이터 조합 단계에서 `runStartAt`, `runEndAt` 기준으로 `UPCOMING / NOW_SHOWING / ENDED` 표시 상태를 계산한다.
+- 해당 상태는 홈 화면 섹션 분류와 배지 표시용 UI 파생값이며, 예매/결제 정합성 검증 기준으로 사용하지 않는다.
+
+### 2) 예매 오픈 전 예약 생성 차단
+- `ReservationService.createReservation()`에서 좌석을 `HELD`로 변경하거나 `ReservationGroup`을 생성하기 전에 대상 공연의 `bookingOpenAt`을 검증한다.
+- `bookingOpenAt`이 현재 시각보다 미래이면 예약 생성을 거부하고 좌석 상태는 `AVAILABLE`로 유지한다.
+- 예매 오픈 전 좌석 예약 거부 테스트를 추가했다.
+
 ## 2026-06-02
 
 ### 1) 결제 PG 응답 검증 보강
