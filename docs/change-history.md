@@ -20,6 +20,12 @@
 - 서버 재시작 시 캐시는 사라지며, 첫 요청이 DB에서 다시 조회해 캐시를 채우는 read-through 방식을 사용한다.
 - 좌석 조회, 예약 생성, 결제, 마이페이지는 실시간 상태와 사용자별 상태가 섞이므로 캐시 대상에서 제외했다.
 
+### 4) 운영 데모 공연/회차 시간 최신화 migration 추가
+- 운영 서버의 기존 데모 공연 시간이 과거가 되는 문제를 해결하기 위해 `V2__refresh_demo_event_schedule_times.sql`을 추가했다.
+- 기존 운영 DB row는 공연 제목과 회차 순서 기준으로 `booking_open_at`, `schedules.start_at`, `schedules.end_at`을 현재 migration 실행 시점 기준 미래 일정으로 갱신한다.
+- 신규 빈 DB에서는 V2가 no-op으로 동작하고, 이후 `DataInitializer`가 현재 시각 기준 초기 데이터를 생성한다.
+- 운영 데이터 갱신은 서버 재시작 때마다 실행되는 `DataInitializer`가 아니라 Flyway migration으로 추적한다.
+
 ## 2026-06-02
 
 ### 1) 결제 PG 응답 검증 보강
