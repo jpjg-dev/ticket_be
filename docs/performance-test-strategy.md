@@ -323,6 +323,18 @@ where id in (:seatIds)
 
 따라서 현재 최적화 우선순위는 좌석 선점 조건부 update 전환이 아니라, 공연 목록/상세 캐시와 좌석 조회 연계 만료 처리 비용 축소다. 예약 생성 p95가 후속 측정에서 실제 병목으로 확인될 때만 `NOWAIT`, 짧은 lock timeout, 조건부 update를 동일한 E2E arrival-rate 조건에서 비교한다. 비교 시 성공 결제 수, 정상 경합 거부 수, 예상 밖 오류, 중복 active 좌석 배정, 부분 성공 group을 함께 확인한다.
 
+### Event Cache Prerequisite
+
+공연 목록/상세 캐시는 예매/결제 정합성 영역이 아니라 반복 조회 비용을 줄이기 위한 read-through local cache 후보로 본다. 캐시 적용 전에 서버 응답에서 시간에 따라 변하는 `displayStatus`를 제거했다.
+
+- 백엔드는 `bookingOpenAt`, `runStartAt`, `runEndAt` 같은 원천 시간 데이터만 응답한다.
+- 프론트 서버 컴포넌트 데이터 조합 단계에서 `runStartAt`, `runEndAt` 기준으로 `UPCOMING / NOW_SHOWING / ENDED` 표시 상태를 계산한다.
+- `displayStatus`는 홈 화면 섹션 분류와 배지 표시용 파생값이며 예약/결제 가능 여부의 서버 검증 기준으로 사용하지 않는다.
+- 백엔드는 예약 생성 시 `bookingOpenAt` 이전 요청을 `ReservationGroup` 생성과 `Seat HELD` 전이 전에 거부한다.
+- 좌석 조회는 실시간 좌석 상태와 수동 만료 처리를 포함하므로 캐시 대상에서 제외한다.
+
+이 정리는 공연 목록/상세 캐시 TTL을 정할 때 화면 표시 상태의 stale 문제를 줄이기 위한 선행 작업이다. 캐시 적용 후에는 동일한 `dev,perf` arrival-rate E2E 조건에서 공연 목록 p95, 공연 상세 p95, 전체 여정 p95, dropped iteration, DB 정합성을 다시 비교한다.
+
 ### Reservation Create Write Baseline
 
 예약 생성 write baseline은 같은 좌석을 반복 호출하지 않는다. 예약 생성은 상태를 변경하는 API이므로, 동일 좌석을 여러 번 사용하면 첫 요청 이후부터는 정상적인 성능 측정이 아니라 이미 선점된 좌석에 대한 실패 측정이 된다.
@@ -921,6 +933,9 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
    - 로컬 통제 환경용 `perf` profile과 사용자 `10,000`명의 AT 풀을 사용하는 `ramping-arrival-rate` E2E 시나리오를 추가했다.
    - `dev,perf` 프로필 최초 측정에서 완료 iteration `11,153`, dropped iteration `5,694`, 전체 여정 p95 `15.60s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
    - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
+8. 공연 목록/상세 캐시 적용 전 선행 정리로 `displayStatus`를 백엔드 응답에서 제거하고 프론트 서버 컴포넌트 데이터 조합 단계에서 계산하도록 전환했다.
+   - 예약 생성은 `bookingOpenAt` 이전 요청을 좌석 선점 전에 거부한다.
+   - 다음 측정은 공연 목록/상세 Caffeine 캐시 적용 전후를 동일한 E2E arrival-rate 조건으로 비교한다.
 
 ## References
 

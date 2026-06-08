@@ -154,8 +154,34 @@ class ReservationServiceTest {
         verify(reservationRepository, never()).save(any());
     }
 
+    @Test
+    @DisplayName("createReservation: 예매 오픈 전 공연의 좌석은 예약할 수 없다")
+    void createReservationBeforeBookingOpen() {
+        User user = createUser();
+        Seat seat = createSeatWithBookingOpenAt(LocalDateTime.now().plusMinutes(10));
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        lenient().when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
+            ReservationGroup reservationGroup = invocation.getArgument(0);
+            ReflectionTestUtils.setField(reservationGroup, "id", 77L);
+            return reservationGroup;
+        });
+
+        assertThrows(IllegalStateException.class,
+                () -> reservationService.createReservation(1L, List.of(10L)));
+
+        assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+        verify(reservationGroupRepository, never()).save(any());
+        verify(reservationRepository, never()).saveAll(any());
+    }
+
     private Seat createSeat() {
-        Event event = new Event("공연", "설명", "장소", LocalDateTime.now(), LocalDateTime.now());
+        return createSeatWithBookingOpenAt(LocalDateTime.now());
+    }
+
+    private Seat createSeatWithBookingOpenAt(LocalDateTime bookingOpenAt) {
+        Event event = new Event("공연", "설명", "장소", bookingOpenAt, LocalDateTime.now());
         Schedule schedule = new Schedule(event, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(1).plusHours(2), LocalDateTime.now());
         return new Seat(schedule, "A-1", "VIP", 100000, LocalDateTime.now());
     }

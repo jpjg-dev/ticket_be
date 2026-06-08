@@ -11,7 +11,6 @@ public record EventResponse(
         LocalDateTime bookingOpenAt,
         LocalDateTime runStartAt,
         LocalDateTime runEndAt,
-        String displayStatus,
         Integer minPrice,
         Integer maxPrice,
         List<ScheduleResponse> schedules

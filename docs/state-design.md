@@ -36,6 +36,7 @@ BOOKED → AVAILABLE
 ## 전이 규칙
 
 * AVAILABLE 상태에서만 좌석 선택 가능
+* 공연 `bookingOpenAt` 이전에는 AVAILABLE 좌석이라도 예매 생성으로 HELD 전이할 수 없음
 * HELD 상태는 일정 시간 이후 자동 해제될 수 있음
 * BOOKED 상태는 변경 불가 (불변 상태)
 * BOOKED 상태는 취소 후 AVAILABLE로 복구 가능
@@ -164,7 +165,15 @@ READY → CANCELED ❌
 
 ---
 
-# 6. 설계 의도
+# 6. 공연 표시 상태 정책
+
+* `UPCOMING / NOW_SHOWING / ENDED`는 예매/결제 정합성을 보장하는 도메인 상태가 아니라 화면 분류와 배지 표시를 위한 UI 파생값임
+* 백엔드는 `bookingOpenAt`, `runStartAt`, `runEndAt` 원천 시간 데이터를 제공하고, 프론트 서버 컴포넌트 데이터 조합 단계에서 표시 상태를 계산함
+* 실제 예매 가능 여부는 프론트 표시값이 아니라 백엔드의 `bookingOpenAt`, 좌석 상태, reservation group 상태 검증으로 판단함
+
+---
+
+# 7. 설계 의도
 
 * 상태를 통해 모든 흐름을 명확하게 표현
 * 각 상태는 단일 책임을 가지도록 분리
@@ -173,6 +182,6 @@ READY → CANCELED ❌
 
 ---
 
-# 7. 한 줄 요약
+# 8. 한 줄 요약
 
 **이 시스템은 상태 전이를 기반으로 예매와 결제의 정합성을 보장한다.**

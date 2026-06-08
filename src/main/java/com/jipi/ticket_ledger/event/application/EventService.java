@@ -136,27 +136,9 @@ public class EventService {
                 event.getBookingOpenAt(),
                 runStartAt,
                 runEndAt,
-                resolveDisplayStatus(runStartAt, runEndAt),
                 minPrice,
                 maxPrice,
                 scheduleResponses
         );
-    }
-
-    private String resolveDisplayStatus(LocalDateTime runStartAt, LocalDateTime runEndAt) {
-        if (runStartAt == null || runEndAt == null) {
-            return "UPCOMING";
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        if (runEndAt.isBefore(now)) {
-            return "ENDED";
-        }
-
-        if (!runStartAt.isAfter(now)) {
-            return "NOW_SHOWING";
-        }
-
-        return "UPCOMING";
     }
 }

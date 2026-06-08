@@ -16,6 +16,7 @@
 #### 실패 케이스
 - [x] 존재하지 않는 사용자면 `EntityNotFoundException`
 - [x] 존재하지 않는 좌석이면 `EntityNotFoundException`
+- [x] 예매 오픈 전 공연의 좌석이면 `IllegalStateException`
 - [x] 좌석이 `AVAILABLE`이 아니면 `IllegalStateException`
 
 ---
