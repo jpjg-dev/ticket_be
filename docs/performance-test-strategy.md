@@ -289,6 +289,40 @@ CREATE INDEX idx_reservations_reservation_group_id
 
 이 테스트는 처리량 측정보다 정합성 검증이 목적이다. 다음 단계의 k6 예약 생성 write baseline은 이 정합성이 유지되는 상태에서 p95, 실패율, 락 대기 영향을 관찰하는 보조 지표로 사용한다.
 
+### Reservation Create Lock Strategy Tradeoff
+
+현재 예약 생성은 요청 좌석 id를 정렬한 뒤 `PESSIMISTIC_WRITE`로 좌석 row를 잠그고, 트랜잭션 안에서 `Seat.hold()`를 호출해 `AVAILABLE -> HELD` 상태 전이를 수행한다. 결제 승인 단계는 `Payment` row 비관적 락으로 동일 승인 요청을 직렬화하고, `Seat.book()`으로 `HELD -> BOOKED`를 수행한다. 따라서 좌석 락은 조회부터 결제 완료까지 유지되는 락이 아니라 예약 생성 트랜잭션 동안의 선점 보호 장치다.
+
+인기 공연 E2E arrival-rate 최초 측정에서는 예약 생성보다 조회 경로가 더 큰 병목으로 나타났다.
+
+| Metric | Result |
+| --- | ---: |
+| 전체 여정 p95 | `15.60s` |
+| 좌석 조회 p95 | `3.16s` |
+| 예약 생성 p95 | `28.63ms` |
+| 결제 준비 p95 | `26.47ms` |
+| 결제 승인 p95 | `38.17ms` |
+
+좌석 선점을 조건부 update로 바꾸면 다음처럼 DB update 결과 row 수로 선점 성공 여부를 판단할 수 있다.
+
+```sql
+update seats
+set status = 'HELD'
+where id in (:seatIds)
+  and status = 'AVAILABLE'
+```
+
+영향 row 수가 요청 좌석 수와 같으면 성공, 하나라도 부족하면 실패로 보고 트랜잭션을 롤백한다. PostgreSQL에서 `UPDATE`도 대상 row에 row-level lock을 획득하므로 동시성 제어 자체는 가능하다. 다만 이 방식은 `Seat.hold()` 도메인 메서드의 상태 전이 검증을 우회하고, 상태 전이 정책이 SQL 조건으로 분산된다.
+
+| Strategy | 장점 | 단점 | 현재 판단 |
+| --- | --- | --- | --- |
+| 비관적 락 + 도메인 상태 전이 | `Seat.hold()` / `Seat.book()` 규칙이 유지되고, 다중 좌석 정렬 락으로 데드락 위험을 줄일 수 있다. | 경합 시 실패 요청도 앞선 트랜잭션 종료를 기다린 뒤 거부될 수 있다. | 유지 |
+| 조건부 update | 이미 선점된 좌석에 대한 실패 요청을 빠르게 탈락시킬 수 있고, 엔티티 조회 비용을 줄일 수 있다. | 도메인 메서드를 우회하며, bulk update 후 영속성 컨텍스트 stale 문제를 관리해야 한다. 부분 성공 방지를 위해 영향 row 수 검증과 롤백 정책이 필수다. | 보류 |
+| 낙관적 락 | 도메인 메서드를 유지할 수 있고, 충돌이 적은 일반 수정에는 단순하다. | 인기 좌석처럼 충돌이 의도적으로 많은 구간에서는 실패가 늦게 감지되고 retry 비용이 커질 수 있다. | 우선순위 낮음 |
+| `NOWAIT` 또는 짧은 lock timeout | 도메인 상태 전이를 유지하면서 락 대기 시간을 제한할 수 있다. | 잠깐 점유된 좌석도 즉시 실패 처리될 수 있어 false reject가 늘 수 있다. | 실험 후보 |
+
+따라서 현재 최적화 우선순위는 좌석 선점 조건부 update 전환이 아니라, 공연 목록/상세 캐시와 좌석 조회 연계 만료 처리 비용 축소다. 예약 생성 p95가 후속 측정에서 실제 병목으로 확인될 때만 `NOWAIT`, 짧은 lock timeout, 조건부 update를 동일한 E2E arrival-rate 조건에서 비교한다. 비교 시 성공 결제 수, 정상 경합 거부 수, 예상 밖 오류, 중복 active 좌석 배정, 부분 성공 group을 함께 확인한다.
+
 ### Reservation Create Write Baseline
 
 예약 생성 write baseline은 같은 좌석을 반복 호출하지 않는다. 예약 생성은 상태를 변경하는 API이므로, 동일 좌석을 여러 번 사용하면 첫 요청 이후부터는 정상적인 성능 측정이 아니라 이미 선점된 좌석에 대한 실패 측정이 된다.
@@ -892,5 +926,8 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 
 - Grafana k6, test types: https://grafana.com/docs/k6/latest/testing-guides/test-types/
 - Hibernate ORM User Guide, fetching and N+1: https://docs.jboss.org/hibernate/orm/7.0/userguide/html_single/Hibernate_User_Guide.html
+- Spring Data JPA, Locking: https://docs.spring.io/spring-data/jpa/reference/jpa/locking.html
+- Spring Data JPA, Modifying Queries: https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.modifying-queries
+- PostgreSQL, Explicit Locking: https://www.postgresql.org/docs/17/explicit-locking.html
 - Toss Payments, payment flow: https://docs.tosspayments.com/guides/v2/get-started/payment-flow
 - Toss Payments, idempotency: https://docs.tosspayments.com/blog/what-is-idempotency
