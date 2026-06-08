@@ -39,9 +39,28 @@
 
 ---
 
-## 2. PaymentService 테스트
+## 2. EventService 테스트
 
-### 2.1 readyPayment()
+### getEvents()
+
+#### 성공 케이스
+- [x] 같은 공연 목록 조회는 캐시되어 DB 조회를 반복하지 않는다
+
+### getEvent()
+
+#### 성공 케이스
+- [x] 같은 공연 상세 조회는 캐시되어 DB 조회를 반복하지 않는다
+
+### getSeats()
+
+#### 성공 케이스
+- [x] 해당 회차의 만료 예약을 정리한 뒤 좌석을 조회한다
+
+---
+
+## 3. PaymentService 테스트
+
+### 3.1 readyPayment()
 
 #### 성공 케이스
 - [x] group 안의 모든 Reservation이 `PENDING`이면 Payment가 `READY`로 생성된다
@@ -56,7 +75,7 @@
 
 ---
 
-### 2.2 confirmPayment()
+### 3.2 confirmPayment()
 
 #### 성공 케이스
 - [x] orderId로 Payment를 조회한다
@@ -80,7 +99,7 @@
 
 ---
 
-### 2.3 failPayment()
+### 3.3 failPayment()
 
 #### 성공 케이스
 - [x] `READY -> FAILED`
@@ -92,7 +111,7 @@
 
 ---
 
-### 2.4 cancelPayment()
+### 3.4 cancelPayment()
 
 #### 성공 케이스
 - [x] `APPROVED` 결제만 취소 가능하다
@@ -108,7 +127,7 @@
 
 ---
 
-### 2.5 getPaymentStatus()
+### 3.5 getPaymentStatus()
 
 #### 성공 케이스
 - [x] paymentId로 현재 결제 상태를 조회한다
@@ -117,14 +136,14 @@
 
 ---
 
-## 3. Controller 테스트
+## 4. Controller 테스트
 
-### 3.1 ReservationController
+### 4.1 ReservationController
 - [x] 예약 생성 성공 (200)
 - [x] validation 실패 (400)
 - [x] 존재하지 않는 user/seat (404)
 
-### 3.2 PayMentController
+### 4.2 PayMentController
 - [x] `/payments/ready` 성공 (200)
 - [x] `/payments/confirm` 성공 (200)
 - [x] `/payments/{id}/status` 성공 (200)
@@ -134,14 +153,14 @@
 
 ---
 
-## 4. User API 테스트
+## 5. User API 테스트
 
-### 4.1 users/me
+### 5.1 users/me
 - [x] 로그인 사용자 id로 현재 사용자 기본 정보를 반환한다
 - [x] 존재하지 않는 사용자면 `EntityNotFoundException`
 - [x] 컨트롤러가 `@AuthenticationPrincipal Long userId`를 서비스로 전달한다
 
-### 4.2 mypage
+### 5.2 mypage
 - [x] 본인 userId만 조회 가능하다
 - [x] 다른 사용자 조회 시 `IllegalStateException`
 - [x] `ReservationGroup.status`가 `CONFIRMED`, `CANCELED`인 예매를 group 기준으로 반환한다
@@ -152,7 +171,7 @@
 
 ---
 
-## 5. 우선순위
+## 6. 우선순위
 
 1. [x] `PaymentService.confirmPayment()`
 2. [x] `PaymentService.cancelPayment()`
@@ -164,9 +183,9 @@
 
 ---
 
-## 6. AuthService 테스트
+## 7. AuthService 테스트
 
-### 6.1 reissue()
+### 7.1 reissue()
 
 - [x] 정상 재발급 시 기존 Refresh Token을 소비하고 새 토큰을 저장한다
 - [x] 이미 소비된 Refresh Token이면 재발급을 거부한다

@@ -6,12 +6,14 @@ import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.event.presentation.dto.EventResponse;
 import com.jipi.ticket_ledger.event.presentation.dto.ScheduleResponse;
+import com.jipi.ticket_ledger.global.config.CacheNames;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.presentation.dto.SeatResponse;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,7 @@ public class EventService {
     private final SeatRepository seatRepository;
     private final ReservationExpirationService reservationExpirationService;
 
+    @Cacheable(CacheNames.EVENT_LIST)
     public List<EventResponse> getEvents() {
         List<Event> events = eventRepository.findAllByOrderByBookingOpenAtAsc();
         if (events.isEmpty()) {
@@ -57,6 +60,7 @@ public class EventService {
                 .toList();
     }
 
+    @Cacheable(value = CacheNames.EVENT_DETAIL, key = "#eventId")
     public EventResponse getEvent(Long eventId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new EntityNotFoundException("공연을 찾을 수 없습니다."));
