@@ -13,6 +13,19 @@
 - `bookingOpenAt`이 현재 시각보다 미래이면 예약 생성을 거부하고 좌석 상태는 `AVAILABLE`로 유지한다.
 - 예매 오픈 전 좌석 예약 거부 테스트를 추가했다.
 
+### 3) 공연 목록/상세 로컬 캐시 적용
+- 공연 목록과 공연 상세 조회에 `Spring Cache + Caffeine` 기반 JVM 로컬 캐시를 적용했다.
+- `eventList` 캐시는 TTL `60s`, 최대 크기 `1`로 홈/인기 공연 목록 반복 조회 비용을 줄인다.
+- `eventDetail` 캐시는 TTL `300s`, 최대 크기 `500`으로 공연 상세 반복 조회 비용을 줄인다.
+- 서버 재시작 시 캐시는 사라지며, 첫 요청이 DB에서 다시 조회해 캐시를 채우는 read-through 방식을 사용한다.
+- 좌석 조회, 예약 생성, 결제, 마이페이지는 실시간 상태와 사용자별 상태가 섞이므로 캐시 대상에서 제외했다.
+
+### 4) 운영 데모 공연/회차 시간 최신화 migration 추가
+- 운영 서버의 기존 데모 공연 시간이 과거가 되는 문제를 해결하기 위해 `V2__refresh_demo_event_schedule_times.sql`을 추가했다.
+- 기존 운영 DB row는 공연 제목과 회차 순서 기준으로 `booking_open_at`, `schedules.start_at`, `schedules.end_at`을 현재 migration 실행 시점 기준 미래 일정으로 갱신한다.
+- 신규 빈 DB에서는 V2가 no-op으로 동작하고, 이후 `DataInitializer`가 현재 시각 기준 초기 데이터를 생성한다.
+- 운영 데이터 갱신은 서버 재시작 때마다 실행되는 `DataInitializer`가 아니라 Flyway migration으로 추적한다.
+
 ## 2026-06-02
 
 ### 1) 결제 PG 응답 검증 보강

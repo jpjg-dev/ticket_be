@@ -335,6 +335,24 @@ where id in (:seatIds)
 
 이 정리는 공연 목록/상세 캐시 TTL을 정할 때 화면 표시 상태의 stale 문제를 줄이기 위한 선행 작업이다. 캐시 적용 후에는 동일한 `dev,perf` arrival-rate E2E 조건에서 공연 목록 p95, 공연 상세 p95, 전체 여정 p95, dropped iteration, DB 정합성을 다시 비교한다.
 
+### Event Cache Policy
+
+공연 목록/상세 캐시는 `Spring Cache + Caffeine` 기반의 JVM 로컬 캐시로 적용한다. 캐시는 DB 원본을 대체하지 않고, 반복 조회 비용을 줄이는 보조 계층으로만 사용한다.
+
+| Cache | Target | Key | TTL | Max size | Note |
+| --- | --- | --- | ---: | ---: | --- |
+| `eventList` | `GET /api/v1/events` | `SimpleKey.EMPTY` | `60s` | `1` | 홈/인기 공연 목록 반복 조회 비용 축소 |
+| `eventDetail` | `GET /api/v1/events/{eventId}` | `eventId` | `300s` | `500` | 상세 진입 반복 조회 비용 축소 |
+
+서버 재시작 또는 프로세스 종료 시 Caffeine 로컬 캐시는 사라진다. 현재 대상 데이터는 공연 목록/상세 조회이고 원본은 DB에 있으므로, 별도 복구 로직이나 Redis warm-up은 적용하지 않는다. 재시작 직후 첫 요청은 DB에서 조회하고 캐시에 다시 적재하는 read-through 흐름을 허용한다.
+
+이 선택의 트레이드오프는 다음과 같다.
+
+- 이득: Redis 도입 없이 목록/상세 반복 조회의 DB 접근을 줄이고, 현재 E2E spike의 조회 단계 병목을 좁은 범위에서 개선할 수 있다.
+- 비용: 서버 재시작 직후 첫 요청은 cold cache로 DB를 조회하고, 관리자 수정이 생기면 TTL 동안 구버전 응답이 노출될 수 있다.
+- 보류: 다중 서버 캐시 공유, 관리자 수정 즉시 반영, cold start 지연 최소화가 필요해지는 시점에 Redis 또는 cache warm-up을 후속 후보로 검토한다.
+- 제외: 좌석 조회, 예약 생성, 결제, 마이페이지는 실시간 상태와 사용자별 상태가 섞이므로 이번 캐시 대상에서 제외한다.
+
 ### Reservation Create Write Baseline
 
 예약 생성 write baseline은 같은 좌석을 반복 호출하지 않는다. 예약 생성은 상태를 변경하는 API이므로, 동일 좌석을 여러 번 사용하면 첫 요청 이후부터는 정상적인 성능 측정이 아니라 이미 선점된 좌석에 대한 실패 측정이 된다.
@@ -935,6 +953,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
    - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 8. 공연 목록/상세 캐시 적용 전 선행 정리로 `displayStatus`를 백엔드 응답에서 제거하고 프론트 서버 컴포넌트 데이터 조합 단계에서 계산하도록 전환했다.
    - 예약 생성은 `bookingOpenAt` 이전 요청을 좌석 선점 전에 거부한다.
+   - 공연 목록/상세는 `Spring Cache + Caffeine` 로컬 read-through 캐시로 적용한다.
    - 다음 측정은 공연 목록/상세 Caffeine 캐시 적용 전후를 동일한 E2E arrival-rate 조건으로 비교한다.
 
 ## References
