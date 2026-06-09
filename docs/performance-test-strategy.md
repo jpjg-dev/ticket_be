@@ -332,6 +332,7 @@ where id in (:seatIds)
 - `displayStatus`는 홈 화면 섹션 분류와 배지 표시용 파생값이며 예약/결제 가능 여부의 서버 검증 기준으로 사용하지 않는다.
 - 백엔드는 예약 생성 시 `bookingOpenAt` 이전 요청을 `ReservationGroup` 생성과 `Seat HELD` 전이 전에 거부한다.
 - 좌석 조회는 실시간 좌석 상태와 수동 만료 처리를 포함하므로 캐시 대상에서 제외한다.
+- `soldOut`, `availableCount` 같은 예약 상태는 공연 목록/상세 캐시에 포함하지 않는다.
 
 이 정리는 공연 목록/상세 캐시 TTL을 정할 때 화면 표시 상태의 stale 문제를 줄이기 위한 선행 작업이다. 캐시 적용 후에는 동일한 `dev,perf` arrival-rate E2E 조건에서 공연 목록 p95, 공연 상세 p95, 전체 여정 p95, dropped iteration, DB 정합성을 다시 비교한다.
 
@@ -352,6 +353,19 @@ where id in (:seatIds)
 - 비용: 서버 재시작 직후 첫 요청은 cold cache로 DB를 조회하고, 관리자 수정이 생기면 TTL 동안 구버전 응답이 노출될 수 있다.
 - 보류: 다중 서버 캐시 공유, 관리자 수정 즉시 반영, cold start 지연 최소화가 필요해지는 시점에 Redis 또는 cache warm-up을 후속 후보로 검토한다.
 - 제외: 좌석 조회, 예약 생성, 결제, 마이페이지는 실시간 상태와 사용자별 상태가 섞이므로 이번 캐시 대상에서 제외한다.
+
+### Schedule Availability Policy
+
+메인 화면의 예매 버튼 비활성화와 매진 이후 좌석 payload 축소는 공연 카탈로그 캐시와 분리한다.
+
+- `GET /api/v1/event/schedules/availability?scheduleIds=...`는 여러 회차의 상태 요약을 한 번에 반환한다.
+- 매진 기준은 `AVAILABLE=0`, `HELD=0`, `BOOKED>0`이다.
+- `HELD` 좌석은 만료 후 `AVAILABLE`로 복구될 수 있으므로 매진으로 보지 않는다.
+- 프론트 서버는 캐시 가능한 `/event` 응답과 실시간 availability 응답을 조합해 ViewModel의 `schedule.soldOut`을 만든다.
+- `/event` 또는 `/event/{eventId}` 응답에는 `soldOut`을 직접 포함하지 않는다. 예약 상태가 카탈로그 캐시에 섞이면 매진 직후 stale 값이 노출될 수 있기 때문이다.
+- 좌석 조회 API는 `{ scheduleId, soldOut, seats }` wrapper를 반환한다. `soldOut=true`이면 좌석 목록을 내려주지 않는다.
+
+후속 성능 재측정에서는 동일한 arrival-rate 조건에서 매진 이후 `data_received`, 좌석 조회 p95, 전체 여정 p95, dropped iteration을 기존 2차 개선값과 비교한다.
 
 ### Reservation Create Write Baseline
 
@@ -935,25 +949,27 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 
 공연 목록/상세에 `Spring Cache + Caffeine` 로컬 캐시를 적용한 뒤 동일한 `dev,perf` 프로필, 외부 Mock PG, 테스트 사용자 `10,000`명 AT 풀, 동일 arrival-rate 단계로 재측정했다. `application-perf.yaml` 기준 캐시 TTL은 공연 목록 `60s`, 공연 상세 `5m`이다.
 
-| Metric | Initial | After event cache |
-| --- | ---: | ---: |
-| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
-| 실행 시간 | `50s` | `50s` |
-| 완료 iteration | `11,153` | `15,573` |
-| dropped iteration | `5,694` | `1,274` |
-| 최대 사용 VU | `3,000` | `1,618` |
-| 전체 여정 p95 | `15.60s` | `2.93s` |
-| 공연 목록 p95 | 미측정 | `982.18ms` |
-| 공연 상세 p95 | 미측정 | `893.50ms` |
-| 좌석 조회 p95 | `3.16s` | `1.41s` |
-| 예약 생성 p95 | `28.63ms` | `16.57ms` |
-| 결제 준비 p95 | `26.47ms` | `15.72ms` |
-| 결제 승인 p95 | `38.17ms` | `27.39ms` |
-| 완료 결제 | `1,000` | `1,000` |
-| 완료 결제 처리량 | `17.13 payments/s` | `19.43 payments/s` |
-| 정상 경합 거부 | `10,153` | `14,573` |
-| 예상 밖 오류 | `0` | `0` |
-| 사용자 풀 재사용 | `1,153` | `5,573` |
+이후 2차 개선으로 좌석 조회의 write transaction 범위를 줄였다. `EventService.getSeats()`가 직접 write transaction을 감싸지 않고, 만료 상태 전이는 `ReservationExpirationService.expireByScheduleId()`의 write transaction에서만 처리한다. 좌석 조회 응답 매핑은 이미 알고 있는 `scheduleId`를 직접 사용한다.
+
+| Metric | Initial | After event cache | After seat transaction split |
+| --- | ---: | ---: | ---: |
+| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
+| 실행 시간 | `50s` | `50s` | `50s` |
+| 완료 iteration | `11,153` | `15,573` | `15,739` |
+| dropped iteration | `5,694` | `1,274` | `1,108` |
+| 최대 사용 VU | `3,000` | `1,618` | `1,546` |
+| 전체 여정 p95 | `15.60s` | `2.93s` | `2.66s` |
+| 공연 목록 p95 | 미측정 | `982.18ms` | `924.24ms` |
+| 공연 상세 p95 | 미측정 | `893.50ms` | `727.77ms` |
+| 좌석 조회 p95 | `3.16s` | `1.41s` | `1.31s` |
+| 예약 생성 p95 | `28.63ms` | `16.57ms` | `19.49ms` |
+| 결제 준비 p95 | `26.47ms` | `15.72ms` | `18.03ms` |
+| 결제 승인 p95 | `38.17ms` | `27.39ms` | `26.90ms` |
+| 완료 결제 | `1,000` | `1,000` | `1,000` |
+| 완료 결제 처리량 | `17.13 payments/s` | `19.43 payments/s` | `19.64 payments/s` |
+| 정상 경합 거부 | `10,153` | `14,573` | `14,739` |
+| 예상 밖 오류 | `0` | `0` | `0` |
+| 사용자 풀 재사용 | `1,153` | `5,573` | `5,739` |
 
 실행 후 DB MCP 사후 검증:
 
@@ -970,10 +986,11 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 해석:
 
 - 공연 목록/상세 캐시 적용 후 전체 여정 p95는 `15.60s -> 2.93s`로 개선됐고, dropped iteration은 `5,694 -> 1,274`로 줄었다.
-- 최대 사용 VU는 `3,000 -> 1,618`로 줄어 같은 유입 조건에서 여정 적체가 완화됐다.
+- 좌석 조회 트랜잭션 범위 분리 후 전체 여정 p95는 `2.93s -> 2.66s`, 좌석 조회 p95는 `1.41s -> 1.31s`, dropped iteration은 `1,274 -> 1,108`로 추가 개선됐다.
+- 최대 사용 VU는 `3,000 -> 1,618 -> 1,546`으로 줄어 같은 유입 조건에서 여정 적체가 완화됐다.
 - 완료 iteration은 `11,153 -> 15,573`으로 늘었지만 좌석 수는 동일하게 `1,000`개이므로, 추가 완료분은 대부분 매진/경합에 따른 정상 거부로 집계됐다.
 - 좌석 조회 p95도 `3.16s -> 1.41s`로 낮아졌지만 좌석 조회 자체에는 캐시를 적용하지 않았다. 이 값은 목록/상세 단계 적체 완화와 전체 부하 분산 변화가 함께 반영된 결과로 본다.
-- `http_req_failed=19`가 기록됐지만 스크립트 기준 예상 밖 오류율은 `0%`다. 좌석 매진 또는 경합으로 정상 거부된 요청이 HTTP 실패 카운터에는 포함될 수 있으므로, 이 시나리오에서는 `arrival_e2e_unexpected_rate`와 DB 정합성을 우선 지표로 본다.
+- 2차 개선 후에도 완료 결제는 `1,000`, 스크립트 기준 예상 밖 오류율은 `0%`다. `http_req_failed=25`가 기록됐지만 좌석 매진 또는 경합으로 정상 거부된 요청이 HTTP 실패 카운터에는 포함될 수 있으므로, 이 시나리오에서는 `arrival_e2e_unexpected_rate`와 DB 정합성을 우선 지표로 본다.
 
 ## Next Measurement
 
@@ -999,6 +1016,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
    - 예약 생성은 `bookingOpenAt` 이전 요청을 좌석 선점 전에 거부한다.
    - 공연 목록/상세는 `Spring Cache + Caffeine` 로컬 read-through 캐시로 적용한다.
    - 동일한 E2E arrival-rate 조건에서 캐시 적용 후 완료 iteration `15,573`, dropped iteration `1,274`, 전체 여정 p95 `2.93s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
+   - 좌석 조회 트랜잭션 범위 분리 후 완료 iteration `15,739`, dropped iteration `1,108`, 전체 여정 p95 `2.66s`, 좌석 조회 p95 `1.31s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
    - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 
 ## References

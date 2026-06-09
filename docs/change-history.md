@@ -1,5 +1,23 @@
 # 변경 이력 추적 (결제/예약 흐름)
 
+## 2026-06-09
+
+### 1) 좌석 조회 트랜잭션 범위 분리
+- `EventService.getSeats()`가 직접 write transaction을 감싸지 않도록 변경했다.
+- 좌석 조회 전 수동 만료 상태 전이는 기존 정책대로 `ReservationExpirationService.expireByScheduleId()`의 write transaction에서 처리한다.
+- 좌석 조회 응답 매핑은 path variable로 이미 알고 있는 `scheduleId`를 직접 사용해 `Seat -> Schedule` 접근을 줄였다.
+- 동일한 `dev,perf` 인기 공연 E2E arrival-rate 조건에서 2차 개선 후 전체 여정 p95는 `2.93s -> 2.66s`, 좌석 조회 p95는 `1.41s -> 1.31s`, dropped iteration은 `1,274 -> 1,108`로 추가 개선됐다.
+- 2차 개선 후에도 완료 결제는 `1,000`, 예상 밖 오류는 `0`, DB 사후 검증의 중복 active 좌석 배정/부분 성공 group/상태 불일치는 모두 `0`이다.
+
+### 2) 회차 매진 여부 실시간 조회와 좌석 조회 fast-path
+- `GET /api/v1/event/schedules/availability?scheduleIds=...` batch API를 추가했다.
+- 응답은 회차별 `available`, `held`, `booked`, `soldOut`을 반환한다.
+- 매진 기준은 `AVAILABLE=0`, `HELD=0`, `BOOKED>0`이다. `HELD`는 만료 후 복구될 수 있으므로 매진으로 보지 않는다.
+- 공연 목록/상세 캐시는 카탈로그 데이터로 유지하고, `soldOut` 같은 예약 상태는 캐시에 포함하지 않는다.
+- `GET /api/v1/event/schedules/{scheduleId}/seats` 응답을 `{ scheduleId, soldOut, seats }` 형태로 변경했다.
+- `soldOut=true`이면 좌석 목록을 조회/직렬화하지 않고 빈 `seats`를 반환해 매진 이후 좌석 payload 전송을 줄인다.
+- 프론트 서버는 `/event` 캐시 응답과 availability 응답을 조합해 메인 예매 버튼을 비활성화한다.
+
 ## 2026-06-08
 
 ### 1) 공연 표시 상태 책임 분리

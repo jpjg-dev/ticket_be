@@ -47,7 +47,8 @@ export default function () {
   expirationFirstHitDuration.add(response.timings.duration);
   expirationFirstHitFailed.add(response.status !== 200);
 
-  const seats = response.status === 200 ? response.json() : [];
+  const seatList = response.status === 200 ? response.json() : { seats: [] };
+  const seats = Array.isArray(seatList) ? seatList : Array.isArray(seatList.seats) ? seatList.seats : [];
   check(response, {
     "expiration first hit returns 200": (result) => result.status === 200,
     "expired held seats are available after lookup": () => expectedReleasedSeatIds.every((seatId) =>
