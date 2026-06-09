@@ -116,7 +116,13 @@ export function completePopularEventPaymentJourney() {
       return recordUnexpected("SEAT_LOOKUP_FAILED", seatsResponse.status);
     }
 
-    const seats = parseJson(seatsResponse);
+    const seatList = parseJson(seatsResponse);
+    if (seatList && seatList.soldOut) {
+      contentionRejected.add(1, tags("SOLD_OUT"));
+      return;
+    }
+
+    const seats = Array.isArray(seatList) ? seatList : seatList && Array.isArray(seatList.seats) ? seatList.seats : [];
     const availablePopularSeats = Array.isArray(seats)
       ? seats.filter((seat) => seat.status === "AVAILABLE"
           && seat.id >= minSeatId
@@ -257,4 +263,3 @@ function tags(reason, status) {
   }
   return result;
 }
-

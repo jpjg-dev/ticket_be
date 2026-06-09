@@ -50,7 +50,8 @@ export default function () {
   expirationConcurrentDuration.add(response.timings.duration);
   expirationConcurrentFailed.add(response.status !== 200);
 
-  const seats = response.status === 200 ? response.json() : [];
+  const seatList = response.status === 200 ? response.json() : { seats: [] };
+  const seats = Array.isArray(seatList) ? seatList : Array.isArray(seatList.seats) ? seatList.seats : [];
   const seatsReleased = expectedReleasedSeatIds.every((seatId) =>
     seats.some((seat) => seat.id === seatId && seat.status === "AVAILABLE"));
 

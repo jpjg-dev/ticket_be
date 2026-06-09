@@ -1,5 +1,26 @@
 # 변경 이력 추적 (결제/예약 흐름)
 
+## 2026-06-09
+
+### 1) 좌석 조회 트랜잭션 범위 분리
+- `EventService.getSeats()`가 직접 write transaction을 감싸지 않도록 변경했다.
+- 좌석 조회 전 수동 만료 상태 전이는 기존 정책대로 `ReservationExpirationService.expireByScheduleId()`의 write transaction에서 처리한다.
+- 좌석 조회 응답 매핑은 path variable로 이미 알고 있는 `scheduleId`를 직접 사용해 `Seat -> Schedule` 접근을 줄였다.
+- 동일한 `dev,perf` 인기 공연 E2E arrival-rate 조건에서 2차 개선 후 전체 여정 p95는 `2.93s -> 2.66s`, 좌석 조회 p95는 `1.41s -> 1.31s`, dropped iteration은 `1,274 -> 1,108`로 추가 개선됐다.
+- 2차 개선 후에도 완료 결제는 `1,000`, 예상 밖 오류는 `0`, DB 사후 검증의 중복 active 좌석 배정/부분 성공 group/상태 불일치는 모두 `0`이다.
+
+### 2) 회차 매진 여부 실시간 조회와 좌석 조회 fast-path
+- `GET /api/v1/event/schedules/availability?scheduleIds=...` batch API를 추가했다.
+- 응답은 회차별 `available`, `held`, `booked`, `soldOut`을 반환한다.
+- 매진 기준은 `AVAILABLE=0`, `HELD=0`, `BOOKED>0`이다. `HELD`는 만료 후 복구될 수 있으므로 매진으로 보지 않는다.
+- 공연 목록/상세 캐시는 카탈로그 데이터로 유지하고, `soldOut` 같은 예약 상태는 캐시에 포함하지 않는다.
+- `GET /api/v1/event/schedules/{scheduleId}/seats` 응답을 `{ scheduleId, soldOut, seats }` 형태로 변경했다.
+- `soldOut=true`이면 좌석 목록을 조회/직렬화하지 않고 빈 `seats`를 반환해 매진 이후 좌석 payload 전송을 줄인다.
+- 프론트 서버는 `/event` 캐시 응답과 availability 응답을 조합해 메인 예매 버튼을 비활성화한다.
+- 동일한 `dev,perf` 인기 공연 E2E arrival-rate 조건에서 매진 fast-path 적용 후 전체 여정 p95는 `2.66s -> 244ms`, 좌석 조회 p95는 `1.31s -> 11.58ms`, dropped iteration은 `1,108 -> 0`, 네트워크 수신량은 `1.6GB -> 206MB`로 감소했다.
+- 완료 결제는 `1,000`, 예상 밖 오류는 `0`, DB 사후 검증의 중복 active 좌석 배정/부분 성공 group/상태 불일치는 모두 `0`이다.
+- 1~3차 E2E 개선 흐름과 트레이드오프는 `docs/performance-e2e-optimization-summary.md`에 별도 정리했다.
+
 ## 2026-06-08
 
 ### 1) 공연 표시 상태 책임 분리
@@ -20,6 +41,8 @@
 - 개발 환경은 데이터 변경 확인이 빠르도록 `eventList` TTL `10s`, `eventDetail` TTL `30s`로 낮췄다.
 - 서버 재시작 시 캐시는 사라지며, 첫 요청이 DB에서 다시 조회해 캐시를 채우는 read-through 방식을 사용한다.
 - 좌석 조회, 예약 생성, 결제, 마이페이지는 실시간 상태와 사용자별 상태가 섞이므로 캐시 대상에서 제외했다.
+- 동일한 `dev,perf` 인기 공연 E2E arrival-rate 조건에서 캐시 적용 후 전체 여정 p95는 `15.60s -> 2.93s`, dropped iteration은 `5,694 -> 1,274`, 완료 iteration은 `11,153 -> 15,573`으로 개선됐다.
+- 캐시 적용 후에도 완료 결제는 `1,000`, 예상 밖 오류는 `0`, DB 사후 검증의 중복 active 좌석 배정/부분 성공 group/상태 불일치는 모두 `0`이다.
 
 ### 4) 운영 데모 공연/회차 시간 최신화 migration 추가
 - 운영 서버의 기존 데모 공연 시간이 과거가 되는 문제를 해결하기 위해 `V2__refresh_demo_event_schedule_times.sql`을 추가했다.
