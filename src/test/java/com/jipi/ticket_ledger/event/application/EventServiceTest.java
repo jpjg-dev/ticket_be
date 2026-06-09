@@ -20,9 +20,12 @@ import org.springframework.cache.CacheManager;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.LocalDateTime;
+import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -61,8 +64,29 @@ class EventServiceTest {
         inOrder.verify(seatRepository).findByScheduleId(10L);
     }
 
+    @Test
+    @DisplayName("getSeats: 좌석 조회 메서드는 만료 처리 write transaction을 감싸지 않는다")
+    void getSeatsDoesNotWrapExpirationInEventServiceTransaction() throws Exception {
+        assertNull(EventService.class.getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+
+        Method getSeats = EventService.class.getMethod("getSeats", Long.class);
+        assertNull(getSeats.getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+
+        Method getEvents = EventService.class.getMethod("getEvents");
+        Method getEvent = EventService.class.getMethod("getEvent", Long.class);
+
+        assertTrue(getEvents.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
+        assertTrue(getEvent.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
+    }
+
     @Nested
-    @SpringBootTest(properties = "spring.cache.type=caffeine")
+    @SpringBootTest(properties = {
+            "spring.cache.type=caffeine",
+            "cache.event.list.ttl=60s",
+            "cache.event.list.max-size=1",
+            "cache.event.detail.ttl=5m",
+            "cache.event.detail.max-size=100"
+    })
     class EventCacheTest {
 
         @Autowired

@@ -25,7 +25,6 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class EventService {
 
     private final EventRepository eventRepository;
@@ -33,6 +32,7 @@ public class EventService {
     private final SeatRepository seatRepository;
     private final ReservationExpirationService reservationExpirationService;
 
+    @Transactional(readOnly = true)
     @Cacheable(CacheNames.EVENT_LIST)
     public List<EventResponse> getEvents() {
         List<Event> events = eventRepository.findAllByOrderByBookingOpenAtAsc();
@@ -60,6 +60,7 @@ public class EventService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     @Cacheable(value = CacheNames.EVENT_DETAIL, key = "#eventId")
     public EventResponse getEvent(Long eventId) {
         Event event = eventRepository.findById(eventId)
@@ -73,7 +74,6 @@ public class EventService {
         return toEventResponse(event, schedules, seatsByScheduleId);
     }
 
-    @Transactional
     public List<SeatResponse> getSeats(Long scheduleId) {
         if (!scheduleRepository.existsById(scheduleId)) {
             throw new EntityNotFoundException("회차를 찾을 수 없습니다.");
@@ -84,7 +84,7 @@ public class EventService {
         return seatRepository.findByScheduleId(scheduleId).stream()
                 .map(seat -> new SeatResponse(
                         seat.getId(),
-                        seat.getSchedule().getId(),
+                        scheduleId,
                         seat.getSeatNumber(),
                         seat.getGrade(),
                         seat.getPrice(),

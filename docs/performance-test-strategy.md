@@ -931,6 +931,50 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 - 이번 값은 최초 포화 관찰이다. `dropped_iterations`에는 서버 지연과 동일 장비에서 실행한 k6 부하 발생기 한계가 함께 영향을 줄 수 있으므로 운영 처리량 보장 수치로 해석하지 않는다.
 - 후속 최적화 전후 비교에서는 동일한 `perf` 프로필과 동일한 arrival-rate 단계를 유지하고, 구간별 p95, dropped iteration, DB 정합성을 비교한다.
 
+### Popular Event Payment Arrival Rate Spike After Event Cache
+
+공연 목록/상세에 `Spring Cache + Caffeine` 로컬 캐시를 적용한 뒤 동일한 `dev,perf` 프로필, 외부 Mock PG, 테스트 사용자 `10,000`명 AT 풀, 동일 arrival-rate 단계로 재측정했다. `application-perf.yaml` 기준 캐시 TTL은 공연 목록 `60s`, 공연 상세 `5m`이다.
+
+| Metric | Initial | After event cache |
+| --- | ---: | ---: |
+| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
+| 실행 시간 | `50s` | `50s` |
+| 완료 iteration | `11,153` | `15,573` |
+| dropped iteration | `5,694` | `1,274` |
+| 최대 사용 VU | `3,000` | `1,618` |
+| 전체 여정 p95 | `15.60s` | `2.93s` |
+| 공연 목록 p95 | 미측정 | `982.18ms` |
+| 공연 상세 p95 | 미측정 | `893.50ms` |
+| 좌석 조회 p95 | `3.16s` | `1.41s` |
+| 예약 생성 p95 | `28.63ms` | `16.57ms` |
+| 결제 준비 p95 | `26.47ms` | `15.72ms` |
+| 결제 승인 p95 | `38.17ms` | `27.39ms` |
+| 완료 결제 | `1,000` | `1,000` |
+| 완료 결제 처리량 | `17.13 payments/s` | `19.43 payments/s` |
+| 정상 경합 거부 | `10,153` | `14,573` |
+| 예상 밖 오류 | `0` | `0` |
+| 사용자 풀 재사용 | `1,153` | `5,573` |
+
+실행 후 DB MCP 사후 검증:
+
+| Verification | Result |
+| --- | ---: |
+| 생성된 reservation group | `1,000` |
+| 생성된 payment | `1,000` |
+| 생성된 reservation | `1,000` |
+| `BOOKED` 좌석 | `1,000` |
+| 중복 active 좌석 배정 | `0` |
+| 부분 성공 reservation group | `0` |
+| `APPROVED / CONFIRMED / BOOKED` 상태 불일치 | `0` |
+
+해석:
+
+- 공연 목록/상세 캐시 적용 후 전체 여정 p95는 `15.60s -> 2.93s`로 개선됐고, dropped iteration은 `5,694 -> 1,274`로 줄었다.
+- 최대 사용 VU는 `3,000 -> 1,618`로 줄어 같은 유입 조건에서 여정 적체가 완화됐다.
+- 완료 iteration은 `11,153 -> 15,573`으로 늘었지만 좌석 수는 동일하게 `1,000`개이므로, 추가 완료분은 대부분 매진/경합에 따른 정상 거부로 집계됐다.
+- 좌석 조회 p95도 `3.16s -> 1.41s`로 낮아졌지만 좌석 조회 자체에는 캐시를 적용하지 않았다. 이 값은 목록/상세 단계 적체 완화와 전체 부하 분산 변화가 함께 반영된 결과로 본다.
+- `http_req_failed=19`가 기록됐지만 스크립트 기준 예상 밖 오류율은 `0%`다. 좌석 매진 또는 경합으로 정상 거부된 요청이 HTTP 실패 카운터에는 포함될 수 있으므로, 이 시나리오에서는 `arrival_e2e_unexpected_rate`와 DB 정합성을 우선 지표로 본다.
+
 ## Next Measurement
 
 1. 예약 생성 write baseline은 `10 / 100`, `20 / 200`, `50 / 500 shared iterations` 구간을 각각 3회 반복해 중앙값을 기록했다.
@@ -954,7 +998,8 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 8. 공연 목록/상세 캐시 적용 전 선행 정리로 `displayStatus`를 백엔드 응답에서 제거하고 프론트 서버 컴포넌트 데이터 조합 단계에서 계산하도록 전환했다.
    - 예약 생성은 `bookingOpenAt` 이전 요청을 좌석 선점 전에 거부한다.
    - 공연 목록/상세는 `Spring Cache + Caffeine` 로컬 read-through 캐시로 적용한다.
-   - 다음 측정은 공연 목록/상세 Caffeine 캐시 적용 전후를 동일한 E2E arrival-rate 조건으로 비교한다.
+   - 동일한 E2E arrival-rate 조건에서 캐시 적용 후 완료 iteration `15,573`, dropped iteration `1,274`, 전체 여정 p95 `2.93s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
+   - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 
 ## References
 
