@@ -951,25 +951,28 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 
 이후 2차 개선으로 좌석 조회의 write transaction 범위를 줄였다. `EventService.getSeats()`가 직접 write transaction을 감싸지 않고, 만료 상태 전이는 `ReservationExpirationService.expireByScheduleId()`의 write transaction에서만 처리한다. 좌석 조회 응답 매핑은 이미 알고 있는 `scheduleId`를 직접 사용한다.
 
-| Metric | Initial | After event cache | After seat transaction split |
-| --- | ---: | ---: | ---: |
-| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
-| 실행 시간 | `50s` | `50s` | `50s` |
-| 완료 iteration | `11,153` | `15,573` | `15,739` |
-| dropped iteration | `5,694` | `1,274` | `1,108` |
-| 최대 사용 VU | `3,000` | `1,618` | `1,546` |
-| 전체 여정 p95 | `15.60s` | `2.93s` | `2.66s` |
-| 공연 목록 p95 | 미측정 | `982.18ms` | `924.24ms` |
-| 공연 상세 p95 | 미측정 | `893.50ms` | `727.77ms` |
-| 좌석 조회 p95 | `3.16s` | `1.41s` | `1.31s` |
-| 예약 생성 p95 | `28.63ms` | `16.57ms` | `19.49ms` |
-| 결제 준비 p95 | `26.47ms` | `15.72ms` | `18.03ms` |
-| 결제 승인 p95 | `38.17ms` | `27.39ms` | `26.90ms` |
-| 완료 결제 | `1,000` | `1,000` | `1,000` |
-| 완료 결제 처리량 | `17.13 payments/s` | `19.43 payments/s` | `19.64 payments/s` |
-| 정상 경합 거부 | `10,153` | `14,573` | `14,739` |
-| 예상 밖 오류 | `0` | `0` | `0` |
-| 사용자 풀 재사용 | `1,153` | `5,573` | `5,739` |
+E2E 개선 과정의 설계 판단, 트레이드오프, 1~3차 지표 요약은 `docs/performance-e2e-optimization-summary.md`에도 별도 정리한다.
+
+| Metric | Initial | After event cache | After seat transaction split | After sold-out fast-path |
+| --- | ---: | ---: | ---: | ---: |
+| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
+| 실행 시간 | `50s` | `50s` | `50s` | `50s` |
+| 완료 iteration | `11,153` | `15,573` | `15,739` | `16,847` |
+| dropped iteration | `5,694` | `1,274` | `1,108` | `0` |
+| 최대 사용 VU | `3,000` | `1,618` | `1,546` | `203` |
+| 전체 여정 p95 | `15.60s` | `2.93s` | `2.66s` | `244ms` |
+| 공연 목록 p95 | 미측정 | `982.18ms` | `924.24ms` | `1.53ms` |
+| 공연 상세 p95 | 미측정 | `893.50ms` | `727.77ms` | `1.47ms` |
+| 좌석 조회 p95 | `3.16s` | `1.41s` | `1.31s` | `11.58ms` |
+| 예약 생성 p95 | `28.63ms` | `16.57ms` | `19.49ms` | `8.53ms` |
+| 결제 준비 p95 | `26.47ms` | `15.72ms` | `18.03ms` | `9.39ms` |
+| 결제 승인 p95 | `38.17ms` | `27.39ms` | `26.90ms` | `11.74ms` |
+| 완료 결제 | `1,000` | `1,000` | `1,000` | `1,000` |
+| 완료 결제 처리량 | `17.13 payments/s` | `19.43 payments/s` | `19.64 payments/s` | `19.92 payments/s` |
+| 정상 경합 거부 | `10,153` | `14,573` | `14,739` | `15,847` |
+| 예상 밖 오류 | `0` | `0` | `0` | `0` |
+| 사용자 풀 재사용 | `1,153` | `5,573` | `5,739` | `6,847` |
+| 네트워크 수신량 | 미측정 | 미측정 | `1.6GB` | `206MB` |
 
 실행 후 DB MCP 사후 검증:
 
@@ -991,6 +994,9 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 - 완료 iteration은 `11,153 -> 15,573`으로 늘었지만 좌석 수는 동일하게 `1,000`개이므로, 추가 완료분은 대부분 매진/경합에 따른 정상 거부로 집계됐다.
 - 좌석 조회 p95도 `3.16s -> 1.41s`로 낮아졌지만 좌석 조회 자체에는 캐시를 적용하지 않았다. 이 값은 목록/상세 단계 적체 완화와 전체 부하 분산 변화가 함께 반영된 결과로 본다.
 - 2차 개선 후에도 완료 결제는 `1,000`, 스크립트 기준 예상 밖 오류율은 `0%`다. `http_req_failed=25`가 기록됐지만 좌석 매진 또는 경합으로 정상 거부된 요청이 HTTP 실패 카운터에는 포함될 수 있으므로, 이 시나리오에서는 `arrival_e2e_unexpected_rate`와 DB 정합성을 우선 지표로 본다.
+- 매진 fast-path 적용 후에는 전 좌석 `BOOKED` 상태에서 좌석 목록을 내려주지 않으므로 네트워크 수신량이 `1.6GB -> 206MB`로 감소했다.
+- 동일 유입 조건에서 dropped iteration은 `1,108 -> 0`, 전체 여정 p95는 `2.66s -> 244ms`, 좌석 조회 p95는 `1.31s -> 11.58ms`로 감소했다.
+- 이번 개선은 좌석 정합성 로직을 캐시하지 않고, 매진 이후 불필요한 좌석 payload와 직렬화 비용을 제거한 결과다.
 
 ## Next Measurement
 
@@ -1017,6 +1023,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
    - 공연 목록/상세는 `Spring Cache + Caffeine` 로컬 read-through 캐시로 적용한다.
    - 동일한 E2E arrival-rate 조건에서 캐시 적용 후 완료 iteration `15,573`, dropped iteration `1,274`, 전체 여정 p95 `2.93s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
    - 좌석 조회 트랜잭션 범위 분리 후 완료 iteration `15,739`, dropped iteration `1,108`, 전체 여정 p95 `2.66s`, 좌석 조회 p95 `1.31s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
+   - 매진 fast-path 적용 후 완료 iteration `16,847`, dropped iteration `0`, 전체 여정 p95 `244ms`, 좌석 조회 p95 `11.58ms`, 네트워크 수신량 `206MB`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
    - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 
 ## References
