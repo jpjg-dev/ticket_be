@@ -2,30 +2,56 @@
 
 TicketLedger 백엔드는 공연 예매 과정에서 발생하는 좌석 선점, 예약 만료, 결제 승인/취소, 매진 조회 병목을 상태 전이와 트랜잭션 기준으로 관리하는 Spring Boot API 서버다.
 
-## 핵심 요약
+## 바로가기
 
-- 좌석, 예매 그룹, 결제 상태를 분리하고 상태 전이 규칙으로 정합성을 관리한다.
-- 다중 좌석 예매는 `ReservationGroup` 단위로 묶어 부분 성공을 만들지 않는다.
-- 좌석 선점과 결제/만료 경합 구간은 DB lock과 트랜잭션으로 직렬화한다.
-- 공연 목록/상세는 Caffeine local cache로 반복 조회 비용을 줄인다.
-- 좌석 상태와 매진 여부는 캐시하지 않고 DB 상태 기반 availability로 계산한다.
-- 매진 이후 `/seats`는 좌석 목록 payload를 내려주지 않는 fast-path를 사용한다.
-- k6 E2E 테스트는 응답 시간뿐 아니라 완료 결제 수, 예상 밖 오류, DB 정합성을 함께 검증한다.
+- [운영 환경 로그인 정보](#운영-환경-로그인-정보)
+- [핵심 문제 정의](#핵심-문제-정의)
+- [핵심 해결 전략](#핵심-해결-전략)
+- [도메인 모델과 상태 전이](#도메인-모델과-상태-전이)
+- [주요 API 흐름](#주요-api-흐름)
+- [정합성 보장 전략](#정합성-보장-전략)
+- [성능 개선 실험](#성능-개선-실험)
+- [테스트와 검증](#테스트와-검증)
+- [기술 스택](#기술-스택)
+- [실행 방법](#실행-방법)
+- [환경 설정과 운영 메모](#환경-설정과-운영-메모)
+- [상세 문서 바로가기](#상세-문서-바로가기)
 
-## 기술 스택
+## 운영 환경 로그인 정보
 
-| 영역 | 사용 기술 |
+포트폴리오 확인용 운영 계정이다.
+
+| 구분 | 이메일 | 비밀번호 |
+| --- | --- | --- |
+| 관리자 | `admin@admin.com` | `a123456789` |
+| 일반 사용자 | `user@user.com` | `a123456789` |
+
+## 핵심 문제 정의
+
+공연 예매 시스템은 단순 CRUD보다 상태 정합성이 중요하다. 사용자는 같은 좌석을 동시에 선택할 수 있고, 결제 승인과 예약 만료가 같은 예매 건을 동시에 처리할 수 있으며, PG 응답이 지연되거나 끊긴 뒤에도 내부 상태는 하나의 결과로 수렴해야 한다.
+
+이 프로젝트에서 집중한 백엔드 문제는 다음과 같다.
+
+| 문제 | 위험 |
 | --- | --- |
-| Language | Java 21 |
-| Framework | Spring Boot 3.5.13, Spring Web |
-| Persistence | Spring Data JPA, PostgreSQL, Flyway |
-| Security | Spring Security, JWT, HttpOnly Cookie |
-| Cache | Spring Cache, Caffeine |
-| API Docs | springdoc-openapi, Swagger UI |
-| Observability | Spring Actuator, Micrometer, Prometheus registry |
-| Test | JUnit 5, Spring Boot Test, Spring Security Test, Mockito |
-| Performance | k6, Mock PG |
+| 동일 좌석 동시 선점 | 하나의 좌석이 여러 사용자에게 배정될 수 있음 |
+| 다중 좌석 예매 | 일부 좌석만 선점되는 부분 성공이 생길 수 있음 |
+| 예약 만료와 결제 승인 경합 | 결제는 승인됐지만 좌석은 만료되는 상태 불일치 가능 |
+| 결제 중복 요청 | 같은 예매 그룹에 결제가 여러 번 생성될 수 있음 |
+| PG 응답 불확실성 | 외부 결제 결과와 내부 결제 상태가 어긋날 수 있음 |
+| 매진 이후 반복 조회 | 1,000석 payload 반복 전송으로 전체 여정 지연이 커짐 |
 
+## 핵심 해결 전략
+
+- 예매 단위를 개별 좌석이 아니라 `ReservationGroup`으로 묶어 다중 좌석 예매와 결제를 하나의 흐름으로 관리한다.
+- 좌석 선점은 좌석 ID를 정렬한 뒤 DB row lock을 획득해 락 순서를 고정한다.
+- 예약 생성, 결제 승인, 결제 취소, 예약 만료는 상태 전이 규칙을 통과해야만 처리한다.
+- 결제 승인과 만료 경합 구간은 `Payment`와 `ReservationGroup` 기준 lock과 상태 재확인으로 직렬화한다.
+- Toss Payments 응답이 불확실하면 `paymentKey` 조회로 실제 PG 상태를 재확인한 뒤 내부 상태를 확정한다.
+- 공연 목록/상세는 카탈로그 캐시로 최적화하되, 좌석 상태와 매진 여부는 캐시하지 않고 DB 상태 기반 availability로 계산한다.
+- 매진 이후 `/seats`는 좌석 목록 projection 조회와 JSON 직렬화를 생략해 반복 조회 병목을 줄인다.
+
+<a id="도메인-모델과-상태-전이"></a>
 <details>
 <summary>도메인 모델과 상태 전이</summary>
 
@@ -73,10 +99,11 @@ Reservation CONFIRMED -> CANCELED
 Seat BOOKED -> AVAILABLE
 ```
 
-상세 상태 정책은 `docs/state-design.md`에 정리되어 있다.
+상세 상태 정책은 [docs/state-design.md](docs/state-design.md)에 정리되어 있다.
 
 </details>
 
+<a id="주요-api-흐름"></a>
 <details>
 <summary>주요 API 흐름</summary>
 
@@ -99,6 +126,8 @@ POST /api/v1/auth/reissue
 GET /api/v1/users/me
 -> 현재 로그인 사용자 정보 반환
 ```
+
+인증 흐름과 Cookie 기반 토큰 정책은 [docs/auth-flow-readme.md](docs/auth-flow-readme.md)에 정리되어 있다.
 
 ### 공연/좌석
 
@@ -125,6 +154,7 @@ GET  /api/v1/payments/{paymentId}/status
 
 </details>
 
+<a id="정합성-보장-전략"></a>
 <details>
 <summary>정합성 보장 전략</summary>
 
@@ -148,6 +178,7 @@ GET  /api/v1/payments/{paymentId}/status
 
 </details>
 
+<a id="성능-개선-실험"></a>
 <details>
 <summary>성능 개선 실험</summary>
 
@@ -164,12 +195,46 @@ GET  /api/v1/payments/{paymentId}/status
 
 완료 결제 TPS는 `17.13 -> 19.92 payments/s`로 `+16.29%` 개선됐다. 단, 결제 TPS는 1,000석 매진 이후 좌석 수에 의해 상한이 생기므로, 전체 여정 TPS와 함께 해석한다.
 
-상세 결과는 `docs/performance-e2e-optimization-summary.md`와 `docs/performance-test-strategy.md`에 정리되어 있다.
+상세 실험 과정과 해석은 [docs/performance-e2e-optimization-summary.md](docs/performance-e2e-optimization-summary.md), 전체 성능 테스트 전략은 [docs/performance-test-strategy.md](docs/performance-test-strategy.md)에 정리되어 있다.
 
 </details>
 
+<a id="테스트와-검증"></a>
 <details>
-<summary>실행과 테스트</summary>
+<summary>테스트와 검증</summary>
+
+| 검증 대상 | 확인한 내용 |
+| --- | --- |
+| 예약 생성 동시성 | 동일 좌석 또는 겹치는 좌석 묶음에서 하나의 group만 성공 |
+| 다중 좌석 예매 | 선택 좌석 전체가 가능할 때만 group 생성, 부분 성공 없음 |
+| 예약 만료 | 만료 group, reservation, seat, payment 상태 전이 일관성 |
+| 결제 승인 | `Payment`, `ReservationGroup`, `Reservation`, `Seat` 동시 확정 |
+| 결제 취소 | 결제 취소 후 예매/좌석 상태 복구 |
+| 결제 승인과 만료 경합 | 먼저 확정된 흐름만 최종 상태로 남음 |
+| Refresh Token 재발급 | 동일 refresh token 동시 요청 중 하나만 성공 |
+| 성능 E2E | 완료 결제, 예상 밖 오류, dropped iteration, DB 정합성 동시 확인 |
+
+성능 테스트 후 DB 사후 검증에서는 `BOOKED` 좌석 `1,000`, reservation group `1,000`, payment `1,000`, 중복 active 좌석 배정 `0`, 부분 성공 group `0`, 상태 불일치 `0`을 확인했다.
+
+</details>
+
+## 기술 스택
+
+| 영역 | 사용 기술 |
+| --- | --- |
+| Language | Java 21 |
+| Framework | Spring Boot 3.5.13, Spring Web |
+| Persistence | Spring Data JPA, PostgreSQL, Flyway |
+| Security | Spring Security, JWT, HttpOnly Cookie |
+| Cache | Spring Cache, Caffeine |
+| API Docs | springdoc-openapi, Swagger UI |
+| Observability | Spring Actuator, Micrometer, Prometheus registry |
+| Test | JUnit 5, Spring Boot Test, Spring Security Test, Mockito |
+| Performance | k6, Mock PG |
+
+<a id="실행-방법"></a>
+<details>
+<summary>실행 방법</summary>
 
 ### 로컬 테스트
 
@@ -207,6 +272,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 
 </details>
 
+<a id="환경-설정과-운영-메모"></a>
 <details>
 <summary>환경 설정과 운영 메모</summary>
 
@@ -233,10 +299,12 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 
 </details>
 
-## 관련 문서
+## 상세 문서 바로가기
 
-- `docs/change-history.md`
-- `docs/state-design.md`
-- `docs/auth-flow-readme.md`
-- `docs/performance-test-strategy.md`
-- `docs/performance-e2e-optimization-summary.md`
+| 문서 | 내용 |
+| --- | --- |
+| [docs/state-design.md](docs/state-design.md) | 좌석, 예매, 결제 상태 전이 정책 |
+| [docs/auth-flow-readme.md](docs/auth-flow-readme.md) | 로그인, 재발급, HttpOnly Cookie 인증 흐름 |
+| [docs/performance-e2e-optimization-summary.md](docs/performance-e2e-optimization-summary.md) | 인기 공연 E2E 성능 개선 과정과 최종 지표 |
+| [docs/performance-test-strategy.md](docs/performance-test-strategy.md) | k6 성능 테스트 시나리오와 측정 기준 |
+| [docs/change-history.md](docs/change-history.md) | 주요 변경 이력과 설계 판단 기록 |
