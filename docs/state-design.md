@@ -1,187 +1,119 @@
-# 상태 전이 설계 (State Transition Design)
+# 상태 전이 설계
 
-## 개요
+## 문서 목적
 
-본 문서는 TicketLedger 시스템에서 사용하는 상태 체계를 정의하고,
-각 상태 간 전이 규칙을 명확히 하기 위한 설계 문서이다.
+이 문서는 TicketLedger 백엔드가 좌석 선점, 예약 만료, 결제 승인, 결제 취소를 어떤 상태 전이 규칙으로 처리하는지 정리합니다.
 
-이 시스템은 기능이 아닌 **상태 중심 설계**를 기반으로 동작하며,
-모든 흐름은 상태 전이를 통해 관리된다.
+이 프로젝트에서 중요한 지점은 "요청이 성공했는가"보다 **좌석, 예매, 결제 상태가 같은 결과로 수렴하는가**입니다. 그래서 기능별 로직보다 상태 전이와 금지 전이를 먼저 정의했습니다.
 
----
+## 바로가기
 
-# 1. 좌석 상태 (SeatStatus)
+- [핵심 문제](#핵심-문제)
+- [상태 전이 한눈에 보기](#상태-전이-한눈에-보기)
+- [좌석 상태](#좌석-상태)
+- [예매 상태](#예매-상태)
+- [결제 상태](#결제-상태)
+- [상태 연동 규칙](#상태-연동-규칙)
+- [설계 판단과 트레이드오프](#설계-판단과-트레이드오프)
+- [검증 근거](#검증-근거)
 
-## 상태 정의
+## 핵심 문제
 
-| 상태        | 설명                  |
-| --------- | ------------------- |
-| AVAILABLE | 예약 가능 상태           |
-| HELD      | 예약 중 (일시적으로 보류된 상태) |
-| BOOKED    | 예약 확정 상태          |
+| 문제 | 상태 전이 기준 |
+| --- | --- |
+| 같은 좌석에 여러 사용자가 동시에 접근합니다. | 하나의 요청만 `AVAILABLE -> HELD`에 성공해야 합니다. |
+| 여러 좌석을 한 번에 예매합니다. | 선택 좌석 전체가 가능할 때만 같은 `ReservationGroup`으로 묶어야 합니다. |
+| 선점 후 결제하지 않는 사용자가 생깁니다. | 만료 시 `HELD -> AVAILABLE`, `PENDING -> EXPIRED`로 복구해야 합니다. |
+| 결제 승인과 만료가 겹칠 수 있습니다. | 먼저 확정된 상태만 최종 결과로 남아야 합니다. |
+| 외부 PG 응답이 불확실할 수 있습니다. | PG 조회 결과를 기준으로 내부 상태를 다시 수렴시켜야 합니다. |
 
----
+## 상태 전이 한눈에 보기
 
-## 상태 전이
+| 대상 | 생성/선점 | 확정 | 실패/만료 | 취소 |
+| --- | --- | --- | --- | --- |
+| `Seat` | `AVAILABLE -> HELD` | `HELD -> BOOKED` | `HELD -> AVAILABLE` | `BOOKED -> AVAILABLE` |
+| `ReservationGroup` | `PENDING` | `PENDING -> CONFIRMED` | `PENDING -> EXPIRED` | `CONFIRMED -> CANCELED` |
+| `Reservation` | `PENDING` | `PENDING -> CONFIRMED` | `PENDING -> EXPIRED` | `CONFIRMED -> CANCELED` |
+| `Payment` | `READY` | `READY -> APPROVED` | `READY -> FAILED` | `APPROVED -> CANCELED` |
 
-```text
-AVAILABLE → HELD
-HELD → BOOKED
-HELD → AVAILABLE
-BOOKED → AVAILABLE
-```
+## 좌석 상태
 
----
+| 상태 | 의미 |
+| --- | --- |
+| `AVAILABLE` | 예매 가능한 좌석입니다. |
+| `HELD` | 예약 그룹이 일시 선점한 좌석입니다. |
+| `BOOKED` | 결제 승인까지 완료된 좌석입니다. |
 
-## 전이 규칙
+좌석은 `AVAILABLE` 상태에서만 선택할 수 있습니다. 예매 오픈 전이면 좌석이 `AVAILABLE`이어도 예약 생성 단계에서 거부합니다.
 
-* AVAILABLE 상태에서만 좌석 선택 가능
-* 공연 `bookingOpenAt` 이전에는 AVAILABLE 좌석이라도 예매 생성으로 HELD 전이할 수 없음
-* HELD 상태는 일정 시간 이후 자동 해제될 수 있음
-* BOOKED 상태는 변경 불가 (불변 상태)
-* BOOKED 상태는 취소 후 AVAILABLE로 복구 가능
-
----
-
-## 금지 규칙
-
-```text
-BOOKED → HELD ❌
-AVAILABLE → BOOKED ❌ (결제 없이 확정 불가)
-```
-
----
-
-# 2. 예매 상태 (ReservationStatus)
-
-## 상태 정의
-
-| 상태        | 설명                 |
-| --------- | ------------------ |
-| PENDING   | 예매 진행 중 (결제 대기 상태) |
-| CONFIRMED | 결제 완료 후 예매 확정      |
-| CANCELED  | 사용자가 취소한 상태        |
-| EXPIRED   | 결제 미완료로 자동 만료된 상태  |
-
----
-
-## 상태 전이
+금지 전이:
 
 ```text
-PENDING → CONFIRMED
-PENDING → CANCELED
-PENDING → EXPIRED
-CONFIRMED → CANCELED
+BOOKED -> HELD
+AVAILABLE -> BOOKED
 ```
 
----
+## 예매 상태
 
-## 전이 규칙
+`ReservationGroup`은 사용자가 한 번에 선택한 좌석 묶음이고, `Reservation`은 묶음 안의 좌석별 예매 row입니다.
 
-* 예매 생성 시 초기 상태는 PENDING
-* 결제 성공 시 CONFIRMED로 변경
-* 일정 시간 내 결제되지 않으면 EXPIRED
-* CONFIRMED 상태에서만 정상 취소 가능
+| 상태 | 의미 |
+| --- | --- |
+| `PENDING` | 결제 대기 중입니다. |
+| `CONFIRMED` | 결제 승인 후 예매가 확정됐습니다. |
+| `CANCELED` | 결제 취소와 함께 예매가 취소됐습니다. |
+| `EXPIRED` | 결제하지 않아 선점 시간이 만료됐습니다. |
 
----
-
-## 금지 규칙
+금지 전이:
 
 ```text
-CONFIRMED → PENDING ❌
-EXPIRED → CONFIRMED ❌
-CANCELED → CONFIRMED ❌
+CONFIRMED -> PENDING
+EXPIRED -> CONFIRMED
+CANCELED -> CONFIRMED
 ```
 
----
+## 결제 상태
 
-# 3. 결제 상태 (PaymentStatus)
+| 상태 | 의미 |
+| --- | --- |
+| `READY` | 결제 준비가 생성됐습니다. |
+| `APPROVED` | PG 승인까지 완료됐습니다. |
+| `FAILED` | 결제 실패 또는 만료로 실패 처리됐습니다. |
+| `CANCELED` | 승인된 결제가 취소됐습니다. |
 
-## 상태 정의
+승인된 결제만 취소할 수 있습니다. `FAILED` 또는 `CANCELED` 결제는 다시 `APPROVED`로 되돌리지 않습니다.
 
-| 상태       | 설명          |
-| -------- | ----------- |
-| READY    | 결제 요청 생성 상태 |
-| APPROVED | 결제 승인 완료    |
-| FAILED   | 결제 실패       |
-| CANCELED | 결제 취소       |
+## 상태 연동 규칙
 
----
+| 상황 | `Payment` | `ReservationGroup` | `Reservation` | `Seat` |
+| --- | --- | --- | --- | --- |
+| 예약 생성 | - | `PENDING` | `PENDING` | `HELD` |
+| 결제 준비 | `READY` | `PENDING` 유지 | `PENDING` 유지 | `HELD` 유지 |
+| 결제 승인 | `APPROVED` | `CONFIRMED` | `CONFIRMED` | `BOOKED` |
+| 예약 만료 | `READY -> FAILED` | `EXPIRED` | `EXPIRED` | `AVAILABLE` |
+| 결제 취소 | `CANCELED` | `CANCELED` | `CANCELED` | `AVAILABLE` |
 
-## 상태 전이
+PG 승인/취소 요청 후 서버가 응답을 받지 못한 경우에는 `paymentKey` 또는 `orderId` 조회 결과를 기준으로 내부 상태를 확정합니다.
 
-```text
-READY → APPROVED
-READY → FAILED
-APPROVED → CANCELED
-```
+## 설계 판단과 트레이드오프
 
----
+| 판단 | 선택하지 않은 대안 | 이유 |
+| --- | --- | --- |
+| 예매를 `ReservationGroup` 기준으로 묶었습니다. | 좌석마다 독립 결제를 생성하는 방식 | 다중 좌석 예매에서 부분 성공을 만들지 않기 위해서입니다. |
+| 좌석 상태는 캐시하지 않습니다. | 좌석 상태를 Redis나 로컬 캐시에 저장하는 방식 | 예약, 만료, 결제 취소가 모두 좌석 상태를 바꾸므로 캐시 동기화 비용이 커집니다. |
+| 만료 처리는 유지합니다. | 스케줄러만 의존하는 방식 | 만료된 좌석이 다음 스케줄러 실행 전까지 판매 불가 상태로 남을 수 있습니다. |
+| 화면 표시 상태는 프론트에서 계산합니다. | 백엔드가 `displayStatus`를 내려주는 방식 | `UPCOMING`, `NOW_SHOWING`, `ENDED`는 도메인 정합성이 아니라 화면 표시값이기 때문입니다. |
 
-## 전이 규칙
+## 검증 근거
 
-* 결제 생성 시 READY 상태로 시작
-* 결제 성공 시 APPROVED
-* 결제 실패 시 FAILED
-* 승인된 결제만 취소 가능
+- 겹치는 좌석 묶음 동시 요청에서 하나의 `ReservationGroup`만 성공했습니다.
+- 다중 좌석 예매에서 부분 성공 예매 그룹 `0`을 확인했습니다.
+- 결제 승인 후 `Payment=APPROVED`, `ReservationGroup=CONFIRMED`, `Reservation=CONFIRMED`, `Seat=BOOKED` 상태 불일치 `0`을 확인했습니다.
+- 결제 취소 후 좌석이 다시 `AVAILABLE`로 복구되는 흐름을 확인했습니다.
+- 인기 공연 E2E 부하 테스트 후 중복 활성 좌석 배정 `0`, 부분 성공 그룹 `0`, 상태 불일치 `0`을 확인했습니다.
 
----
+관련 문서:
 
-## 금지 규칙
-
-```text
-FAILED → APPROVED ❌
-CANCELED → APPROVED ❌
-READY → CANCELED ❌
-```
-
----
-
-# 4. 상태 간 관계
-
-## 좌석 ↔ 예매 묶음
-
-* 좌석 HELD 상태는 특정 예매 묶음의 Reservation(PENDING)과 연결됨
-* 예매 묶음의 결제가 승인되면 묶음 안의 Reservation은 CONFIRMED, 좌석은 BOOKED로 변경됨
-* 예매 묶음이 취소 또는 만료되면 묶음 안의 좌석은 AVAILABLE로 복구됨
-
----
-
-## 예매 묶음 ↔ 결제
-
-* ReservationGroup은 하나의 결제(READY)와 연결됨
-* 결제 APPROVED → group 안의 Reservation CONFIRMED
-* 결제 FAILED → group 만료 전이면 Reservation/Seat 유지, group 만료 후면 Reservation EXPIRED 및 Seat AVAILABLE
-* 결제 CANCELED → group 안의 Reservation CANCELED
-* PG 응답이 애매하면 `paymentKey`/`orderId` 조회 결과를 기준으로 내부 상태를 확정함
-
----
-
-# 5. 상태 조회/재확인 정책
-
-* `GET /payments/{paymentId}/status`로 현재 `Payment / Reservation / Seat` 상태를 조회할 수 있음
-* `confirm/cancel` 응답이 애매한 경우 프론트는 상태 조회 API를 폴링해 최종 상태를 확인함
-* `failUrl`은 상태 전이 경로가 아니라 실패 코드/메시지 로깅 경로로만 사용함
-
----
-
-# 6. 공연 표시 상태 정책
-
-* `UPCOMING / NOW_SHOWING / ENDED`는 예매/결제 정합성을 보장하는 도메인 상태가 아니라 화면 분류와 배지 표시를 위한 UI 파생값임
-* 백엔드는 `bookingOpenAt`, `runStartAt`, `runEndAt` 원천 시간 데이터를 제공하고, 프론트 서버 컴포넌트 데이터 조합 단계에서 표시 상태를 계산함
-* 실제 예매 가능 여부는 프론트 표시값이 아니라 백엔드의 `bookingOpenAt`, 좌석 상태, reservation group 상태 검증으로 판단함
-
----
-
-# 7. 설계 의도
-
-* 상태를 통해 모든 흐름을 명확하게 표현
-* 각 상태는 단일 책임을 가지도록 분리
-* 상태 전이를 통해 정합성 유지
-* 예외 상황에서도 일관된 처리 기준 확보
-
----
-
-# 8. 한 줄 요약
-
-**이 시스템은 상태 전이를 기반으로 예매와 결제의 정합성을 보장한다.**
+- [동시성 검증](concurrentTest.md)
+- [성능 개선 요약](performance-e2e-optimization-summary.md)
+- [성능 테스트 전략](performance-test-strategy.md)

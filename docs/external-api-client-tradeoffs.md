@@ -1,184 +1,80 @@
 # 외부 API 클라이언트 선택 기준
 
-## 목적
+## 문서 목적
 
-본 문서는 TicketLedger에서 토스페이먼츠 결제 승인 API를 호출할 때
-왜 `RestClient`를 선택했는지 정리하기 위한 참고 문서이다.
+이 문서는 TicketLedger 백엔드가 토스페이먼츠 결제 승인/취소 API를 호출할 때 왜 `RestClient`를 선택했는지 정리합니다.
 
-결제 연동은 단순 외부 API 호출이 아니라,
-내부 예약 상태와 외부 PG 결제 상태를 연결하는 흐름이다.
-따라서 HTTP 클라이언트 선택 기준도 단순 사용 편의성보다
-프로젝트의 핵심 기준인 정합성, 설명 가능성, 구현 현실성을 우선한다.
+결제 연동은 단순한 HTTP 호출이 아니라 내부 예약 상태와 외부 PG 상태를 연결하는 흐름입니다. 그래서 클라이언트 선택 기준도 사용 편의성보다 **상태 정합성, 설명 가능성, 현재 프로젝트 범위**를 우선했습니다.
 
----
+## 요구사항
 
-# 1. 요구사항
+토스페이먼츠 승인 흐름에서 백엔드는 다음 순서로 동작합니다.
 
-토스페이먼츠 결제 승인 흐름에서 백엔드는 다음 역할을 수행한다.
+```text
+paymentKey, orderId, amount 수신
+-> 내부 DB 기준 예약 상태 검증
+-> 만료 여부 검증
+-> 결제 금액 검증
+-> 토스페이먼츠 승인 API 호출
+-> PG 응답 검증
+-> Payment / ReservationGroup / Reservation / Seat 상태 확정
+```
 
-1. `paymentKey`, `orderId`, `amount`를 전달받는다.
-2. 내부 DB 기준으로 예약 상태, 만료 여부, 결제 금액을 검증한다.
-3. 검증 통과 후 토스페이먼츠 승인 API를 호출한다.
-4. 토스 응답을 기준으로 `Payment`, `Reservation`, `Seat` 상태를 변경한다.
+외부 API 응답을 받은 뒤 같은 트랜잭션 흐름에서 내부 상태를 확정해야 하므로, 현재 구조에서는 동기 HTTP 호출이 가장 자연스럽습니다.
 
-이 흐름은 외부 API 응답을 기다린 뒤 다음 상태 전이를 수행해야 하므로,
-현재 단계에서는 동기 HTTP 호출 방식이 자연스럽다.
+## 후보 비교
 
----
+| 후보 | 장점 | 비용 | 판단 |
+| --- | --- | --- | --- |
+| `RestTemplate` | 오래 사용되어 예제와 자료가 많습니다. | Spring Framework 6.x 기준 새 코드의 우선 선택지로 보기 어렵고 코드가 장황해질 수 있습니다. | 사용할 수는 있지만 새 프로젝트 기준으로는 제외했습니다. |
+| `RestClient` | Spring Framework 6.1부터 제공되는 동기 클라이언트이고 fluent API로 요청을 구성할 수 있습니다. | `RestTemplate`보다 레거시 예제가 적고 복잡한 선언형 기능은 직접 구성해야 합니다. | 현재 프로젝트에 선택했습니다. |
+| `WebClient` | 비동기/논블로킹 호출과 다수 외부 API 호출에 유리합니다. | WebFlux 모델이 추가되고 현재 결제 흐름에는 과한 선택입니다. | 이번 단계에서는 제외했습니다. |
+| `OpenFeign` | 인터페이스 기반 선언형 API 계약을 만들기 좋습니다. | Spring Cloud 의존성과 설정이 늘어납니다. 단일 PG 연동에는 구조가 큽니다. | 후속 외부 연동이 많아질 때 검토합니다. |
 
-# 2. 후보 기술
+## 최종 선택
 
-## 2.1 RestTemplate
+TicketLedger는 토스페이먼츠 연동용 HTTP 클라이언트로 `RestClient`를 사용합니다.
 
-### 특징
+선택 이유:
 
-- Spring에서 오래 사용된 동기 HTTP 클라이언트이다.
-- 사용 사례와 자료가 많다.
-- 단순 외부 API 호출을 구현하는 데 충분하다.
+- 현재 프로젝트는 Spring Boot 3.x 기반입니다.
+- 결제 승인 후 내부 상태 전이가 바로 이어지는 동기 흐름입니다.
+- WebFlux 기반 비동기 모델을 도입할 만큼 외부 호출이 많지 않습니다.
+- 단일 PG 연동을 위해 OpenFeign과 Spring Cloud 의존성을 추가할 필요가 작습니다.
+- `RestTemplate`보다 현재 Spring 기준에 맞는 선택입니다.
 
-### 장점
-
-- 익숙한 개발자가 많다.
-- 예제와 레퍼런스가 많다.
-- 단순한 POST 요청 구현이 가능하다.
-
-### 단점
-
-- 최신 Spring 기준에서는 새 프로젝트의 우선 선택지로 보기 어렵다.
-- 요청 구성 코드가 비교적 장황해질 수 있다.
-- `HttpHeaders`, `HttpEntity`, `ResponseEntity`를 직접 조합하는 코드가 늘어난다.
-
-### 판단
-
-사용해도 문제는 없지만,
-Spring Boot 3.x / Spring Framework 6.x 기반의 새 프로젝트에서는
-더 현대적인 동기 클라이언트인 `RestClient`가 더 적합하다고 판단했다.
-
----
-
-## 2.2 RestClient
-
-### 특징
-
-- Spring Framework 6.1부터 제공되는 동기 HTTP 클라이언트이다.
-- `RestTemplate`과 같은 동기 요청-응답 모델을 사용한다.
-- fluent API 방식으로 요청을 구성할 수 있다.
-
-### 장점
-
-- 현재 프로젝트의 Spring Boot 3.x 환경과 잘 맞는다.
-- 동기 흐름이라 결제 승인 후 상태 전이를 설명하기 쉽다.
-- `RestTemplate`보다 코드가 간결하다.
-- WebFlux 기반 비동기 모델을 도입하지 않아도 된다.
-- 토스 승인 API처럼 단순한 서버 간 HTTP 호출에 적합하다.
-
-### 단점
-
-- `RestTemplate`보다 상대적으로 레거시 예제가 적다.
-- 복잡한 선언형 HTTP 클라이언트 기능은 직접 구성해야 한다.
-
-### 판단
-
-현재 프로젝트에서는 결제 승인 API 호출 후
-즉시 내부 상태를 변경하는 동기 흐름이 필요하다.
-또한 WebFlux까지 도입할 이유가 없고,
-`RestTemplate`보다 현재 Spring 기준에 맞는 선택이므로 `RestClient`를 선택한다.
-
----
-
-## 2.3 WebClient
-
-### 특징
-
-- Spring WebFlux에서 주로 사용하는 비동기/논블로킹 HTTP 클라이언트이다.
-- 고성능 비동기 호출이나 스트리밍 처리에 적합하다.
-
-### 장점
-
-- 비동기/논블로킹 처리에 강하다.
-- 많은 외부 API를 동시에 호출하는 구조에 유리하다.
-- timeout, retry, filter 등 확장 구성이 풍부하다.
-
-### 단점
-
-- 현재 프로젝트의 핵심 문제와 직접 연결되지 않는다.
-- 반응형 프로그래밍 모델에 대한 추가 이해가 필요하다.
-- Spring Web 기반의 단순 요청-응답 구조에서는 과한 선택이 될 수 있다.
-
-### 판단
-
-TicketLedger의 현재 결제 흐름은
-토스 승인 응답을 받은 뒤 DB 상태를 변경하는 구조이다.
-비동기 처리 자체가 핵심이 아니므로 WebClient는 이번 단계에서 제외한다.
-
----
-
-## 2.4 OpenFeign
-
-### 특징
-
-- 선언형 HTTP 클라이언트이다.
-- 인터페이스와 애노테이션으로 외부 API 호출을 정의할 수 있다.
-- Spring Cloud OpenFeign을 통해 Spring 환경에서 사용할 수 있다.
-
-### 장점
-
-- 외부 API가 많아질수록 인터페이스 기반으로 구조화하기 좋다.
-- API 계약을 코드로 표현하기 쉽다.
-- 여러 외부 서비스와 통신하는 마이크로서비스 구조에서 유용하다.
-
-### 단점
-
-- Spring Cloud 의존성이 추가된다.
-- 현재 프로젝트의 외부 API 호출은 토스 결제 승인 API 중심으로 작다.
-- 단일 PG 연동을 위해 도입하기에는 설정과 의존성이 늘어난다.
-
-### 판단
-
-외부 API 호출이 많거나 MSA 구조라면 고려할 수 있지만,
-현재 TicketLedger는 단일 백엔드 서비스에서 토스페이먼츠를 호출하는 수준이다.
-설명 가능성과 구현 현실성을 고려하면 지금 단계에서는 과하다.
-
----
-
-# 3. 최종 선택
-
-본 프로젝트에서는 토스페이먼츠 연동용 HTTP 클라이언트로 `RestClient`를 선택한다.
-
-선택 이유는 다음과 같다.
-
-- 현재 프로젝트는 Spring Boot 3.x 기반이다.
-- 결제 승인 흐름은 동기 요청-응답 방식이 자연스럽다.
-- 토스 승인 API 호출 후 내부 상태 전이가 바로 이어진다.
-- WebFlux 기반 비동기 모델은 현재 범위에서 과하다.
-- OpenFeign은 단일 PG 연동에는 의존성과 구조가 커진다.
-- RestTemplate보다 현재 Spring 기준에 맞는 선택이다.
-
----
-
-# 4. 결제 흐름에서의 위치
+## 결제 흐름에서의 위치
 
 ```text
 PaymentService.confirmPayment()
-→ 내부 상태 검증
-→ 예약 만료 검증
-→ 금액 검증
-→ RestClient로 Toss Payments 승인 API 호출
-→ Toss 응답 수신
-→ Payment APPROVED
-→ Reservation CONFIRMED
-→ Seat BOOKED
+-> 내부 상태 검증
+-> 예약 만료 검증
+-> 금액 검증
+-> RestClient로 Toss Payments 승인 API 호출
+-> Toss 응답 검증
+-> Payment APPROVED
+-> ReservationGroup CONFIRMED
+-> Reservation CONFIRMED
+-> Seat BOOKED
 ```
 
-중요한 점은 외부 API 호출보다 내부 검증이 먼저라는 것이다.
+중요한 기준은 외부 PG 승인 요청보다 내부 검증이 먼저라는 점입니다.
 
 ```text
 외부 PG 승인 요청 전
-우리 DB 기준 예약 상태와 금액을 먼저 검증한다.
+우리 DB 기준 예약 상태와 금액을 먼저 검증합니다.
 ```
 
----
+## 트레이드오프
 
-# 5. 한 줄 요약
+| 선택 | 얻은 점 | 감수한 점 |
+| --- | --- | --- |
+| 동기 `RestClient` | 결제 승인 후 상태 전이 순서를 설명하기 쉽습니다. | 외부 API 응답 시간 동안 요청 thread가 대기합니다. |
+| WebFlux 미도입 | 구현 범위와 학습 비용을 줄였습니다. | 다량 외부 API 병렬 호출에는 적합하지 않습니다. |
+| OpenFeign 보류 | 단일 PG 연동에 필요한 의존성을 줄였습니다. | 외부 API가 늘어나면 인터페이스 기반 정리가 필요할 수 있습니다. |
 
-**현재 TicketLedger의 토스페이먼츠 연동은 단순하고 명확한 동기 승인 흐름이므로, Spring Boot 3.x 환경에 맞는 `RestClient`를 선택한다.**
+## 참고 기준
+
+- Spring Framework REST Clients: https://docs.spring.io/spring-framework/reference/integration/rest-clients.html
+- Toss Payments 결제 흐름: https://docs.tosspayments.com/guides/v2/get-started/payment-flow
+- Toss Payments 멱등성 설명: https://docs.tosspayments.com/blog/what-is-idempotency

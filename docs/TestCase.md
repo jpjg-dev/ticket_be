@@ -1,201 +1,206 @@
-# 테스트 체크리스트 (현재 코드 기준)
+# 테스트 검증 체크리스트
 
-## 1. ReservationService 테스트
+## 문서 목적
 
-### 1.1 createReservation()
+이 문서는 TicketLedger 백엔드에서 구현한 상태 전이, 동시성, 인증, 조회 최적화가 어떤 테스트로 검증됐는지 정리합니다.
 
-#### 성공 케이스
-- [x] 정상적으로 예약 group이 생성된다
-- [x] 생성된 ReservationGroup 상태: `PENDING`
-- [x] 선택 좌석들의 Seat 상태: `AVAILABLE -> HELD`
-- [x] group 안의 Reservation 상태: `PENDING`
-- [x] 환경 설정의 선점 유지 시간으로 `expiresAt`이 설정된다
-- [x] 하나의 group과 group 안의 Reservation은 동일한 `expiresAt`을 공유한다
-- [x] 겹치는 좌석 묶음 동시 요청 시 하나의 group만 성공한다
+포트폴리오 관점에서는 테스트 개수보다 **어떤 장애 가능성을 테스트로 막았는지**가 중요하므로, 핵심 검증 범위와 체크리스트를 함께 남깁니다.
 
-#### 실패 케이스
-- [x] 존재하지 않는 사용자면 `EntityNotFoundException`
-- [x] 존재하지 않는 좌석이면 `EntityNotFoundException`
-- [x] 예매 오픈 전 공연의 좌석이면 `IllegalStateException`
-- [x] 좌석이 `AVAILABLE`이 아니면 `IllegalStateException`
+## 검증 범위 요약
 
----
+| 영역 | 검증한 문제 |
+| --- | --- |
+| 예약 생성 | 좌석 선점, 다중 좌석 원자성, 예매 오픈 전 차단 |
+| 예약 만료 | `PENDING -> EXPIRED`, `HELD -> AVAILABLE`, `READY -> FAILED` |
+| 결제 승인 | 금액 검증, PG 응답 검증, 상태 일괄 확정 |
+| 결제 취소 | 승인 결제만 취소, 좌석 복구, 중복 취소 방어 |
+| 조회 | 공연 캐시, 좌석 조회 전 회차별 만료 처리 |
+| 사용자 | 현재 사용자 조회, 본인 마이페이지 접근 제어 |
+| 인증 | Refresh Token 조건부 재발급과 동시성 방어 |
 
-### 1.2 ReservationExpirationService
+<details>
+<summary>ReservationService</summary>
 
-#### 성공 케이스
-- [x] 만료된 group 안의 pending Reservation은 `PENDING -> EXPIRED`
-- [x] 만료된 ReservationGroup은 `PENDING -> EXPIRED`
-- [x] 만료된 group 안의 좌석은 `HELD -> AVAILABLE`
-- [x] 만료된 group에 연결된 결제가 `READY`면 `FAILED`로 전이된다
-- [x] 스케줄러용 전체 만료 처리와 좌석 조회용 회차별 만료 처리가 분리된다
-- [x] 좌석 조회 시 현재 `scheduleId`의 만료 group만 먼저 정리한다
+### `createReservation()`
 
-#### 검증 포인트
-- [x] 만료 대상 group이 없으면 상태 변화가 없다
-- [x] 결제가 없거나 `READY`가 아니면 결제 상태는 변경하지 않는다
-- [x] 만료 처리 반환값(`expiredCount`)이 실제 만료 처리 reservation 건수와 일치한다
-- [x] `createReservation()`은 전체 만료 정리를 호출하지 않고 좌석 선점 생성만 담당한다
+성공 케이스:
 
----
+- [x] 정상적으로 예약 group이 생성됩니다.
+- [x] 생성된 `ReservationGroup` 상태는 `PENDING`입니다.
+- [x] 선택 좌석들의 `Seat` 상태는 `AVAILABLE -> HELD`로 전이됩니다.
+- [x] group 안의 `Reservation` 상태는 `PENDING`입니다.
+- [x] 환경 설정의 선점 유지 시간으로 `expiresAt`이 설정됩니다.
+- [x] 하나의 group과 group 안의 `Reservation`은 동일한 `expiresAt`을 공유합니다.
+- [x] 겹치는 좌석 묶음 동시 요청 시 하나의 group만 성공합니다.
 
-## 2. EventService 테스트
+실패 케이스:
 
-### getEvents()
+- [x] 존재하지 않는 사용자면 `EntityNotFoundException`을 반환합니다.
+- [x] 존재하지 않는 좌석이면 `EntityNotFoundException`을 반환합니다.
+- [x] 예매 오픈 전 공연의 좌석이면 `IllegalStateException`을 반환합니다.
+- [x] 좌석이 `AVAILABLE`이 아니면 `IllegalStateException`을 반환합니다.
 
-#### 성공 케이스
-- [x] 같은 공연 목록 조회는 캐시되어 DB 조회를 반복하지 않는다
+</details>
 
-### getEvent()
+<details>
+<summary>ReservationExpirationService</summary>
 
-#### 성공 케이스
-- [x] 같은 공연 상세 조회는 캐시되어 DB 조회를 반복하지 않는다
+성공 케이스:
 
-### getSeats()
+- [x] 만료된 group 안의 pending `Reservation`은 `PENDING -> EXPIRED`로 전이됩니다.
+- [x] 만료된 `ReservationGroup`은 `PENDING -> EXPIRED`로 전이됩니다.
+- [x] 만료된 group 안의 좌석은 `HELD -> AVAILABLE`로 복구됩니다.
+- [x] 만료된 group에 연결된 결제가 `READY`면 `FAILED`로 전이됩니다.
+- [x] 스케줄러용 전체 만료 처리와 좌석 조회용 회차별 만료 처리가 분리됩니다.
+- [x] 좌석 조회 시 현재 `scheduleId`의 만료 group만 먼저 정리합니다.
 
-#### 성공 케이스
-- [x] 해당 회차의 만료 예약을 정리한 뒤 좌석을 조회한다
+검증 포인트:
 
----
+- [x] 만료 대상 group이 없으면 상태 변화가 없습니다.
+- [x] 결제가 없거나 `READY`가 아니면 결제 상태는 변경하지 않습니다.
+- [x] 만료 처리 반환값(`expiredCount`)이 실제 만료 처리 reservation 건수와 일치합니다.
+- [x] `createReservation()`은 전체 만료 정리를 호출하지 않고 좌석 선점 생성만 담당합니다.
 
-## 3. PaymentService 테스트
+</details>
 
-### 3.1 readyPayment()
+<details>
+<summary>EventService</summary>
 
-#### 성공 케이스
-- [x] group 안의 모든 Reservation이 `PENDING`이면 Payment가 `READY`로 생성된다
-- [x] Payment.amount는 그룹에 포함된 Seat.price 합계 기준으로 저장된다
-- [x] Payment.orderId가 생성된다
-- [x] 동일 reservationGroupId 재요청 시 기존 Payment를 재사용한다
+### `getEvents()`
 
-#### 실패 케이스
-- [x] 존재하지 않는 reservationGroupId면 `EntityNotFoundException`
-- [x] group 안에 `PENDING`이 아닌 Reservation이 있으면 `IllegalStateException`
-- [x] ReservationGroup이 만료되었으면 `IllegalStateException`
+- [x] 같은 공연 목록 조회는 캐시되어 DB 조회를 반복하지 않습니다.
 
----
+### `getEvent()`
 
-### 3.2 confirmPayment()
+- [x] 같은 공연 상세 조회는 캐시되어 DB 조회를 반복하지 않습니다.
 
-#### 성공 케이스
-- [x] orderId로 Payment를 조회한다
-- [x] Payment 상태가 `READY`일 때 승인된다
-- [x] group 안의 Reservation 상태가 모두 `PENDING`일 때 승인된다
-- [x] amount(총액, VAT 포함) 검증 통과 시 승인된다
-- [x] 승인 성공 시 `Payment APPROVED / ReservationGroup CONFIRMED / group 안의 Reservation CONFIRMED / Seat BOOKED`
-- [x] `paymentKey`, `method`, `pgStatus`가 저장된다
-- [x] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정한다
-- [x] 로그 이벤트 키가 `PAYMENT_CONFIRM_*` 규칙으로 출력된다
-- [x] 동일 `orderId` 동시 승인 요청은 PG confirm을 1회만 호출하고 확정 상태를 재사용한다
+### `getSeats()`
 
-#### 실패 케이스
-- [x] 존재하지 않는 orderId면 `EntityNotFoundException`
-- [x] Payment 상태가 `READY`, `APPROVED`가 아니면 `IllegalStateException`
-- [x] group 안의 Reservation 상태가 `PENDING`이 아니면 `IllegalStateException`
-- [x] ReservationGroup이 만료되었으면 `IllegalStateException`
-- [x] amount 불일치면 `IllegalStateException`
-- [x] PG 승인 응답 금액/통화 불일치면 `IllegalStateException`
-- [x] PG 승인 응답 결제키/orderId/status 불일치면 `IllegalStateException`
+- [x] 해당 회차의 만료 예약을 정리한 뒤 좌석을 조회합니다.
 
----
+</details>
 
-### 3.3 failPayment()
+<details>
+<summary>PaymentService</summary>
 
-#### 성공 케이스
-- [x] `READY -> FAILED`
-- [x] group이 미만료면 Reservation/Seat 상태는 유지된다
-- [x] group이 만료면 `ReservationGroup EXPIRED`, group 안의 `Reservation EXPIRED`, `Seat AVAILABLE`로 전이된다
+### `readyPayment()`
 
-#### 실패 케이스
-- [x] `READY`가 아니면 `IllegalStateException`
+성공 케이스:
 
----
+- [x] group 안의 모든 `Reservation`이 `PENDING`이면 `Payment`가 `READY`로 생성됩니다.
+- [x] `Payment.amount`는 그룹에 포함된 `Seat.price` 합계 기준으로 저장됩니다.
+- [x] `Payment.orderId`가 생성됩니다.
+- [x] 동일 `reservationGroupId` 재요청 시 기존 `Payment`를 재사용합니다.
 
-### 3.4 cancelPayment()
+실패 케이스:
 
-#### 성공 케이스
-- [x] `APPROVED` 결제만 취소 가능하다
-- [x] PG 취소 성공 후 `Payment CANCELED / ReservationGroup CANCELED / group 안의 Reservation CANCELED / Seat AVAILABLE`
-- [x] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정한다
-- [x] 로그 이벤트 키가 `PAYMENT_CANCEL_*` 규칙으로 출력된다
-- [x] 동일 `paymentId` 동시 취소 요청은 PG cancel을 1회만 호출하고 취소 상태를 재사용한다
+- [x] 존재하지 않는 `reservationGroupId`면 `EntityNotFoundException`을 반환합니다.
+- [x] group 안에 `PENDING`이 아닌 `Reservation`이 있으면 `IllegalStateException`을 반환합니다.
+- [x] `ReservationGroup`이 만료됐으면 `IllegalStateException`을 반환합니다.
 
-#### 실패 케이스
-- [x] `APPROVED`가 아니면 `IllegalStateException`
-- [x] `paymentKey`가 없으면 `IllegalStateException`
-- [x] PG 취소 응답의 결제키/통화/상태가 불일치하면 `IllegalStateException`
+### `confirmPayment()`
 
----
+성공 케이스:
 
-### 3.5 getPaymentStatus()
+- [x] `orderId`로 `Payment`를 조회합니다.
+- [x] `Payment` 상태가 `READY`일 때 승인됩니다.
+- [x] group 안의 `Reservation` 상태가 모두 `PENDING`일 때 승인됩니다.
+- [x] amount 검증 통과 시 승인됩니다.
+- [x] 승인 성공 시 `Payment APPROVED / ReservationGroup CONFIRMED / Reservation CONFIRMED / Seat BOOKED`로 확정됩니다.
+- [x] `paymentKey`, `method`, `pgStatus`가 저장됩니다.
+- [x] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정합니다.
+- [x] 동일 `orderId` 동시 승인 요청은 PG confirm을 1회만 호출하고 확정 상태를 재사용합니다.
 
-#### 성공 케이스
-- [x] paymentId로 현재 결제 상태를 조회한다
-- [x] `Payment / Reservation / Seat` 상태를 함께 반환한다
-- [x] 프론트 폴링 기준으로 사용할 수 있다
+실패 케이스:
 
----
+- [x] 존재하지 않는 `orderId`면 `EntityNotFoundException`을 반환합니다.
+- [x] `Payment` 상태가 `READY`, `APPROVED`가 아니면 `IllegalStateException`을 반환합니다.
+- [x] group 안의 `Reservation` 상태가 `PENDING`이 아니면 `IllegalStateException`을 반환합니다.
+- [x] `ReservationGroup`이 만료됐으면 `IllegalStateException`을 반환합니다.
+- [x] amount 불일치면 `IllegalStateException`을 반환합니다.
+- [x] PG 승인 응답 금액/통화 불일치면 `IllegalStateException`을 반환합니다.
+- [x] PG 승인 응답 결제키/orderId/status 불일치면 `IllegalStateException`을 반환합니다.
 
-## 4. Controller 테스트
+### `failPayment()`
 
-### 4.1 ReservationController
-- [x] 예약 생성 성공 (200)
-- [x] validation 실패 (400)
-- [x] 존재하지 않는 user/seat (404)
+- [x] `READY -> FAILED`로 전이됩니다.
+- [x] group이 미만료면 `Reservation`/`Seat` 상태는 유지됩니다.
+- [x] group이 만료면 `ReservationGroup EXPIRED`, `Reservation EXPIRED`, `Seat AVAILABLE`로 전이됩니다.
+- [x] `READY`가 아니면 `IllegalStateException`을 반환합니다.
 
-### 4.2 PayMentController
-- [x] `/payments/ready` 성공 (200)
-- [x] `/payments/confirm` 성공 (200)
-- [x] `/payments/{id}/status` 성공 (200)
-- [x] `/payments/{id}/cancel` 성공 (200)
-- [x] `/payments/fail-redirect` 성공 (200)
-- [x] 잘못된 상태 전이 (409)
+### `cancelPayment()`
 
----
+- [x] `APPROVED` 결제만 취소 가능합니다.
+- [x] PG 취소 성공 후 `Payment CANCELED / ReservationGroup CANCELED / Reservation CANCELED / Seat AVAILABLE`로 전이됩니다.
+- [x] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정합니다.
+- [x] 동일 `paymentId` 동시 취소 요청은 PG cancel을 1회만 호출하고 취소 상태를 재사용합니다.
+- [x] `APPROVED`가 아니면 `IllegalStateException`을 반환합니다.
+- [x] `paymentKey`가 없으면 `IllegalStateException`을 반환합니다.
+- [x] PG 취소 응답의 결제키/통화/상태가 불일치하면 `IllegalStateException`을 반환합니다.
 
-## 5. User API 테스트
+### `getPaymentStatus()`
 
-### 5.1 users/me
-- [x] 로그인 사용자 id로 현재 사용자 기본 정보를 반환한다
-- [x] 존재하지 않는 사용자면 `EntityNotFoundException`
-- [x] 컨트롤러가 `@AuthenticationPrincipal Long userId`를 서비스로 전달한다
+- [x] `paymentId`로 현재 결제 상태를 조회합니다.
+- [x] `Payment / Reservation / Seat` 상태를 함께 반환합니다.
+- [x] 프론트 폴링 기준으로 사용할 수 있습니다.
 
-### 5.2 mypage
-- [x] 본인 userId만 조회 가능하다
-- [x] 다른 사용자 조회 시 `IllegalStateException`
-- [x] `ReservationGroup.status`가 `CONFIRMED`, `CANCELED`인 예매를 group 기준으로 반환한다
-- [x] 마이페이지 예매 상태 값은 `ReservationGroup.status`를 사용한다
-- [x] `APPROVED`, `CANCELED` 결제를 group 기준으로 반환한다
-- [x] 결제 취소에 필요한 `paymentId`와 좌석 목록을 포함한다
-- [x] 컨트롤러가 path variable userId와 principal userId를 서비스로 전달한다
+</details>
 
----
+<details>
+<summary>Controller</summary>
 
-## 6. 우선순위
+### `ReservationController`
 
-1. [x] `PaymentService.confirmPayment()`
-2. [x] `PaymentService.cancelPayment()`
-3. [x] `PaymentService.readyPayment()`
-4. [x] `PaymentService.getPaymentStatus()`
-5. [x] `ReservationExpirationService.expireAll()` / `expireByScheduleId()`
-6. [x] `ReservationService.createReservation()`
-7. [x] `PaymentService.failPayment()`
+- [x] 예약 생성 성공은 `200`을 반환합니다.
+- [x] validation 실패는 `400`을 반환합니다.
+- [x] 존재하지 않는 user/seat는 `404`를 반환합니다.
 
----
+### `PaymentController`
 
-## 7. AuthService 테스트
+- [x] `/payments/ready` 성공은 `200`을 반환합니다.
+- [x] `/payments/confirm` 성공은 `200`을 반환합니다.
+- [x] `/payments/{id}/status` 성공은 `200`을 반환합니다.
+- [x] `/payments/{id}/cancel` 성공은 `200`을 반환합니다.
+- [x] `/payments/fail-redirect` 성공은 `200`을 반환합니다.
+- [x] 잘못된 상태 전이는 `409`를 반환합니다.
 
-### 7.1 reissue()
+</details>
 
-- [x] 정상 재발급 시 기존 Refresh Token을 소비하고 새 토큰을 저장한다
-- [x] 이미 소비된 Refresh Token이면 재발급을 거부한다
-- [x] 동일 Refresh Token `20`개 동시 재발급 요청은 하나만 성공하고 나머지 `19`개는 거부한다
-- [x] 같은 사용자의 서로 다른 Refresh Token은 각각 독립적으로 재발급된다
+<details>
+<summary>User API</summary>
 
----
+### `users/me`
+
+- [x] 로그인 사용자 id로 현재 사용자 기본 정보를 반환합니다.
+- [x] 존재하지 않는 사용자면 `EntityNotFoundException`을 반환합니다.
+- [x] 컨트롤러가 `@AuthenticationPrincipal Long userId`를 서비스로 전달합니다.
+
+### `mypage`
+
+- [x] 본인 `userId`만 조회 가능합니다.
+- [x] 다른 사용자 조회 시 `IllegalStateException`을 반환합니다.
+- [x] `ReservationGroup.status`가 `CONFIRMED`, `CANCELED`인 예매를 group 기준으로 반환합니다.
+- [x] 마이페이지 예매 상태 값은 `ReservationGroup.status`를 사용합니다.
+- [x] `APPROVED`, `CANCELED` 결제를 group 기준으로 반환합니다.
+- [x] 결제 취소에 필요한 `paymentId`와 좌석 목록을 포함합니다.
+- [x] 컨트롤러가 path variable `userId`와 principal `userId`를 서비스로 전달합니다.
+
+</details>
+
+<details>
+<summary>AuthService</summary>
+
+### `reissue()`
+
+- [x] 정상 재발급 시 기존 Refresh Token을 소비하고 새 토큰을 저장합니다.
+- [x] 이미 소비된 Refresh Token이면 재발급을 거부합니다.
+- [x] 동일 Refresh Token `20`개 동시 재발급 요청은 하나만 성공하고 나머지 `19`개는 거부합니다.
+- [x] 같은 사용자의 서로 다른 Refresh Token은 각각 독립적으로 재발급됩니다.
+
+</details>
 
 ## 핵심 목표
 
-- 상태 전이 정합성 보장
-- 트랜잭션 내 Seat / Reservation / Payment 동기화 확인
-- 만료/이탈/취소 등 예외 상황에서도 상태 불일치가 없도록 검증
+- 상태 전이 정합성을 보장합니다.
+- 트랜잭션 안에서 `Seat`, `Reservation`, `Payment` 상태가 함께 바뀌는지 확인합니다.
+- 만료, 이탈, 취소 같은 예외 상황에서도 상태 불일치가 없도록 검증합니다.

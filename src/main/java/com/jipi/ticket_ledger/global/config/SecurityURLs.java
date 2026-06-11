@@ -10,7 +10,8 @@ public final class SecurityURLs {
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
-            "/api-docs/**"
+            "/api-docs/**",
+            "/actuator/**"
     };
 
     // 유저 허용
@@ -29,7 +30,6 @@ public final class SecurityURLs {
             "/api/v1/event/**",
             "/api/v1/seat/**",
             "/api/v1/schedules/**",
-            "/api/v1/auth/reissue",
-            "/actuator/**"
+            "/api/v1/auth/reissue"
     };
 }
