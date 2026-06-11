@@ -7,10 +7,10 @@
 - `EventService.getSeats()`는 회차별 만료 정리 이후 availability를 먼저 확인하고, `soldOut=true`이면 좌석 목록 projection 조회 없이 `{ scheduleId, soldOut: true, seats: [] }`를 반환한다.
 - 프론트 좌석 화면도 서버에서 조합한 `soldOut` 상태를 기준으로 이미 매진된 회차의 좌석 조회를 생략한다.
 - 동일한 `dev,perf` 인기 공연 E2E arrival-rate 조건에서 재검증한 결과 완료 iteration `16,847`, dropped iteration `0`, 전체 여정 p95 `256ms`, 좌석 조회 p95 `21.86ms`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
-- 전체 여정 TPS는 `223.06 -> 336.94 journeys/s`로 `+51.05%`, 완료 결제 TPS는 `17.13 -> 19.92 payments/s`로 `+16.29%` 개선됐다.
+- 전체 여정 RPS는 `223.06 -> 336.94 RPS`로 `+51.05%`, 완료 결제 RPS는 `17.13 -> 19.92 RPS`로 `+16.29%` 개선됐다.
 - 네트워크 수신량은 `174MB`였고, 이전 fast-path 실험값 `206MB`와 같은 개선 범위로 재현됐다.
 - DB 사후 검증에서 `BOOKED` 좌석 `1,000`, reservation group `1,000`, payment `1,000`, 중복 active 좌석 배정 `0`, 부분 성공 group `0`, 상태 불일치 `0`을 확인했다.
-- 별도 `300 journeys/s` 안정성 시나리오도 실험했지만, soldOut fast-path 이후에는 `1000 journeys/s`와 좌석 조회/전체 여정 p95 차이가 작아 대표 개선 수치에서는 제외한다.
+- 별도 `300 RPS` 안정성 시나리오도 실험했지만, soldOut fast-path 이후에는 `1000 RPS`와 좌석 조회/전체 여정 p95 차이가 작아 대표 개선 수치에서는 제외한다.
 
 ## 2026-06-09
 
@@ -25,7 +25,7 @@
 - `GET /api/v1/event/schedules/availability?scheduleIds=...` batch API를 추가했다.
 - 응답은 회차별 `available`, `held`, `booked`, `soldOut`을 반환한다.
 - 매진 기준은 `AVAILABLE=0`, `HELD=0`, `BOOKED>0`이다. `HELD`는 만료 후 복구될 수 있으므로 매진으로 보지 않는다.
-- 공연 목록/상세 캐시는 카탈로그 데이터로 유지하고, `soldOut` 같은 예약 상태는 캐시에 포함하지 않는다.
+- 공연 목록/상세 캐시는 유지하고, `soldOut`은 좌석 상태 집계 결과를 기준으로 판단한다.
 - `GET /api/v1/event/schedules/{scheduleId}/seats` 응답을 `{ scheduleId, soldOut, seats }` 형태로 변경했다.
 - `soldOut=true`이면 좌석 목록을 조회/직렬화하지 않고 빈 `seats`를 반환해 매진 이후 좌석 payload 전송을 줄인다.
 - 프론트 서버는 `/event` 캐시 응답과 availability 응답을 조합해 메인 예매 버튼을 비활성화한다.
