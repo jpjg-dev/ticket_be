@@ -1,5 +1,16 @@
 # 변경 이력 추적 (결제/예약 흐름)
 
+## 2026-06-11
+
+### 1) 매진 fast-path 재활성화 및 동일 조건 재검증
+- 병목 재분석 중 임시로 비활성화했던 `/seats` 매진 fast-path를 다시 활성화했다.
+- `EventService.getSeats()`는 회차별 만료 정리 이후 availability를 먼저 확인하고, `soldOut=true`이면 좌석 목록 projection 조회 없이 `{ scheduleId, soldOut: true, seats: [] }`를 반환한다.
+- 프론트 좌석 화면도 서버에서 조합한 `soldOut` 상태를 기준으로 이미 매진된 회차의 좌석 조회를 생략한다.
+- 동일한 `dev,perf` 인기 공연 E2E arrival-rate 조건에서 재검증한 결과 완료 iteration `16,847`, dropped iteration `0`, 전체 여정 p95 `256ms`, 좌석 조회 p95 `21.86ms`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
+- 네트워크 수신량은 `174MB`였고, 이전 fast-path 실험값 `206MB`와 같은 개선 범위로 재현됐다.
+- DB 사후 검증에서 `BOOKED` 좌석 `1,000`, reservation group `1,000`, payment `1,000`, 중복 active 좌석 배정 `0`, 부분 성공 group `0`, 상태 불일치 `0`을 확인했다.
+- 별도 `300 journeys/s` 안정성 시나리오도 실험했지만, soldOut fast-path 이후에는 `1000 journeys/s`와 좌석 조회/전체 여정 p95 차이가 작아 대표 개선 수치에서는 제외한다.
+
 ## 2026-06-09
 
 ### 1) 좌석 조회 트랜잭션 범위 분리

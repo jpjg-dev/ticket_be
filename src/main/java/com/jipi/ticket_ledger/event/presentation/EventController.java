@@ -1,7 +1,8 @@
 package com.jipi.ticket_ledger.event.presentation;
 
 import com.jipi.ticket_ledger.event.application.EventService;
-import com.jipi.ticket_ledger.event.presentation.dto.EventResponse;
+import com.jipi.ticket_ledger.event.presentation.dto.EventDetailResponse;
+import com.jipi.ticket_ledger.event.presentation.dto.EventListResponse;
 import com.jipi.ticket_ledger.seat.presentation.dto.SeatAvailabilityResponse;
 import com.jipi.ticket_ledger.seat.presentation.dto.SeatListResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,13 +23,11 @@ public class EventController {
 
     @Operation(summary = "공연 목록 조회", description = "공연 목록과 회차 요약 정보를 조회합니다.")
     @GetMapping
-    public List<EventResponse> getEvents() {
-        return eventService.getEvents();
-    }
+    public List<EventListResponse> getEvents() { return eventService.getEvents(); }
 
     @Operation(summary = "공연 상세 조회", description = "공연 상세와 회차 정보를 조회합니다.")
     @GetMapping("/{eventId}")
-    public EventResponse getEvent(@PathVariable Long eventId) {
+    public EventDetailResponse getEvent(@PathVariable Long eventId) {
         return eventService.getEvent(eventId);
     }
 

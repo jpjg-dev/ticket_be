@@ -45,16 +45,14 @@ public class ReservationExpirationService {
         int expiredCount = 0;
         for (Long reservationGroupId : expiredGroupIds) {
             Payment payment = paymentRepository.findByReservationGroupIdForUpdate(reservationGroupId).orElse(null);
-            ReservationGroup reservationGroup = payment != null
-                    ? reservationGroupRepository.findById(reservationGroupId).orElse(null)
-                    : reservationGroupRepository.findByIdForUpdate(reservationGroupId).orElse(null);
+            ReservationGroup reservationGroup = reservationGroupRepository.findByIdForUpdate(reservationGroupId).orElse(null);
             if (reservationGroup == null
                     || reservationGroup.getStatus() != ReservationGroupStatus.PENDING
                     || !reservationGroup.isExpiredAt(LocalDateTime.now())) {
                 continue;
             }
 
-            List<Reservation> pendingReservations = reservationRepository.findByReservationGroupId(reservationGroup.getId()).stream()
+            List<Reservation> pendingReservations = reservationRepository.findByReservationGroupIdWithSeat(reservationGroup.getId()).stream()
                     .filter(Reservation::isPending)
                     .toList();
             if (pendingReservations.isEmpty()) {

@@ -1,4 +1,13 @@
+server:
+  tomcat:
+    mbeanregistry:
+      enabled: true
+
 spring:
+#  datasource:
+#    hikari:
+#      maximum-pool-size: 30
+#      minimum-idle: 10
   jpa:
     properties:
       hibernate:

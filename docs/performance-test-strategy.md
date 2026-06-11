@@ -365,7 +365,7 @@ where id in (:seatIds)
 - `/event` 또는 `/event/{eventId}` 응답에는 `soldOut`을 직접 포함하지 않는다. 예약 상태가 카탈로그 캐시에 섞이면 매진 직후 stale 값이 노출될 수 있기 때문이다.
 - 좌석 조회 API는 `{ scheduleId, soldOut, seats }` wrapper를 반환한다. `soldOut=true`이면 좌석 목록을 내려주지 않는다.
 
-후속 성능 재측정에서는 동일한 arrival-rate 조건에서 매진 이후 `data_received`, 좌석 조회 p95, 전체 여정 p95, dropped iteration을 기존 2차 개선값과 비교한다.
+동일한 arrival-rate 조건에서 매진 이후 `data_received`, 좌석 조회 p95, 전체 여정 p95, dropped iteration을 기존 2차 개선값과 비교한다. 이 비교는 운영 처리량 보장이 아니라 로컬 통제 환경에서 병목 제거 전후를 보는 포화 관찰이다.
 
 ### Reservation Create Write Baseline
 
@@ -974,6 +974,27 @@ E2E 개선 과정의 설계 판단, 트레이드오프, 1~3차 지표 요약은 
 | 사용자 풀 재사용 | `1,153` | `5,573` | `5,739` | `6,847` |
 | 네트워크 수신량 | 미측정 | 미측정 | `1.6GB` | `206MB` |
 
+매진 fast-path를 재활성화한 뒤 같은 조건에서 한 번 더 실행했다. 로컬 환경 특성상 p95는 약간 흔들렸지만, 완료 iteration과 dropped iteration, 완료 결제, 예상 밖 오류, DB 정합성은 같은 수준으로 재현됐다.
+
+| Metric | Fast-path initial | Fast-path recheck |
+| --- | ---: | ---: |
+| 설정 유입 단계 | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` | `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s` |
+| 실행 시간 | `50s` | `50s` |
+| 완료 iteration | `16,847` | `16,847` |
+| dropped iteration | `0` | `0` |
+| 최대 사용 VU | `203` | `201` |
+| 전체 여정 p95 | `244ms` | `256ms` |
+| 좌석 조회 p95 | `11.58ms` | `21.86ms` |
+| 공연 목록 p95 | `1.53ms` | `1.34ms` |
+| 공연 상세 p95 | `1.47ms` | `1.36ms` |
+| 예약 생성 p95 | `8.53ms` | `11.36ms` |
+| 결제 준비 p95 | `9.39ms` | `12.04ms` |
+| 결제 승인 p95 | `11.74ms` | `16.35ms` |
+| 완료 결제 | `1,000` | `1,000` |
+| 정상 경합/매진 거부 | `15,847` | `15,847` |
+| 예상 밖 오류 | `0` | `0` |
+| 네트워크 수신량 | `206MB` | `174MB` |
+
 실행 후 DB MCP 사후 검증:
 
 | Verification | Result |
@@ -997,6 +1018,7 @@ E2E 개선 과정의 설계 판단, 트레이드오프, 1~3차 지표 요약은 
 - 매진 fast-path 적용 후에는 전 좌석 `BOOKED` 상태에서 좌석 목록을 내려주지 않으므로 네트워크 수신량이 `1.6GB -> 206MB`로 감소했다.
 - 동일 유입 조건에서 dropped iteration은 `1,108 -> 0`, 전체 여정 p95는 `2.66s -> 244ms`, 좌석 조회 p95는 `1.31s -> 11.58ms`로 감소했다.
 - 이번 개선은 좌석 정합성 로직을 캐시하지 않고, 매진 이후 불필요한 좌석 payload와 직렬화 비용을 제거한 결과다.
+- 별도 안정성 확인용 `300 journeys/s` 시나리오도 실행했지만, soldOut fast-path 이후에는 `1000 journeys/s` 조건과 좌석 조회/전체 여정 p95 차이가 작았다. 포트폴리오 대표 수치는 개선 전후 비교가 가능한 기존 `1000 journeys/s` 포화 조건만 사용한다.
 
 ## Next Measurement
 
@@ -1024,6 +1046,7 @@ E2E 개선 과정의 설계 판단, 트레이드오프, 1~3차 지표 요약은 
    - 동일한 E2E arrival-rate 조건에서 캐시 적용 후 완료 iteration `15,573`, dropped iteration `1,274`, 전체 여정 p95 `2.93s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
    - 좌석 조회 트랜잭션 범위 분리 후 완료 iteration `15,739`, dropped iteration `1,108`, 전체 여정 p95 `2.66s`, 좌석 조회 p95 `1.31s`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
    - 매진 fast-path 적용 후 완료 iteration `16,847`, dropped iteration `0`, 전체 여정 p95 `244ms`, 좌석 조회 p95 `11.58ms`, 네트워크 수신량 `206MB`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
+   - fast-path 재검증에서도 완료 iteration `16,847`, dropped iteration `0`, 전체 여정 p95 `256ms`, 좌석 조회 p95 `21.86ms`, 네트워크 수신량 `174MB`, 완료 결제 `1,000`, 예상 밖 오류 `0`을 기록했다.
    - DB 사후 검증에서 중복 active 좌석 배정, 부분 성공 group, `APPROVED / CONFIRMED / BOOKED` 상태 불일치는 모두 `0`이다.
 
 ## References

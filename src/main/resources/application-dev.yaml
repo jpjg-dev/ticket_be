@@ -41,11 +41,11 @@ management:
       exposure:
         include: health, metrics, prometheus
 
-cache:
-  event:
-    list:
-      ttl: 10s
-      max-size: 1
-    detail:
-      ttl: 30s
-      max-size: 100
+#cache:
+#  event:
+#    list:
+#      ttl: 10s
+#      max-size: 1
+#    detail:
+#      ttl: 30s
+#      max-size: 100

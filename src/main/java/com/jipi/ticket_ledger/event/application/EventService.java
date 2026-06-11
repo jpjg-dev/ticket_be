@@ -4,11 +4,11 @@ import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
-import com.jipi.ticket_ledger.event.presentation.dto.EventResponse;
+import com.jipi.ticket_ledger.event.presentation.dto.EventDetailResponse;
+import com.jipi.ticket_ledger.event.presentation.dto.EventListResponse;
 import com.jipi.ticket_ledger.event.presentation.dto.ScheduleResponse;
 import com.jipi.ticket_ledger.global.config.CacheNames;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
-import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.seat.presentation.dto.SeatAvailabilityResponse;
@@ -16,11 +16,11 @@ import com.jipi.ticket_ledger.seat.presentation.dto.SeatListResponse;
 import com.jipi.ticket_ledger.seat.presentation.dto.SeatResponse;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class EventService {
 
     private final EventRepository eventRepository;
@@ -41,7 +42,7 @@ public class EventService {
 
     @Transactional(readOnly = true)
     @Cacheable(CacheNames.EVENT_LIST)
-    public List<EventResponse> getEvents() {
+    public List<EventListResponse> getEvents() {
         List<Event> events = eventRepository.findAllByOrderByBookingOpenAtAsc();
         if (events.isEmpty()) {
             return Collections.emptyList();
@@ -53,61 +54,84 @@ public class EventService {
                 )
         );
 
-        Map<Long, List<Seat>> seatsByScheduleId = groupSeatsByScheduleId(
-                seatRepository.findByScheduleIdIn(
-                        schedulesByEventId.values().stream()
-                                .flatMap(List::stream)
-                                .map(Schedule::getId)
-                                .toList()
-                )
-        );
-
         return events.stream()
-                .map(event -> toEventResponse(event, schedulesByEventId.getOrDefault(event.getId(), List.of()), seatsByScheduleId))
+                .map(event -> toEventListResponse(event, schedulesByEventId.getOrDefault(event.getId(), List.of())))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     @Cacheable(value = CacheNames.EVENT_DETAIL, key = "#eventId")
-    public EventResponse getEvent(Long eventId) {
+    public EventDetailResponse getEvent(Long eventId) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new EntityNotFoundException("공연을 찾을 수 없습니다."));
 
         List<Schedule> schedules = scheduleRepository.findByEventIdOrderByStartAtAsc(eventId);
-        Map<Long, List<Seat>> seatsByScheduleId = groupSeatsByScheduleId(
-                seatRepository.findByScheduleIdIn(schedules.stream().map(Schedule::getId).toList())
-        );
-
-        return toEventResponse(event, schedules, seatsByScheduleId);
+        return toEventDetailResponse(event, schedules);
     }
 
     public SeatListResponse getSeats(Long scheduleId) {
-        if (!scheduleRepository.existsById(scheduleId)) {
-            throw new EntityNotFoundException("회차를 찾을 수 없습니다.");
-        }
+        long startNanos = System.nanoTime();
+        long afterExpirationNanos;
+        long afterAvailabilityNanos;
+        long afterRepositoryNanos;
+        long afterMappingNanos;
+        long afterSoldOutNanos;
 
+//        if (!scheduleRepository.existsById(scheduleId)) {
+//            throw new EntityNotFoundException("회차를 찾을 수 없습니다.");
+//        }
         reservationExpirationService.expireByScheduleId(scheduleId);
+        afterExpirationNanos = System.nanoTime();
 
         SeatAvailabilityResponse availability = getScheduleAvailability(List.of(scheduleId)).stream()
                 .findFirst()
                 .orElse(new SeatAvailabilityResponse(scheduleId, false, 0, 0, 0));
+        afterAvailabilityNanos = System.nanoTime();
 
         if (availability.soldOut()) {
+            log.debug("event=SEAT_LOOKUP_PROFILE scheduleId={} expirationMs={} availabilityMs={} repositoryMs={} mappingMs={} soldOutMs={} serviceTotalMs={} seatCount={} soldOut={}",
+                    scheduleId,
+                    elapsedMillis(startNanos, afterExpirationNanos),
+                    elapsedMillis(afterExpirationNanos, afterAvailabilityNanos),
+                    0.0,
+                    0.0,
+                    0.0,
+                    elapsedMillis(startNanos, afterAvailabilityNanos),
+                    0,
+                    true);
             return new SeatListResponse(scheduleId, true, List.of());
         }
 
-        List<SeatResponse> seats = seatRepository.findByScheduleId(scheduleId).stream()
-                .map(seat -> new SeatResponse(
-                        seat.getId(),
-                        scheduleId,
-                        seat.getSeatNumber(),
-                        seat.getGrade(),
-                        seat.getPrice(),
-                        seat.getStatus().name()
+        List<SeatRepository.SeatSummary> seatSummaries = seatRepository.findSeatSummariesByScheduleId(scheduleId);
+        afterRepositoryNanos = System.nanoTime();
+
+        List<SeatResponse> seats = seatSummaries.stream()
+                .map(summary -> new SeatResponse(
+                        summary.getId(),
+                        summary.getSeatNumber(),
+                        summary.getGrade(),
+                        summary.getPrice(),
+                        summary.getStatus().name()
                 ))
                 .toList();
+        afterMappingNanos = System.nanoTime();
 
-        return new SeatListResponse(scheduleId, false, seats);
+        boolean soldOut = !seats.isEmpty() && seats.stream()
+                .allMatch(seat -> SeatStatus.BOOKED.name().equals(seat.status()));
+        afterSoldOutNanos = System.nanoTime();
+
+        log.debug("event=SEAT_LOOKUP_PROFILE scheduleId={} expirationMs={} availabilityMs={} repositoryMs={} mappingMs={} soldOutMs={} serviceTotalMs={} seatCount={} soldOut={}",
+                scheduleId,
+                elapsedMillis(startNanos, afterExpirationNanos),
+                elapsedMillis(afterExpirationNanos, afterAvailabilityNanos),
+                elapsedMillis(afterAvailabilityNanos, afterRepositoryNanos),
+                elapsedMillis(afterRepositoryNanos, afterMappingNanos),
+                elapsedMillis(afterMappingNanos, afterSoldOutNanos),
+                elapsedMillis(startNanos, afterSoldOutNanos),
+                seats.size(),
+                soldOut);
+
+        return new SeatListResponse(scheduleId, soldOut, seats);
     }
 
     @Transactional(readOnly = true)
@@ -146,50 +170,32 @@ public class EventService {
                 .collect(Collectors.groupingBy(schedule -> schedule.getEvent().getId()));
     }
 
-    private Map<Long, List<Seat>> groupSeatsByScheduleId(List<Seat> seats) {
-        return seats.stream()
-                .collect(Collectors.groupingBy(seat -> seat.getSchedule().getId()));
-    }
-
-    private EventResponse toEventResponse(Event event, List<Schedule> schedules, Map<Long, List<Seat>> seatsByScheduleId) {
+    private EventListResponse toEventListResponse(Event event, List<Schedule> schedules) {
         List<ScheduleResponse> scheduleResponses = schedules.stream()
                 .map(schedule -> new ScheduleResponse(schedule.getId(), schedule.getStartAt(), schedule.getEndAt()))
                 .toList();
 
-        List<Seat> seats = schedules.stream()
-                .map(Schedule::getId)
-                .map(scheduleId -> seatsByScheduleId.getOrDefault(scheduleId, List.of()))
-                .flatMap(List::stream)
-                .toList();
-
-        LocalDateTime runStartAt = schedules.stream()
-                .map(Schedule::getStartAt)
-                .min(LocalDateTime::compareTo)
-                .orElse(null);
-        LocalDateTime runEndAt = schedules.stream()
-                .map(Schedule::getEndAt)
-                .max(LocalDateTime::compareTo)
-                .orElse(null);
-
-        Integer minPrice = seats.stream()
-                .map(Seat::getPrice)
-                .min(Integer::compareTo)
-                .orElse(null);
-        Integer maxPrice = seats.stream()
-                .map(Seat::getPrice)
-                .max(Integer::compareTo)
-                .orElse(null);
-
-        return new EventResponse(
+        return new EventListResponse(
                 event.getId(),
                 event.getTitle(),
                 event.getDescription(),
                 event.getVenue(),
                 event.getBookingOpenAt(),
-                runStartAt,
-                runEndAt,
-                minPrice,
-                maxPrice,
+                scheduleResponses
+        );
+    }
+
+    private EventDetailResponse toEventDetailResponse(Event event, List<Schedule> schedules) {
+        List<ScheduleResponse> scheduleResponses = schedules.stream()
+                .map(schedule -> new ScheduleResponse(schedule.getId(), schedule.getStartAt(), schedule.getEndAt()))
+                .toList();
+
+        return new EventDetailResponse(
+                event.getId(),
+                event.getTitle(),
+                event.getDescription(),
+                event.getVenue(),
+                event.getBookingOpenAt(),
                 scheduleResponses
         );
     }
@@ -209,5 +215,9 @@ public class EventService {
         }
 
         return counts.getOrDefault(status, 0L);
+    }
+
+    private double elapsedMillis(long startNanos, long endNanos) {
+        return (endNanos - startNanos) / 1_000_000.0;
     }
 }
