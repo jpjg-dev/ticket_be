@@ -15,6 +15,8 @@
 - 유입 모델: `ramping-arrival-rate`
 - 단계: `10 -> 100 -> 300 -> 500 -> 1000 -> 100 journeys/s`
 - 실행 시간: `50s`
+- 전체 여정 TPS: `완료 iteration / 50s`
+- 결제 TPS: k6 `arrival_e2e_payment_completed` rate
 
 ## 1차 기준값: 병목 확인
 
@@ -133,6 +135,8 @@ BOOKED > 0
 | Metric | After seat transaction split | After sold-out fast-path |
 | --- | ---: | ---: |
 | 완료 iteration | `15,739` | `16,847` |
+| 전체 여정 TPS | `314.78 journeys/s` | `336.94 journeys/s` |
+| 전체 여정 TPS 직전 대비 | - | `+7.04%` |
 | dropped iteration | `1,108` | `0` |
 | 최대 사용 VU | `1,546` | `203` |
 | 전체 여정 p95 | `2.66s` | `244ms` |
@@ -143,20 +147,35 @@ BOOKED > 0
 | 결제 준비 p95 | `18.03ms` | `9.39ms` |
 | 결제 승인 p95 | `26.90ms` | `11.74ms` |
 | 완료 결제 | `1,000` | `1,000` |
+| 결제 TPS | `19.64 payments/s` | `19.92 payments/s` |
+| 결제 TPS 직전 대비 | - | `+1.43%` |
 | 정상 경합/매진 거부 | `14,739` | `15,847` |
 | 예상 밖 오류 | `0` | `0` |
 | 네트워크 수신량 | `1.6GB` | `206MB` |
+
+### TPS 개선율
+
+`전체 여정 TPS`는 결제 성공, 정상 경합 거부, 매진 거부까지 포함한 완료 여정 처리량이다. `결제 TPS`는 실제 결제 완료만 집계하므로 1,000석 매진 이후에는 좌석 수에 의해 상한이 생긴다.
+
+| 단계 | 완료 iteration | 전체 여정 TPS | 초기 대비 | 직전 대비 | 결제 TPS | 결제 TPS 초기 대비 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Initial | `11,153` | `223.06 journeys/s` | - | - | `17.13 payments/s` | - |
+| After event cache | `15,573` | `311.46 journeys/s` | `+39.63%` | `+39.63%` | `19.43 payments/s` | `+13.43%` |
+| After seat transaction split | `15,739` | `314.78 journeys/s` | `+41.12%` | `+1.07%` | `19.64 payments/s` | `+14.65%` |
+| After sold-out fast-path | `16,847` | `336.94 journeys/s` | `+51.05%` | `+7.04%` | `19.92 payments/s` | `+16.29%` |
 
 재활성화 후 같은 조건에서 한 번 더 검증했다. 로컬 네트워크 환경과 실행 시점 차이로 p95는 소폭 흔들렸지만, 완료 iteration, dropped iteration, 완료 결제, 예상 밖 오류, DB 정합성은 동일한 수준으로 재현됐다.
 
 | Metric | Fast-path initial | Fast-path recheck |
 | --- | ---: | ---: |
 | 완료 iteration | `16,847` | `16,847` |
+| 전체 여정 TPS | `336.94 journeys/s` | `336.94 journeys/s` |
 | dropped iteration | `0` | `0` |
 | 최대 사용 VU | `203` | `201` |
 | 전체 여정 p95 | `244ms` | `256ms` |
 | 좌석 조회 p95 | `11.58ms` | `21.86ms` |
 | 완료 결제 | `1,000` | `1,000` |
+| 결제 TPS | `19.92 payments/s` | `19.92 payments/s` |
 | 정상 경합/매진 거부 | `15,847` | `15,847` |
 | 예상 밖 오류 | `0` | `0` |
 | 네트워크 수신량 | `206MB` | `174MB` |
