@@ -97,6 +97,59 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 -> Seat BOOKED
 ```
 
+### 결제 데이터 흐름 (정상)
+
+결제 승인은 결제 행을 먼저 잠근 뒤 내부 검증을 거치고, 승인 결과로 `Payment`, `ReservationGroup`, `Reservation`, `Seat` 상태를 한 트랜잭션에서 함께 확정합니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Browser
+    participant API as Spring Boot API
+    participant Payment as PaymentService
+    participant Toss as Toss Payments
+    participant DB as PostgreSQL
+
+    User->>API: POST /payments/ready
+    API->>Payment: 결제 준비 요청
+    Payment->>DB: Payment READY 저장
+    API-->>User: orderId, amount 반환
+
+    User->>API: POST /payments/confirm
+    API->>Payment: 결제 승인 요청
+    Payment->>DB: 결제 행 잠금 (PESSIMISTIC_WRITE)
+    Note over Payment,DB: 동시 confirm 직렬화 · 내부 검증(만료/금액)
+    Payment->>Toss: 승인 API 호출
+    Toss-->>Payment: 승인 결과
+    Payment->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED (한 트랜잭션)
+    API-->>User: 결제 완료 응답
+```
+
+### 결제 장애 대응 (PG 호출 실패 시)
+
+PG 승인 호출이 예외로 실패해도 결제 결과를 임의로 단정하지 않습니다. 외부에서 실제 승인 여부를 다시 조회한 뒤, PG 상태를 기준으로 내부 상태를 한 방향으로 수렴시킵니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Payment as PaymentService
+    participant Toss as Toss Payments
+    participant DB as PostgreSQL
+
+    Note over Payment: 결제 행 잠금 + 내부 검증 통과 후
+    Payment->>Toss: 승인 API 호출
+    Toss--xPayment: 호출 실패 (RestClientException)
+    Payment->>Toss: 결제 상태 재조회 (lookup)
+    Toss-->>Payment: 실제 상태 응답
+
+    alt 승인 완료(DONE) + 금액/통화/주문 일치
+        Payment->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
+        Note over Payment,DB: 내부 상태를 PG 기준으로 수렴
+    else 승인 아님
+        Payment->>Payment: 예외 전파 (승인 처리하지 않음)
+    end
+```
+
 ### 상태 전이 요약
 
 | 대상 | 주요 상태 전이 |
@@ -250,45 +303,34 @@ GET  /api/v1/payments/{paymentId}/status
 도메인별 패키지를 먼저 나누고, 각 도메인 내부를 `presentation`, `application`, `domain`, `infrastructure` 책임으로 분리했습니다.
 
 ```text
-com.jipi.ticket_ledger
-├── TicketLedgerApplication.java        # Spring Boot 진입점
-│
-├── reservation                         # 예매 / 좌석 선점 / 만료
-│   ├── presentation                    # ReservationController, DTO
-│   ├── application                     # ReservationService, ExpirationService, Scheduler
-│   └── domain                          # Reservation, ReservationGroup, Status, Repository
-│
-├── payment                             # 결제 준비 / 승인 / 취소
-│   ├── presentation                    # PayMentController, 결제 요청/응답 DTO
-│   ├── application                     # PaymentService
-│   ├── domain                          # Payment, PaymentStatus, PaymentRepository
-│   └── infrastructure                  # TossPaymentClient, Toss 요청/응답 모델
-│
-├── auth                                # 로그인 / 토큰 / 쿠키 인증
-│   ├── presentation                    # AuthController, 로그인 DTO
-│   ├── application                     # AuthService
-│   ├── domain                          # RefreshToken, RefreshTokenRepository
-│   └── infrastructure                  # JwtTokenProvider, JwtAuthenticationFilter, CookieProvider, TokenHasher
-│
-├── event                               # 공연 / 회차 / 좌석 조회
-│   ├── presentation                    # EventController, 공연/회차 응답 DTO
-│   ├── application                     # EventService
-│   └── domain                          # Event, Schedule, Repository
-│
-├── seat                                # 좌석 상태
-│   ├── presentation                    # SeatResponse, SeatListResponse, AvailabilityResponse
-│   └── domain                          # Seat, SeatStatus, SeatRepository
-│
-├── user                                # 사용자 / 마이페이지
-│   ├── presentation                    # UserController, 회원/마이페이지 DTO
-│   ├── application                     # UserService
-│   └── domain                          # User, UserRole, UserStatus, UserRepository
-│
-└── global                              # 전 계층 공통 관심사
-    ├── config                          # SecurityConfig, CacheConfig, SwaggerConfig, DataInitializer
-    ├── security                        # CSRF Origin Filter / Properties
-    ├── exception                       # GlobalExceptionHandler, ErrorResponse
-    └── log                             # LogEvents
+├── reservation          # 예매 / 좌석 선점 / 만료
+│   ├── presentation     # ReservationController, DTO
+│   ├── application      # ReservationService, ExpirationService, Scheduler
+│   └── domain           # Reservation, ReservationGroup, Status, Repository
+├── payment              # 결제 준비 / 승인 / 취소
+│   ├── presentation     # PayMentController, 결제 요청/응답 DTO
+│   ├── application      # PaymentService
+│   ├── domain           # Payment, PaymentStatus, PaymentRepository
+│   └── infrastructure   # TossPaymentClient, Toss 요청/응답 모델
+├── auth                 # 로그인 / 토큰 / 쿠키 인증
+│   ├── presentation     # AuthController, 로그인 DTO
+│   ├── application      # AuthService
+│   ├── domain           # RefreshToken, RefreshTokenRepository
+│   └── infrastructure   # JwtTokenProvider, JwtAuthenticationFilter, CookieProvider
+├── event                # 공연 / 회차 / 좌석 조회
+│   ├── presentation     # EventController, 공연/회차 응답 DTO
+│   ├── application      # EventService
+│   └── domain           # Event, Schedule, Repository
+├── seat                 # 좌석 상태
+│   ├── presentation     # SeatResponse, SeatListResponse, AvailabilityResponse
+│   └── domain           # Seat, SeatStatus, SeatRepository
+├── user                 # 사용자 / 마이페이지
+│   ├── presentation     # UserController, 회원/마이페이지 DTO
+│   ├── application      # UserService
+│   └── domain           # User, UserRole, UserStatus, UserRepository
+└── global               # 전 계층 공통 관심사
+    ├── config/security  # 설정, 보안
+    └── exception/log    # 예외, 로그
 ```
 
 계층별 책임은 다음과 같이 구분했습니다.
