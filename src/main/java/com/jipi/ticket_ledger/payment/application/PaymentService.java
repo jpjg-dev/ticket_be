@@ -185,7 +185,10 @@ public class PaymentService {
                     LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId, "PG_CONFIRM_STATUS_INVALID", maskPaymentKey(paymentKey));
             throw new IllegalStateException("PG 승인 상태가 유효하지 않습니다.");
         }
-
+        /*
+         * 여기서 과연 어떤식으로 처리하는게 좋을까? PG 결제 결과가 넘어오고 내부TX 가 실패했을때
+         * 어떻게 처리하는게 좋을까?
+         */
         //결제 승인
         applyApproval(payment, reservations, tossResponse.paymentKey(), tossResponse.method(), tossResponse.status());
         log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
