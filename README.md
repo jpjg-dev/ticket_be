@@ -426,6 +426,4 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 | [docs/performance/performance-e2e-optimization-summary.md](docs/performance/performance-e2e-optimization-summary.md) | 인기 공연 전체 여정 성능 개선 과정과 최종 지표 |
 | [docs/performance/performance-test-strategy.md](docs/performance/performance-test-strategy.md) | k6 성능 테스트 시나리오와 측정 기준 |
 | [docs/planning/backend-feature-roadmap.md](docs/planning/backend-feature-roadmap.md) | 후속 확장 후보와 설계 기준 |
-| [docs/planning/backend-issue-list.md](docs/planning/backend-issue-list.md) | 미해결 이슈 목록 |
-| [docs/planning/backend-refactoring-list.md](docs/planning/backend-refactoring-list.md) | 리팩토링 후보 목록 |
 | [docs/history/change-history.md](docs/history/change-history.md) | 주요 변경 이력 |
