@@ -84,6 +84,6 @@ B 요청: [2, 1]
 
 ## 관련 문서
 
-- [상태 전이 설계](state-design.md)
+- [상태 전이 설계](../design/state-design.md)
 - [테스트 체크리스트](TestCase.md)
-- [성능 테스트 전략](performance-test-strategy.md)
+- [성능 테스트 전략](../performance/performance-test-strategy.md)

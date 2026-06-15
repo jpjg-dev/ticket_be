@@ -38,8 +38,8 @@
 **Files:**
 - Create: `src/test/java/com/jipi/ticket_ledger/event/application/EventServiceTest.java`
 - Modify: `src/main/java/com/jipi/ticket_ledger/event/application/EventService.java`
-- Modify: `docs/TestCase.md`
-- Modify: `docs/backend-issue-list.md`
+- Modify: `docs/testing/TestCase.md`
+- Modify: `docs/planning/backend-issue-list.md`
 
 - [x] 좌석 조회가 회차별 만료 정리를 먼저 호출하는 테스트를 작성한다.
 - [x] `getSeats()`를 쓰기 트랜잭션으로 재정의하고 회차별 정리 호출을 추가한다.

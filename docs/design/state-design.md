@@ -114,6 +114,6 @@ PG 승인/취소 요청 후 서버가 응답을 받지 못한 경우에는 `paym
 
 관련 문서:
 
-- [동시성 검증](concurrentTest.md)
-- [성능 개선 요약](performance-e2e-optimization-summary.md)
-- [성능 테스트 전략](performance-test-strategy.md)
+- [동시성 검증](../testing/concurrentTest.md)
+- [성능 개선 요약](../performance/performance-e2e-optimization-summary.md)
+- [성능 테스트 전략](../performance/performance-test-strategy.md)

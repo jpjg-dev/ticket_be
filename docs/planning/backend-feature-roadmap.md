@@ -57,5 +57,5 @@ ISSUED -> EXPIRED
 
 ## 관련 문서
 
-- [상태 전이 설계](state-design.md)
-- [테스트 체크리스트](TestCase.md)
+- [상태 전이 설계](../design/state-design.md)
+- [테스트 체크리스트](../testing/TestCase.md)

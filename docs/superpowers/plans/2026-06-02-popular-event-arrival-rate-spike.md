@@ -59,5 +59,4 @@
 - [ ] Start Mock PG and ask the user to run the backend with `dev,perf`.
 - [ ] Run smoke, then arrival-rate Spike.
 - [ ] Verify DB consistency with DB MCP.
-- [ ] Record results in `docs/performance-test-strategy.md`.
-
+- [ ] Record results in `docs/performance/performance-test-strategy.md`.

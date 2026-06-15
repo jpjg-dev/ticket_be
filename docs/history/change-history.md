@@ -31,7 +31,7 @@
 - 프론트 서버는 `/event` 캐시 응답과 availability 응답을 조합해 메인 예매 버튼을 비활성화한다.
 - 동일한 `dev,perf` 인기 공연 E2E arrival-rate 조건에서 매진 fast-path 적용 후 전체 여정 p95는 `2.66s -> 244ms`, 좌석 조회 p95는 `1.31s -> 11.58ms`, dropped iteration은 `1,108 -> 0`, 네트워크 수신량은 `1.6GB -> 206MB`로 감소했다.
 - 완료 결제는 `1,000`, 예상 밖 오류는 `0`, DB 사후 검증의 중복 active 좌석 배정/부분 성공 group/상태 불일치는 모두 `0`이다.
-- 1~3차 E2E 개선 흐름과 트레이드오프는 `docs/performance-e2e-optimization-summary.md`에 별도 정리했다.
+- 1~3차 E2E 개선 흐름과 트레이드오프는 `docs/performance/performance-e2e-optimization-summary.md`에 별도 정리했다.
 
 ## 2026-06-08
 
@@ -79,7 +79,7 @@
 - `getPaymentStatus()`가 `paymentId`로 현재 결제를 조회하는지 명시적으로 검증한다.
 - `FAILED` 결제와 `PENDING`이 아닌 예약은 PG 승인 호출 전에 거부되는지 검증한다.
 - 승인/취소 성공 흐름에서 `PAYMENT_CONFIRM_*`, `PAYMENT_CANCEL_*` 로그 이벤트 키가 출력되는지 검증한다.
-- 기존 Controller 테스트를 재검증하고 `docs/TestCase.md` 체크리스트를 현재 코드 기준으로 동기화했다.
+- 기존 Controller 테스트를 재검증하고 `docs/testing/TestCase.md` 체크리스트를 현재 코드 기준으로 동기화했다.
 
 ## 2026-04-24
 
@@ -144,7 +144,7 @@
 - 삭제된 예약 취소 프록시(`/api/toss/reservations/cancel`) 및 버튼 정리
 
 ### 5) 테스트/문서 동기화
-- `docs/TestCase.md`를 현재 코드 기준으로 전면 업데이트
+- `docs/testing/TestCase.md`를 현재 코드 기준으로 전면 업데이트
 - 컨트롤러/서비스 테스트를 현재 API 및 상태 정책에 맞게 동기화
   - `approve` 관련 테스트 제거
   - `expireReservations`의 `READY -> FAILED` 케이스 추가

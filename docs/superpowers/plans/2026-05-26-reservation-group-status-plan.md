@@ -40,8 +40,8 @@
 **Files:**
 - Modify: `src/main/java/com/jipi/ticket_ledger/reservation/domain/ReservationRepository.java`
 - Modify: `src/main/java/com/jipi/ticket_ledger/user/application/UserService.java`
-- Modify: `docs/TestCase.md`
-- Modify: `docs/backend-issue-list.md`
+- Modify: `docs/testing/TestCase.md`
+- Modify: `docs/planning/backend-issue-list.md`
 
 - [x] 마이페이지 예매 목록 조회 조건을 `ReservationGroup.status` 기준으로 변경한다.
 - [x] 예매 DTO 상태를 group 상태에서 반환한다.

@@ -46,8 +46,8 @@
 ### Task 4: Verify and Track Outcome
 
 **Files:**
-- Modify: `docs/backend-issue-list.md`
-- Modify: `docs/backend-refactoring-list.md` only where the completed hardcoded-duration concern is no longer unresolved.
+- Modify: `docs/planning/backend-issue-list.md`
+- Modify: `docs/planning/backend-refactoring-list.md` only where the completed hardcoded-duration concern is no longer unresolved.
 
 - [ ] Run reservation and payment tests affected by constructor and service changes.
 - [ ] Run the backend test suite if focused tests pass.

@@ -43,7 +43,7 @@
 ### Task 4: Documentation
 
 **Files:**
-- Modify: `docs/performance-test-strategy.md`
+- Modify: `docs/performance/performance-test-strategy.md`
 - Modify: `docs/private/session-handoff-2026-06-02.md`
 
 - [ ] Document the Mock PG startup command.
@@ -57,4 +57,3 @@
 - [ ] Run `node --check performance/k6/popular-event-payment-e2e-spike.js`.
 - [ ] Run `git diff --check`.
 - [ ] Ask the user to restart the already-managed backend with `dev,test`, then request a fresh AT before k6 execution.
-

@@ -61,17 +61,13 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 ### 운영 / 배포 구조
 
-운영 서버는 단일 호스트에서 Docker Compose로 nginx · frontend · backend · PostgreSQL을 하나의 네트워크(`ticket-network`)로 묶어 운영합니다. 외부 진입점은 nginx로 제한하고, frontend · backend · DB는 직접 노출하지 않았습니다.
+운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 nginx, frontend, backend, PostgreSQL을 하나의 네트워크(`ticket-network`)로 묶어 운영합니다. 외부 진입점은 nginx `80/443`으로 제한하고, frontend, backend, PostgreSQL은 직접 노출하지 않습니다.
 
-![운영 배포 아키텍처](docs/images/deployment-architecture.svg)
+![TicketLedger 운영 전체 아키텍처](docs/assets/images/backend-system-architecture-dark-clean-public-ports-only.png)
 
 ### 요청 흐름
 
-사용자 요청은 nginx가 받아 대부분 frontend(SSR)로 보내고, frontend가 내부 네트워크로 backend API를 호출합니다. 백엔드로 직접 가는 경로는 `/swagger-ui`, `/api-docs` 문서뿐입니다. 결제는 backend가 외부 PG(Toss)로 아웃바운드 호출하며, 호출 실패 시 상태를 재조회해 한 방향으로 수렴시킵니다.
-
-![시스템 요청 흐름](docs/images/system-architecture.svg)
-
-배포 구조, 외부 노출 경계, 경로별 라우팅 등 상세 설명은 [docs/system-architecture.md](docs/system-architecture.md)에 정리했습니다.
+사용자 요청은 nginx가 받아 대부분 frontend로 전달하고, frontend가 API Route proxy를 통해 Docker 내부 네트워크에서 backend를 호출합니다. 백엔드로 직접 전달되는 외부 경로는 `/swagger-ui`, `/api-docs` 문서 경로로 제한하며, 결제 승인과 조회는 backend가 Toss Payments로 아웃바운드 호출합니다.
 
 ## 성능 테스트 해석 기준
 
@@ -170,7 +166,7 @@ sequenceDiagram
 | Reservation | `PENDING -> CONFIRMED`, `PENDING -> EXPIRED`, `CONFIRMED -> CANCELED` |
 | Payment | `READY -> APPROVED`, `READY -> FAILED`, `APPROVED -> CANCELED` |
 
-상세 상태 정책은 [docs/state-design.md](docs/state-design.md)에 정리했습니다.
+상세 상태 정책은 [docs/design/state-design.md](docs/design/state-design.md)에 정리했습니다.
 
 ## 주요 설계 판단
 
@@ -237,7 +233,7 @@ DB 사후 검증 결과:
 | 부분 성공 예매 그룹 | `0` |
 | `APPROVED / CONFIRMED / BOOKED` 상태 불일치 | `0` |
 
-상세 실험 과정과 해석은 [docs/performance-e2e-optimization-summary.md](docs/performance-e2e-optimization-summary.md), 전체 성능 테스트 전략은 [docs/performance-test-strategy.md](docs/performance-test-strategy.md)에 정리했습니다.
+상세 실험 과정과 해석은 [docs/performance/performance-e2e-optimization-summary.md](docs/performance/performance-e2e-optimization-summary.md), 전체 성능 테스트 전략은 [docs/performance/performance-test-strategy.md](docs/performance/performance-test-strategy.md)에 정리했습니다.
 
 ## 마이페이지 N+1 개선 결과
 
@@ -291,7 +287,7 @@ GET /api/v1/users/me
 -> 현재 로그인 사용자 정보 반환
 ```
 
-인증 흐름과 쿠키 기반 토큰 정책은 [docs/auth-flow-readme.md](docs/auth-flow-readme.md)에 정리했습니다.
+인증 흐름과 쿠키 기반 토큰 정책은 [docs/design/auth-flow-readme.md](docs/design/auth-flow-readme.md)에 정리했습니다.
 
 ### 공연/좌석
 
@@ -420,13 +416,16 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 
 | 문서 | 내용 |
 | --- | --- |
-| [docs/system-architecture.md](docs/system-architecture.md) | 운영 배포 구조와 요청 흐름 |
-| [docs/state-design.md](docs/state-design.md) | 좌석, 예매, 결제 상태 전이 정책 |
-| [docs/auth-flow-readme.md](docs/auth-flow-readme.md) | 로그인, 재발급, HttpOnly 쿠키 인증 흐름 |
-| [docs/concurrentTest.md](docs/concurrentTest.md) | 겹치는 좌석 요청의 동시성 검증 |
-| [docs/TestCase.md](docs/TestCase.md) | 상태 전이와 API 테스트 체크리스트 |
-| [docs/external-api-client-tradeoffs.md](docs/external-api-client-tradeoffs.md) | PG 연동 HTTP 클라이언트 선택 기준 |
-| [docs/performance-e2e-optimization-summary.md](docs/performance-e2e-optimization-summary.md) | 인기 공연 전체 여정 성능 개선 과정과 최종 지표 |
-| [docs/performance-test-strategy.md](docs/performance-test-strategy.md) | k6 성능 테스트 시나리오와 측정 기준 |
-| [docs/backend-feature-roadmap.md](docs/backend-feature-roadmap.md) | 후속 확장 후보와 설계 기준 |
-| [docs/payment-failure-recovery-design.md](docs/payment-failure-recovery-design.md) | PG 성공 후 내부 실패 보정 스케줄러 설계 (계획) |
+| [docs/architecture/system-architecture.md](docs/architecture/system-architecture.md) | 운영 배포 구조와 요청 흐름 |
+| [docs/design/state-design.md](docs/design/state-design.md) | 좌석, 예매, 결제 상태 전이 정책 |
+| [docs/design/auth-flow-readme.md](docs/design/auth-flow-readme.md) | 로그인, 재발급, HttpOnly 쿠키 인증 흐름 |
+| [docs/design/external-api-client-tradeoffs.md](docs/design/external-api-client-tradeoffs.md) | PG 연동 HTTP 클라이언트 선택 기준 |
+| [docs/design/payment-failure-recovery-design.md](docs/design/payment-failure-recovery-design.md) | PG 성공 후 내부 실패 보정 스케줄러 설계 (계획) |
+| [docs/testing/concurrentTest.md](docs/testing/concurrentTest.md) | 겹치는 좌석 요청의 동시성 검증 |
+| [docs/testing/TestCase.md](docs/testing/TestCase.md) | 상태 전이와 API 테스트 체크리스트 |
+| [docs/performance/performance-e2e-optimization-summary.md](docs/performance/performance-e2e-optimization-summary.md) | 인기 공연 전체 여정 성능 개선 과정과 최종 지표 |
+| [docs/performance/performance-test-strategy.md](docs/performance/performance-test-strategy.md) | k6 성능 테스트 시나리오와 측정 기준 |
+| [docs/planning/backend-feature-roadmap.md](docs/planning/backend-feature-roadmap.md) | 후속 확장 후보와 설계 기준 |
+| [docs/planning/backend-issue-list.md](docs/planning/backend-issue-list.md) | 미해결 이슈 목록 |
+| [docs/planning/backend-refactoring-list.md](docs/planning/backend-refactoring-list.md) | 리팩토링 후보 목록 |
+| [docs/history/change-history.md](docs/history/change-history.md) | 주요 변경 이력 |
