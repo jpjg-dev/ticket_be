@@ -15,10 +15,10 @@ public class PaymentRecoveryScheduler {
 
     private final PaymentRecoveryService paymentRecoveryService;
 
-    @Value("${payment.recovery-scheduler.grace-ms}")
+    @Value("${payment.recovery-scheduler.grace-ms:60000}")
     private long graceMs;
 
-    @Scheduled(fixedDelayString = "${payment.recovery-scheduler.fixed-delay-ms}")
+    @Scheduled(fixedDelayString = "${payment.recovery-scheduler.fixed-delay-ms:60000}")
     public void recoverConfirmingPayments() {
         int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(Duration.ofMillis(graceMs));
         log.info("Recover confirming payments completed. recoveredCount={}", recoveredCount);

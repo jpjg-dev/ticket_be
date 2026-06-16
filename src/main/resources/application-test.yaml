@@ -42,6 +42,11 @@ reservation:
   expire-scheduler:
     fixed-delay-ms: 60000
 
+payment:
+  recovery-scheduler:
+    grace-ms: 60000
+    fixed-delay-ms: 60000
+
 security:
   csrf-origin:
     allowed-origins:
