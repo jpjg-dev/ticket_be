@@ -507,6 +507,69 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("recoverConfirmingPayments: 좌석 유실 환불이 타임아웃되면 CONFIRMING을 유지하고 다음 주기에 재시도한다")
+    void recoverConfirmingPaymentDoneButRefundTimeoutKeepsConfirmingForRetry() {
+        Fixture fixture = createPendingReservationFixture(true);
+        Payment ready = paymentRepository.save(new Payment(
+                reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
+                fixture.price,
+                LocalDateTime.now(),
+                "expired-confirming-refund-timeout-order-" + System.nanoTime()
+        ));
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+
+        TossPaymentLookupResponse lookupResponse = new TossPaymentLookupResponse(
+                "pay-key-refund-timeout",
+                ready.getOrderId(),
+                "DONE",
+                "CARD",
+                totalAmountWithVat,
+                "KRW"
+        );
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(lookupResponse, lookupResponse);
+        when(tossPaymentClient.cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
+                .thenThrow(new ResourceAccessException("timeout"))
+                .thenReturn(new TossCancelResponse("pay-key-refund-timeout", "CANCELED", String.valueOf(totalAmountWithVat), "KRW"));
+
+        int firstRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment stillConfirming = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup stillPendingGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        Reservation stillPendingReservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat stillHeldSeat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(0, firstRecoveredCount);
+        assertEquals(PaymentStatus.CONFIRMING, stillConfirming.getStatus());
+        assertEquals(ReservationGroupStatus.PENDING, stillPendingGroup.getStatus());
+        assertEquals(ReservationStatus.PENDING, stillPendingReservation.getStatus());
+        assertEquals(SeatStatus.HELD, stillHeldSeat.getStatus());
+
+        int secondRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment failed = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup expiredGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        Reservation expiredReservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat releasedSeat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(1, secondRecoveredCount);
+        assertEquals(PaymentStatus.FAILED, failed.getStatus());
+        assertEquals(ReservationGroupStatus.EXPIRED, expiredGroup.getStatus());
+        assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, releasedSeat.getStatus());
+        verify(tossPaymentClient, times(2))
+                .cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId());
+    }
+
+    @Test
     @DisplayName("confirmPayment: 만료된 예약이면 예외가 발생하고 트랜잭션 롤백으로 READY/PENDING/HELD가 유지된다")
     void confirmPaymentExpiredReservation() {
         Fixture fixture = createPendingReservationFixture(true);
