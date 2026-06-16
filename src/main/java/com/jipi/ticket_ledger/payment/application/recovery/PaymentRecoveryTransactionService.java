@@ -54,7 +54,7 @@ public class PaymentRecoveryTransactionService {
                 return true;
             }
 
-            if (!refundLostSeatPayment(payment, lookupResponse)) {
+            if (!refundConfirmingPayment(payment, lookupResponse, "SEAT_UNAVAILABLE")) {
                 return false;
             }
             failAndRelease(payment, reservations);
@@ -70,14 +70,32 @@ public class PaymentRecoveryTransactionService {
             return true;
         }
 
-        return false;
+        // 여기 도달 = PG status는 DONE인데 orderId/금액/통화 중 하나가 불일치한 경우
+        if (!payment.getOrderId().equals(lookupResponse.orderId())) {
+            // orderId 불일치: 우리 결제건이 맞는지 의심스러우므로 자동 환불/실패를 하지 않고 알림 후 보류한다.
+            log.error("CONFIRMING payment lookup orderId mismatch, manual review required. paymentId={} ourOrderId={} pgOrderId={} pgStatus={}",
+                    payment.getId(), payment.getOrderId(), lookupResponse.orderId(), lookupResponse.status());
+            return false;
+        }
+
+        // orderId는 일치하지만 금액/통화 불일치: 우리 결제건은 맞으므로 고객 돈을 보호하기 위해 결제한 금액 그대로 환불 후 FAILED 처리한다.
+        log.error("CONFIRMING payment amount/currency mismatch, refunding. paymentId={} orderId={} expectedAmount={} pgAmount={} expectedCurrency={} pgCurrency={}",
+                payment.getId(), payment.getOrderId(), payment.totalAmountWithVat(), lookupResponse.totalAmount(),
+                payment.getCurrency(), lookupResponse.currency());
+        if (!refundConfirmingPayment(payment, lookupResponse, "PG_DATA_MISMATCH")) {
+            return false;
+        }
+        failAndRelease(payment, reservations);
+        log.warn("Refunded CONFIRMING payment after data mismatch. paymentId={} orderId={} pgStatus={}",
+                payment.getId(), payment.getOrderId(), lookupResponse.status());
+        return true;
     }
 
-    private boolean refundLostSeatPayment(Payment payment, TossPaymentLookupResponse lookupResponse) {
+    private boolean refundConfirmingPayment(Payment payment, TossPaymentLookupResponse lookupResponse, String reason) {
         try {
             tossPaymentClient.cancel(
                     lookupResponse.paymentKey(),
-                    "SEAT_UNAVAILABLE",
+                    reason,
                     payment.getCurrency(),
                     "cancel:" + payment.getId()
             );

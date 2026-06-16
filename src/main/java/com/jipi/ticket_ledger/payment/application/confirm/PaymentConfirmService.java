@@ -20,6 +20,7 @@ public class PaymentConfirmService {
     private final PaymentConfirmTransactionService paymentConfirmTransactionService;
 
     public Payment confirm(String paymentKey, String orderId, Integer amount) {
+        // Tx1 부분
         ConfirmingPayment confirmingPayment = paymentConfirmTransactionService.markConfirming(paymentKey, orderId, amount);
         if (confirmingPayment.alreadyApproved()) {
             return paymentConfirmTransactionService.getPayment(confirmingPayment.orderId());
