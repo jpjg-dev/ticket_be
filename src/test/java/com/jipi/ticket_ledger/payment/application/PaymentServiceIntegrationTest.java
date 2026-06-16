@@ -198,8 +198,8 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: 동일 orderId 승인 동시 요청은 같은 멱등키로 호출하고 확정 상태로 수렴한다")
-    void confirmPaymentDuplicateRequestCallsPgOnce() throws Exception {
+    @DisplayName("confirmPayment: 동일 orderId 승인 동시 요청은 중복 결제를 만들지 않고 확정 상태로 수렴한다")
+    void confirmPaymentDuplicateRequestConvergesWithoutDuplicatePayment() throws Exception {
         Fixture fixture = createPendingReservationFixture(false, 2);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
         paymentIds.add(ready.getId());
@@ -251,9 +251,18 @@ class PaymentServiceIntegrationTest {
         ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
         List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
         List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
+        long paymentCount = paymentRepository.findAll().stream()
+                .filter(candidate -> candidate.getReservationGroup().getId().equals(fixture.reservationGroupId))
+                .count();
+        long approvedPaymentCount = paymentRepository.findAll().stream()
+                .filter(candidate -> candidate.getReservationGroup().getId().equals(fixture.reservationGroupId))
+                .filter(candidate -> candidate.getStatus() == PaymentStatus.APPROVED)
+                .count();
 
         verify(tossPaymentClient, times(2))
                 .confirm("pay-key-duplicate-confirm", ready.getOrderId(), totalAmountWithVat, "confirm:" + ready.getOrderId());
+        assertEquals(1L, paymentCount);
+        assertEquals(1L, approvedPaymentCount);
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CONFIRMED, group.getStatus());
         assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CONFIRMED));

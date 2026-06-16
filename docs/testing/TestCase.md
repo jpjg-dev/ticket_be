@@ -12,7 +12,7 @@
 | --- | --- |
 | 예약 생성 | 좌석 선점, 다중 좌석 원자성, 예매 오픈 전 차단 |
 | 예약 만료 | `PENDING -> EXPIRED`, `HELD -> AVAILABLE`, `READY -> FAILED` |
-| 결제 승인 | 금액 검증, PG 응답 검증, 상태 일괄 확정 |
+| 결제 승인 | `CONFIRMING` 마커, 중복 결제 방어, 금액 검증, PG 응답 검증, 상태 확정 |
 | 결제 취소 | 승인 결제만 취소, 좌석 복구, 중복 취소 방어 |
 | 조회 | 공연 캐시, 좌석 조회 전 회차별 만료 처리 |
 | 사용자 | 현재 사용자 조회, 본인 마이페이지 접근 제어 |
@@ -91,6 +91,7 @@
 - [x] `Payment.amount`는 그룹에 포함된 `Seat.price` 합계 기준으로 저장됩니다.
 - [x] `Payment.orderId`가 생성됩니다.
 - [x] 동일 `reservationGroupId` 재요청 시 기존 `Payment`를 재사용합니다.
+- [x] 동일 `reservationGroupId` 재요청 후에도 결제 row는 1건만 유지됩니다.
 
 실패 케이스:
 
@@ -103,18 +104,21 @@
 성공 케이스:
 
 - [x] `orderId`로 `Payment`를 조회합니다.
-- [x] `Payment` 상태가 `READY`일 때 승인됩니다.
+- [x] `Payment` 상태가 `READY`일 때 `CONFIRMING`을 거쳐 승인됩니다.
 - [x] group 안의 `Reservation` 상태가 모두 `PENDING`일 때 승인됩니다.
 - [x] amount 검증 통과 시 승인됩니다.
 - [x] 승인 성공 시 `Payment APPROVED / ReservationGroup CONFIRMED / Reservation CONFIRMED / Seat BOOKED`로 확정됩니다.
 - [x] `paymentKey`, `method`, `pgStatus`가 저장됩니다.
 - [x] PG confirm 응답을 받지 못해도 조회 결과가 `DONE`이면 승인 상태를 확정합니다.
-- [x] 동일 `orderId` 동시 승인 요청은 PG confirm을 1회만 호출하고 확정 상태를 재사용합니다.
+- [x] 동일 `orderId` 동시 승인 요청은 같은 멱등키로 PG를 호출하고 내부 상태는 확정 상태로 수렴합니다.
+- [x] 동일 `orderId` 동시 승인 요청 후에도 승인 결제 row는 1건만 유지됩니다.
+- [x] 오래된 `CONFIRMING` 결제는 PG 조회 결과가 `DONE`이고 좌석이 `HELD`이면 승인 상태로 보정됩니다.
+- [x] PG는 `DONE`이지만 예약/좌석이 유효하지 않으면 환불 후 실패 상태로 정리됩니다.
 
 실패 케이스:
 
 - [x] 존재하지 않는 `orderId`면 `EntityNotFoundException`을 반환합니다.
-- [x] `Payment` 상태가 `READY`, `APPROVED`가 아니면 `IllegalStateException`을 반환합니다.
+- [x] `Payment` 상태가 `READY`, `CONFIRMING`, `APPROVED` 처리 조건에 맞지 않으면 `IllegalStateException`을 반환합니다.
 - [x] group 안의 `Reservation` 상태가 `PENDING`이 아니면 `IllegalStateException`을 반환합니다.
 - [x] `ReservationGroup`이 만료됐으면 `IllegalStateException`을 반환합니다.
 - [x] amount 불일치면 `IllegalStateException`을 반환합니다.
@@ -202,5 +206,5 @@
 ## 핵심 목표
 
 - 상태 전이 정합성을 보장합니다.
-- 트랜잭션 안에서 `Seat`, `Reservation`, `Payment` 상태가 함께 바뀌는지 확인합니다.
+- PG 호출 전후로 나뉜 트랜잭션에서도 `Seat`, `Reservation`, `Payment` 상태가 같은 결과로 수렴하는지 확인합니다.
 - 만료, 이탈, 취소 같은 예외 상황에서도 상태 불일치가 없도록 검증합니다.

@@ -13,6 +13,7 @@
 ```text
 paymentKey, orderId, amount 수신
 -> 내부 DB 기준 예약 상태 검증
+-> Payment READY -> CONFIRMING 커밋
 -> 만료 여부 검증
 -> 결제 금액 검증
 -> 토스페이먼츠 승인 API 호출
@@ -20,7 +21,7 @@ paymentKey, orderId, amount 수신
 -> Payment / ReservationGroup / Reservation / Seat 상태 확정
 ```
 
-외부 API 응답을 받은 뒤 같은 트랜잭션 흐름에서 내부 상태를 확정해야 하므로, 현재 구조에서는 동기 HTTP 호출이 가장 자연스럽습니다.
+외부 API 응답을 받은 뒤 내부 상태를 확정해야 하므로, 현재 구조에서는 동기 HTTP 호출이 가장 자연스럽습니다. 다만 PG 호출 자체는 DB 트랜잭션 밖에서 수행해 외부 응답 시간 동안 DB 락을 오래 잡지 않습니다.
 
 ## 후보 비교
 
@@ -47,15 +48,14 @@ TicketLedger는 토스페이먼츠 연동용 HTTP 클라이언트로 `RestClient
 
 ```text
 PaymentService.confirmPayment()
--> 내부 상태 검증
--> 예약 만료 검증
--> 금액 검증
+-> PaymentConfirmService.confirm()
+-> Tx1: 내부 상태/금액/만료 검증 + READY -> CONFIRMING
 -> RestClient로 Toss Payments 승인 API 호출
 -> Toss 응답 검증
--> Payment APPROVED
--> ReservationGroup CONFIRMED
--> Reservation CONFIRMED
--> Seat BOOKED
+-> Tx2: Payment APPROVED
+       ReservationGroup CONFIRMED
+       Reservation CONFIRMED
+       Seat BOOKED
 ```
 
 중요한 기준은 외부 PG 승인 요청보다 내부 검증이 먼저라는 점입니다.
@@ -70,6 +70,7 @@ PaymentService.confirmPayment()
 | 선택 | 얻은 점 | 감수한 점 |
 | --- | --- | --- |
 | 동기 `RestClient` | 결제 승인 후 상태 전이 순서를 설명하기 쉽습니다. | 외부 API 응답 시간 동안 요청 thread가 대기합니다. |
+| PG 호출을 DB 트랜잭션 밖에서 수행 | 외부 호출 시간만큼 DB 락을 오래 잡지 않습니다. | 중간 상태 `CONFIRMING`과 보정 스케줄러가 필요합니다. |
 | WebFlux 미도입 | 구현 범위와 학습 비용을 줄였습니다. | 다량 외부 API 병렬 호출에는 적합하지 않습니다. |
 | OpenFeign 보류 | 단일 PG 연동에 필요한 의존성을 줄였습니다. | 외부 API가 늘어나면 인터페이스 기반 정리가 필요할 수 있습니다. |
 
