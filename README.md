@@ -107,7 +107,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 ### 결제 데이터 흐름 (정상)
 
-결제 승인은 PG 호출 전에 짧은 트랜잭션으로 `Payment`를 `CONFIRMING`으로 남기고, PG 호출 후 다시 짧은 트랜잭션으로 내부 상태를 확정합니다. 외부 PG 호출 동안 DB 락을 오래 잡지 않으면서, 중간 장애가 나도 보정 스케줄러가 `CONFIRMING` 결제를 찾아 정리할 수 있게 했습니다.
+결제 승인은 PG 호출 전에 짧은 트랜잭션으로 `Payment`를 `CONFIRMING`으로 남기고, PG 호출 후 다시 짧은 트랜잭션으로 내부 상태를 확정합니다. 외부 PG 호출 동안 DB 락을 오래 잡지 않도록 트랜잭션 경계를 나눴습니다.
 
 ```mermaid
 sequenceDiagram
@@ -138,38 +138,54 @@ sequenceDiagram
     API-->>User: 결제 완료 응답
 ```
 
-### 결제 장애 대응
+### 결제 장애 대응 1: PG 호출 실패 / 응답 불명
 
-PG 승인 호출이 예외로 실패하거나, PG 승인 뒤 서버가 중단되어 내부 상태 반영을 끝내지 못해도 결제 결과를 임의로 단정하지 않습니다. 동기 흐름에서는 PG 상태를 즉시 재조회하고, 서버가 중단된 경우에는 보정 스케줄러가 오래된 `CONFIRMING` 결제를 찾아 PG 상태 기준으로 수렴시킵니다.
+PG 승인 호출에서 타임아웃이나 네트워크 예외가 발생하면 결제 실패로 바로 단정하지 않습니다. 요청 처리가 살아있는 동안에는 PG 상태를 즉시 재조회하고, `DONE`이면 내부 상태를 승인으로 확정합니다.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Confirm as PaymentConfirmService
-    participant Recovery as PaymentRecoveryService
-    participant Tx as PaymentRecoveryTransactionService
     participant Toss as Toss Payments
     participant DB as PostgreSQL
 
     Confirm->>DB: READY -> CONFIRMING 커밋
     Confirm->>Toss: 승인 API 호출
-    Toss--xConfirm: 호출 실패 또는 서버 중단
-    alt 동기 요청이 살아있음
-        Confirm->>Toss: 결제 상태 재조회(lookup)
-        Toss-->>Confirm: 실제 상태 응답
-        Confirm->>DB: DONE이면 승인 상태 반영
-    else 프로세스 중단 후 재시작
-        Recovery->>DB: 오래된 CONFIRMING 결제 조회
-        Recovery->>Toss: orderId로 PG 상태 조회
-        Toss-->>Recovery: 실제 상태 응답
-        Recovery->>Tx: 보정 반영
-    end
+    Toss--xConfirm: 타임아웃 / 네트워크 예외
+    Confirm->>Toss: 결제 상태 재조회(lookup)
+    Toss-->>Confirm: 실제 상태 응답
 
     alt 승인 완료(DONE) + 금액/통화/주문 일치
-        Tx->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
-        Note over Tx,DB: 내부 상태를 PG 기준으로 수렴
+        Confirm->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
     else 승인 아님
-        Tx->>DB: Payment FAILED + 좌석 release
+        Confirm-->>Confirm: 예외 전파
+    end
+```
+
+### 결제 장애 대응 2: PG 성공 후 내부 반영 실패
+
+PG 승인은 성공했지만 내부 DB 반영 전에 프로세스가 중단되면 결제가 `CONFIRMING`에 남습니다. 보정 스케줄러는 오래된 `CONFIRMING` 결제를 찾아 PG 상태를 조회하고, 좌석이 아직 유효하면 승인으로 확정합니다. 좌석이 이미 유효하지 않으면 환불 후 실패 상태로 정리합니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Recovery as PaymentRecoveryService
+    participant Tx as PaymentRecoveryTransactionService
+    participant Toss as Toss Payments
+    participant DB as PostgreSQL
+
+    Recovery->>DB: 오래된 CONFIRMING 결제 조회
+    Recovery->>Toss: orderId로 PG 상태 조회
+    Toss-->>Recovery: 실제 상태 응답
+    Recovery->>Tx: 보정 트랜잭션 요청
+
+    alt DONE + 좌석 HELD
+        Tx->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
+    else DONE + 좌석 유효하지 않음
+        Tx->>Toss: 결제 취소 / 환불
+        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
+    else 미승인
+        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
     end
 ```
 
