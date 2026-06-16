@@ -168,6 +168,7 @@ class PayMentControllerTest {
     private PaymentFixture createApprovedPayment() {
         PaymentFixture fixture = createReadyPayment();
         Payment payment = fixture.payment();
+        payment.confirming();
         payment.approve("pay-key", "CARD", "DONE");
         fixture.reservations().forEach(reservation -> {
             reservation.confirm();

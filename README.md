@@ -166,6 +166,8 @@ sequenceDiagram
 | Reservation | `PENDING -> CONFIRMED`, `PENDING -> EXPIRED`, `CONFIRMED -> CANCELED` |
 | Payment | `READY -> APPROVED`, `READY -> FAILED`, `APPROVED -> CANCELED` |
 
+> **도입 예정**: 결제 장애 복구를 위해 `CONFIRMING` 중간 상태(`READY -> CONFIRMING -> APPROVED`)와 보정 스케줄러를 추가할 계획입니다. 위 표는 현재 배포 동작 기준이며, 목표 설계는 [결제 장애 복구 설계](docs/design/payment-failure-recovery-design.md)에 정리했습니다.
+
 상세 상태 정책은 [docs/design/state-design.md](docs/design/state-design.md)에 정리했습니다.
 
 ## 주요 설계 판단

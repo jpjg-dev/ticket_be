@@ -31,6 +31,8 @@ public class Payment {
     @Column(nullable = false)
     private LocalDateTime requestedAt;
 
+    private LocalDateTime confirmingAt;
+
     private LocalDateTime approvedAt;
 
     private LocalDateTime canceledAt;
@@ -63,9 +65,22 @@ public class Payment {
         this.currency = currency;
     }
 
-    public void approve(String paymentKey, String method, String pgStatus) {
+    public Integer totalAmountWithVat() {
+        int vat = (int) Math.round(this.amount * 0.1d);
+        return this.amount + vat;
+    }
+
+    public void confirming() {
         if (this.status != PaymentStatus.READY) {
-            throw new IllegalStateException("결제 대기 상태에서만 승인할 수 있습니다.");
+            throw new IllegalStateException("결제 대기 상태에서만 승인 진행 상태로 변경할 수 있습니다.");
+        }
+        this.status = PaymentStatus.CONFIRMING;
+        this.confirmingAt = LocalDateTime.now();
+    }
+
+    public void approve(String paymentKey, String method, String pgStatus) {
+        if (this.status != PaymentStatus.CONFIRMING) {
+            throw new IllegalStateException("승인 진행 상태의 결제만 승인 완료할 수 있습니다.");
         }
         this.paymentKey = paymentKey;
         this.method = method;
@@ -75,8 +90,8 @@ public class Payment {
     }
 
     public void fail() {
-        if (this.status != PaymentStatus.READY) {
-            throw new IllegalStateException("결제 대기 상태에서만 실패 처리할 수 있습니다.");
+        if (this.status != PaymentStatus.READY && this.status != PaymentStatus.CONFIRMING) {
+            throw new IllegalStateException("결제 대기 또는 승인 진행 상태에서만 실패 처리할 수 있습니다.");
         }
         this.status = PaymentStatus.FAILED;
     }

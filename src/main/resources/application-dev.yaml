@@ -29,6 +29,12 @@ reservation:
   expire-scheduler:
     fixed-delay-ms: 1500000000000 # 15 seconds
 
+#결제 복구 스케쥴러
+payment:
+  recovery-scheduler:
+    grace-ms: 60000 # 60 seconds
+    fixed-delay-ms: 60000 # 1 minute
+
 security:
   csrf-origin:
     allowed-origins:

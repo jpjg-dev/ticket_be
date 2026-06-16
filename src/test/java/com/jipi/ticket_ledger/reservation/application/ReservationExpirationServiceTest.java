@@ -115,6 +115,27 @@ class ReservationExpirationServiceTest {
     }
 
     @Test
+    @DisplayName("expireAll: CONFIRMING 결제가 연결된 group은 보정 스케줄러가 처리하도록 만료하지 않는다")
+    void expireAllSkipsConfirmingPayment() {
+        Fixture fixture = createFixture(12L);
+        fixture.payment().confirming();
+
+        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+                .thenReturn(List.of(12L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(12L)).thenReturn(Optional.of(fixture.payment()));
+        when(reservationGroupRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(fixture.group()));
+
+        int expiredCount = reservationExpirationService.expireAll();
+
+        assertEquals(0, expiredCount);
+        assertEquals(PaymentStatus.CONFIRMING, fixture.payment().getStatus());
+        assertEquals(ReservationGroupStatus.PENDING, fixture.group().getStatus());
+        assertEquals(ReservationStatus.PENDING, fixture.reservations().get(0).getStatus());
+        assertEquals(SeatStatus.HELD, fixture.reservations().get(0).getSeat().getStatus());
+        verify(reservationRepository, never()).findByReservationGroupIdWithSeat(12L);
+    }
+
+    @Test
     @DisplayName("expireAll: 결제가 없는 만료 group은 group 락을 획득한 뒤 처리한다")
     void expireAllLocksGroupWhenPaymentDoesNotExist() {
         Fixture fixture = createFixture(11L);

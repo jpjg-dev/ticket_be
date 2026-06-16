@@ -34,7 +34,7 @@
 | `Seat` | `AVAILABLE -> HELD` | `HELD -> BOOKED` | `HELD -> AVAILABLE` | `BOOKED -> AVAILABLE` |
 | `ReservationGroup` | `PENDING` | `PENDING -> CONFIRMED` | `PENDING -> EXPIRED` | `CONFIRMED -> CANCELED` |
 | `Reservation` | `PENDING` | `PENDING -> CONFIRMED` | `PENDING -> EXPIRED` | `CONFIRMED -> CANCELED` |
-| `Payment` | `READY` | `READY -> APPROVED` | `READY -> FAILED` | `APPROVED -> CANCELED` |
+| `Payment` | `READY` | `READY -> CONFIRMING -> APPROVED` | `READY/CONFIRMING -> FAILED` | `APPROVED -> CANCELED` |
 
 ## 좌석 상태
 
@@ -77,11 +77,59 @@ CANCELED -> CONFIRMED
 | 상태 | 의미 |
 | --- | --- |
 | `READY` | 결제 준비가 생성됐습니다. |
+| `CONFIRMING` | 결제 승인을 시도해 PG 호출 단계에 진입했습니다. 승인 결과는 아직 미확정입니다. |
 | `APPROVED` | PG 승인까지 완료됐습니다. |
 | `FAILED` | 결제 실패 또는 만료로 실패 처리됐습니다. |
 | `CANCELED` | 승인된 결제가 취소됐습니다. |
 
+> **상태: 도입 예정(미구현).** `CONFIRMING`과 보정 스케줄러는 설계 확정 단계이며 아직 배포 코드에 반영되지 않았습니다. 현재 배포 동작은 `READY -> APPROVED` 단일 트랜잭션입니다. 아래는 적용할 목표 설계입니다.
+
+### 전이 규칙
+
+```text
+READY -> CONFIRMING       // confirm 진입 시 PG 호출 전에 먼저 커밋 (durable 마커)
+CONFIRMING -> APPROVED    // PG 승인 + 내부 상태 확정
+CONFIRMING -> FAILED      // PG 미승인 확인 (보정 또는 재진입 시)
+READY -> FAILED           // 결제를 시도하지 않은 채 만료
+APPROVED -> CANCELED      // 승인된 결제 취소
+```
+
+금지 전이:
+
+```text
+APPROVED / FAILED / CANCELED -> CONFIRMING
+CONFIRMING -> READY
+```
+
+도메인 가드(`Payment`):
+
+| 메서드 | 허용 상태 | 결과 |
+| --- | --- | --- |
+| `confirming()` | `READY` | `CONFIRMING` |
+| `approve()` | `CONFIRMING` | `APPROVED` |
+| `fail()` | `READY` 또는 `CONFIRMING` | `FAILED` |
+| `cancel()` | `APPROVED` | `CANCELED` |
+
+### `CONFIRMING` 도입 이유
+
+PG 승인(돈이 빠짐)과 내부 상태 확정은 하나의 트랜잭션으로 묶을 수 없습니다. confirm 진입 시 `READY -> CONFIRMING`을 **PG 호출 전에 먼저 커밋**해 두면, PG 호출 이후 커밋 실패나 프로세스 종료가 발생해도 결제가 `CONFIRMING`에 남습니다. 따라서 "승인을 시도했지만 확정되지 못한" 결제를 식별할 수 있고, 이 `CONFIRMING` row가 보정 스케줄러의 처리 대상이 됩니다.
+
+### confirm 재진입 정책
+
+이미 `CONFIRMING`인 결제에 confirm 요청이 다시 들어오면(사용자 재시도 또는 이전 요청 중단), 거부하지 않고 **PG 상태를 재조회해 한 방향으로 수렴**시킵니다.
+
+| PG 재조회 | 좌석 | 결과 |
+| --- | --- | --- |
+| `DONE` | 유효(`HELD`) | `CONFIRMING -> APPROVED` |
+| `DONE` | 소실(만료·재판매) | 환불 후 `CONFIRMING -> FAILED` |
+| 미승인 | - | `CONFIRMING -> FAILED` |
+| 불명 | - | 보류, 보정 스케줄러가 이후 처리 |
+
+"진행 중"으로 일정 시간 결제를 잠그는 방식은 사용자를 불필요하게 대기시키므로 채택하지 않았습니다.
+
 승인된 결제만 취소할 수 있습니다. `FAILED` 또는 `CANCELED` 결제는 다시 `APPROVED`로 되돌리지 않습니다.
+
+> 스키마: `payments.status`에는 허용 상태를 강제하는 CHECK 제약(`payments_status_check`)이 있어, `CONFIRMING` 추가 시 제약을 `CONFIRMING` 포함으로 재생성하는 Flyway 마이그레이션이 필요합니다.
 
 ## 상태 연동 규칙
 
@@ -89,11 +137,12 @@ CANCELED -> CONFIRMED
 | --- | --- | --- | --- | --- |
 | 예약 생성 | - | `PENDING` | `PENDING` | `HELD` |
 | 결제 준비 | `READY` | `PENDING` 유지 | `PENDING` 유지 | `HELD` 유지 |
-| 결제 승인 | `APPROVED` | `CONFIRMED` | `CONFIRMED` | `BOOKED` |
+| 결제 승인 진행 | `READY -> CONFIRMING` | `PENDING` 유지 | `PENDING` 유지 | `HELD` 유지 |
+| 결제 승인 | `CONFIRMING -> APPROVED` | `CONFIRMED` | `CONFIRMED` | `BOOKED` |
 | 예약 만료 | `READY -> FAILED` | `EXPIRED` | `EXPIRED` | `AVAILABLE` |
 | 결제 취소 | `CANCELED` | `CANCELED` | `CANCELED` | `AVAILABLE` |
 
-PG 승인/취소 요청 후 서버가 응답을 받지 못한 경우에는 `paymentKey` 또는 `orderId` 조회 결과를 기준으로 내부 상태를 확정합니다.
+PG 승인/취소 요청 후 서버가 응답을 받지 못한 경우에는 `orderId` 조회 결과를 기준으로 내부 상태를 확정합니다. 응답을 받지 못한 채 커밋 실패나 프로세스 종료가 발생하면 결제가 `CONFIRMING`에 남고, 보정 스케줄러가 `orderId`로 PG를 재조회해 위 [confirm 재진입 정책](#confirm-재진입-정책)과 같은 기준으로 수렴시킵니다. 자세한 설계는 [결제 장애 복구 설계](payment-failure-recovery-design.md)를 참고하세요.
 
 ## 설계 판단과 트레이드오프
 

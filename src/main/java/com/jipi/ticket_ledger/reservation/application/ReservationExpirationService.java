@@ -52,6 +52,12 @@ public class ReservationExpirationService {
                 continue;
             }
 
+            if (payment != null && payment.getStatus() == PaymentStatus.CONFIRMING) {
+                log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
+                        LogEvents.RESERVATION_EXPIRE_START, payment.getOrderId(), payment.getId(), reservationGroup.getId(), "SKIP_CONFIRMING_PAYMENT");
+                continue;
+            }
+
             List<Reservation> pendingReservations = reservationRepository.findByReservationGroupIdWithSeat(reservationGroup.getId()).stream()
                     .filter(Reservation::isPending)
                     .toList();
