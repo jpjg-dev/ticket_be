@@ -41,3 +41,7 @@ out/
 /docs/private/
 /performance/data/
 /docs/superpowers/
+
+### Claude ###
+CLAUDE.md
+.claude/
