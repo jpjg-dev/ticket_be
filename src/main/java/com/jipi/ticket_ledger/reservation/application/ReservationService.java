@@ -59,6 +59,7 @@ public class ReservationService {
         // 2) 좌석 상태를 AVAILABLE -> HELD로 변경해 임시 선점한다.
         LocalDateTime now = LocalDateTime.now();
         validateBookingOpen(seats, now);
+        validateScheduleNotStarted(seats, now);
         LocalDateTime expiresAt = now.plus(holdDuration);
         ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
 
@@ -115,6 +116,15 @@ public class ReservationService {
             log.warn("event={} bookingOpenAt={} now={} reason={}",
                     LogEvents.RESERVATION_CREATE_REJECT, bookingOpenAt, now, "BOOKING_NOT_OPEN");
             throw new IllegalStateException("예매 오픈 전 공연은 예약할 수 없습니다.");
+        }
+    }
+
+    private void validateScheduleNotStarted(List<Seat> seats, LocalDateTime now) {
+        LocalDateTime startAt = seats.get(0).getSchedule().getStartAt();
+        if (!startAt.isAfter(now)) {
+            log.warn("event={} startAt={} now={} reason={}",
+                    LogEvents.RESERVATION_CREATE_REJECT, startAt, now, "SCHEDULE_ALREADY_STARTED");
+            throw new IllegalStateException("시작된(또는 종료된) 회차는 예약할 수 없습니다.");
         }
     }
 }

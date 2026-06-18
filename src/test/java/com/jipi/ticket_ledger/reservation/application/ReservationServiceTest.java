@@ -176,6 +176,49 @@ class ReservationServiceTest {
         verify(reservationRepository, never()).saveAll(any());
     }
 
+    @Test
+    @DisplayName("createReservation: 이미 시작된(또는 종료된) 회차의 좌석은 예약할 수 없다")
+    void createReservationScheduleAlreadyStarted() {
+        User user = createUser();
+        Seat seat = createSeatWithStartAt(LocalDateTime.now().minusMinutes(1));
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        lenient().when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
+            ReservationGroup reservationGroup = invocation.getArgument(0);
+            ReflectionTestUtils.setField(reservationGroup, "id", 77L);
+            return reservationGroup;
+        });
+
+        assertThrows(IllegalStateException.class,
+                () -> reservationService.createReservation(1L, List.of(10L)));
+
+        assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+        verify(reservationGroupRepository, never()).save(any());
+        verify(reservationRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("createReservation: 아직 시작되지 않은(예매 오픈된) 회차는 정상적으로 예약된다")
+    void createReservationScheduleNotStartedSuccess() {
+        User user = createUser();
+        Seat seat = createSeatWithStartAt(LocalDateTime.now().plusHours(1));
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
+            ReservationGroup reservationGroup = invocation.getArgument(0);
+            ReflectionTestUtils.setField(reservationGroup, "id", 77L);
+            return reservationGroup;
+        });
+
+        Long reservationGroupId = reservationService.createReservation(1L, List.of(10L));
+
+        assertEquals(77L, reservationGroupId);
+        assertEquals(SeatStatus.HELD, seat.getStatus());
+        verify(reservationRepository).saveAll(any());
+    }
+
     private Seat createSeat() {
         return createSeatWithBookingOpenAt(LocalDateTime.now());
     }
@@ -183,6 +226,12 @@ class ReservationServiceTest {
     private Seat createSeatWithBookingOpenAt(LocalDateTime bookingOpenAt) {
         Event event = new Event("공연", "설명", "장소", bookingOpenAt, LocalDateTime.now());
         Schedule schedule = new Schedule(event, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(1).plusHours(2), LocalDateTime.now());
+        return new Seat(schedule, "A-1", "VIP", 100000, LocalDateTime.now());
+    }
+
+    private Seat createSeatWithStartAt(LocalDateTime startAt) {
+        Event event = new Event("공연", "설명", "장소", LocalDateTime.now().minusDays(1), LocalDateTime.now());
+        Schedule schedule = new Schedule(event, startAt, startAt.plusHours(2), LocalDateTime.now());
         return new Seat(schedule, "A-1", "VIP", 100000, LocalDateTime.now());
     }
 
