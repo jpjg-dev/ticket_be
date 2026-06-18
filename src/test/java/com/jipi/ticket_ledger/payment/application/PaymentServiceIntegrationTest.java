@@ -577,6 +577,59 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("recoverConfirmingPayments: 한 건이 예외로 실패해도 배치가 멈추지 않고 나머지를 계속 보정한다")
+    void recoverConfirmingPaymentsIsolatesFailingItem() {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+        // 독성 결제(A): 재조회가 항상 예외를 던져 보정에 실패한다 (예: 예상 못 한 NPE)
+        Fixture fixtureA = createPendingReservationFixture(false);
+        Payment poison = paymentRepository.save(new Payment(
+                reservationGroupRepository.findById(fixtureA.reservationGroupId).orElseThrow(),
+                fixtureA.price,
+                LocalDateTime.now(),
+                "poison-order-" + System.nanoTime()
+        ));
+        paymentIds.add(poison.getId());
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(poison.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+        when(tossPaymentClient.getPaymentByOrderId(poison.getOrderId()))
+                .thenThrow(new RuntimeException("simulated NPE during reconcile"));
+
+        // 정상 결제(B): DONE + 좌석 유효 → 정상적으로 보정되어야 한다
+        Fixture fixtureB = createPendingReservationFixture(false);
+        Payment healthy = paymentService.readyPayment(fixtureB.reservationGroupId);
+        paymentIds.add(healthy.getId());
+        int totalAmountWithVat = amountWithVat(healthy.getAmount());
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(healthy.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+        when(tossPaymentClient.getPaymentByOrderId(healthy.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-healthy",
+                        healthy.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        int recoveredCount = assertDoesNotThrow(() ->
+                paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO));
+
+        Payment poisonAfter = paymentRepository.findById(poison.getId()).orElseThrow();
+        Payment healthyAfter = paymentRepository.findById(healthy.getId()).orElseThrow();
+
+        assertEquals(1, recoveredCount);                                  // 정상 건만 복구
+        assertEquals(PaymentStatus.CONFIRMING, poisonAfter.getStatus());  // 독성 건은 격리되어 그대로 남음
+        assertEquals(PaymentStatus.APPROVED, healthyAfter.getStatus());   // 뒤 건이 막히지 않고 보정됨
+    }
+
+    @Test
     @DisplayName("recoverConfirmingPayments: PG DONE이지만 금액이 불일치하면 환불 후 FAILED로 정리하고 좌석을 푼다")
     void recoverConfirmingPaymentDoneButAmountMismatchRefunds() {
         Fixture fixture = createPendingReservationFixture(false); // 유효한 예약, 좌석은 HELD

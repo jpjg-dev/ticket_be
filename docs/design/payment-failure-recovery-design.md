@@ -124,10 +124,14 @@ ALTER TABLE payments ADD COLUMN confirming_at timestamp NULL;
 | 후보 | 이유 |
 | --- | --- |
 | 보정 환불 호출을 트랜잭션 밖으로 분리 | 현재 좌석 소실 환불 분기는 보정 트랜잭션 안에서 Toss cancel을 호출합니다. 빈도는 낮지만 외부 호출을 완전히 트랜잭션 밖으로 빼면 구조가 더 일관됩니다. |
-| `PaymentRecoveryTransactionService` 결정 로직 세분화 | PG 조회 결과 판단, 내부 상태 판단, 환불 요청 판단을 더 작은 정책 객체로 나누면 테스트 단위가 선명해집니다. |
-| 보정 스케줄러 건별 예외 격리 | `PaymentRecoveryService.reconcileStaleConfirmingPayments` 루프가 한 건의 PG `RestClientException`에 통째로 중단됩니다. 건별 try-catch로 감싸면 한 건 오류가 배치 전체를 멈추지 않습니다. |
+| `PaymentRecoveryTransactionService` 결정 로직 세분화 | PG 조회 결과 판단, 내부 상태 판단, 환불 요청 판단을 더 작은 정책 객체로 나누면 테스트 단위가 선명해집니다. (단, 닫힌 고정 매트릭스라 풀 OCP/전략 패턴은 과설계 — 의도 드러내는 메서드 추출 수준 유지) |
+| cancel 크래시 갭 (CANCELING 상태) | PG 취소 성공 직후 내부 커밋 전 크래시 시 결제가 `APPROVED`로 남아(정상 티켓과 구분 불가) 환불됐는데 티켓이 유효할 수 있습니다. confirm의 `CONFIRMING`처럼 `CANCELING` 마커를 도입하면 대칭이 되지만, 저빈도·고객유리(저위험) 실패라 상태머신 비대화를 피하기 위해 보류합니다. cancel은 이미 동기 재조회로 흔한 실패를 덮습니다. 환불 볼륨/위험이 커지면 도입을 검토합니다. |
 | `orderId` 불일치 보류 건 알림/지표화 | 현재 `log.error`만 남깁니다. 운영 규모가 커지면 모니터링 지표·알림으로 승격할 후보입니다. |
 | 보정 실패 재시도 정책 고도화 | 현재는 다음 스케줄 주기에 재시도합니다. 운영 규모가 커지면 retry count, backoff, 알림 지표를 추가할 수 있습니다. |
+
+### 반영됨
+
+- **보정 스케줄러 건별 예외 격리**: `PaymentRecoveryService.reconcileStaleConfirmingPayments` 루프를 건별 try-catch로 감싸, 한 건의 실패(PG 오류·NPE·데이터 이상 등)가 배치 전체를 중단시키지 않도록 했습니다. 실패 건은 `CONFIRMING`으로 남아 다음 주기에 재시도되며 `log.error`로 노출됩니다. 이 격리 전에는 한 건의 결정적 예외(poison pill)가 그 뒤 결제들을 영구히 방치(좌석 영구 HELD + 결제 미정리)시킬 수 있었습니다.
 
 ## 관련 문서
 

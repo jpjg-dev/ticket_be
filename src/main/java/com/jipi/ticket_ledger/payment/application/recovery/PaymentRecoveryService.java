@@ -61,8 +61,14 @@ public class PaymentRecoveryService {
     public int reconcileStaleConfirmingPayments(Duration grace) {
         int recoveredCount = 0;
         for (Long paymentId : findStaleConfirmingPaymentIds(grace)) {
-            if (reconcileConfirmingPayment(paymentId)) {
-                recoveredCount++;
+            try {
+                if (reconcileConfirmingPayment(paymentId)) {
+                    recoveredCount++;
+                }
+            } catch (Exception e) {
+                // 한 건의 실패(PG 오류·데이터 이상 등)가 배치 전체를 멈추지 않도록 격리한다.
+                // 실패 건은 CONFIRMING으로 남아 다음 주기에 재시도되며, 매번 노출되도록 크게 로깅한다.
+                log.error("Failed to reconcile CONFIRMING payment, skipping to next. paymentId={}", paymentId, e);
             }
         }
         return recoveredCount;
