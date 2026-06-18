@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.global.config.DataInitializer;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
+import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.BeforeEach;
@@ -243,7 +244,7 @@ class EventServiceTest {
             "cache.event.detail.ttl=5m",
             "cache.event.detail.max-size=100"
     })
-    class EventCacheTest {
+    class EventCacheTest extends PostgresTestContainerSupport {
 
         @Autowired
         private EventService cacheEventService;

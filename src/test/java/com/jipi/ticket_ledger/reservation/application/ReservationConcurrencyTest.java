@@ -11,6 +11,7 @@ import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
+import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "logging.level.org.hibernate.type.descriptor.sql=OFF"
 })
 @Slf4j
-class ReservationConcurrencyTest {
+class ReservationConcurrencyTest extends PostgresTestContainerSupport {
 
     @Autowired
     private ReservationService reservationService;

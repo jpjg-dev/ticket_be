@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.auth.domain.RefreshTokenRepository;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.auth.infrastructure.TokenHasher;
 import com.jipi.ticket_ledger.global.exception.AuthUnauthorizedException;
+import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -29,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "logging.level.org.hibernate.SQL=OFF",
         "logging.level.org.hibernate.orm.jdbc.bind=OFF"
 })
-class AuthServiceConcurrencyTest {
+class AuthServiceConcurrencyTest extends PostgresTestContainerSupport {
 
     private static final int CONCURRENT_REISSUE_REQUESTS = 20;
 

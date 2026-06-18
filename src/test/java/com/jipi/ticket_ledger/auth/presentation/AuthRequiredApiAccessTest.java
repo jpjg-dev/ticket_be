@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.auth.presentation;
 
+import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class AuthRequiredApiAccessTest {
+class AuthRequiredApiAccessTest extends PostgresTestContainerSupport {
 
     @Autowired
     private MockMvc mockMvc;

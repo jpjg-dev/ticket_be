@@ -25,6 +25,7 @@ import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
+import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -64,7 +65,7 @@ import static org.mockito.Mockito.when;
         "logging.level.org.hibernate.orm.jdbc.bind=OFF",
         "logging.level.org.hibernate.type.descriptor.sql=OFF"
 })
-class PaymentServiceIntegrationTest {
+class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
     @MockitoBean
     private TossPaymentClient tossPaymentClient;
