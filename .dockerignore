@@ -8,6 +8,9 @@
 !src/
 !src/main/
 !src/main/**
+!build/
+!build/libs/
+!build/libs/app.jar
 
 src/main/resources/application-dev.yaml
 src/main/resources/application-test.yaml
