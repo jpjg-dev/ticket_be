@@ -57,3 +57,11 @@ tasks.named('test') {
 	useJUnitPlatform()
 	systemProperty 'spring.profiles.active', 'test'
 }
+
+tasks.named('bootJar') {
+	archiveFileName = 'app.jar'
+}
+
+tasks.named('jar') {
+	enabled = false
+}
