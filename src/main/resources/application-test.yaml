@@ -27,7 +27,7 @@ server:
   port: ${PORT:8080}
 
 jwt:
-  secret: ${JWT_SECRET:abcdefghijklmnopqrstuvwxyz123456}
+  secret: ${JWT_SECRET:q4mzk1bpyxvcr6atn2swe5ldjhfig3uo}
 
 toss:
   payments:
