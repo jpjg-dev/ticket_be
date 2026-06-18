@@ -155,6 +155,7 @@ class UserServiceTest {
         List<Reservation> reservations = createReservations(user, reservationGroup, now, seatNumbers);
         Payment payment = new Payment(reservationGroup, 200000, now, "order-" + paymentId, "KRW");
         ReflectionTestUtils.setField(payment, "id", paymentId);
+        payment.confirming();
         payment.approve("payment-key-" + paymentId, "CARD", "DONE");
         reservations.forEach(reservation -> {
             reservation.confirm();

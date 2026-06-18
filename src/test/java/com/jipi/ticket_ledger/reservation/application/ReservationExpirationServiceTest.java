@@ -57,8 +57,8 @@ class ReservationExpirationServiceTest {
         when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
                 .thenReturn(List.of(3L));
         when(paymentRepository.findByReservationGroupIdForUpdate(3L)).thenReturn(Optional.of(fixture.payment()));
-        when(reservationGroupRepository.findById(3L)).thenReturn(Optional.of(fixture.group()));
-        when(reservationRepository.findByReservationGroupId(3L)).thenReturn(fixture.reservations());
+        when(reservationGroupRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(fixture.group()));
+        when(reservationRepository.findByReservationGroupIdWithSeat(3L)).thenReturn(fixture.reservations());
 
         int expiredCount = reservationExpirationService.expireAll();
 
@@ -79,8 +79,8 @@ class ReservationExpirationServiceTest {
         when(reservationGroupRepository.findExpiredPendingIdsByScheduleId(eq(99L), any(LocalDateTime.class)))
                 .thenReturn(List.of(7L));
         when(paymentRepository.findByReservationGroupIdForUpdate(7L)).thenReturn(Optional.of(fixture.payment()));
-        when(reservationGroupRepository.findById(7L)).thenReturn(Optional.of(fixture.group()));
-        when(reservationRepository.findByReservationGroupId(7L)).thenReturn(fixture.reservations());
+        when(reservationGroupRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(fixture.group()));
+        when(reservationRepository.findByReservationGroupIdWithSeat(7L)).thenReturn(fixture.reservations());
 
         int expiredCount = reservationExpirationService.expireByScheduleId(99L);
 
@@ -90,8 +90,8 @@ class ReservationExpirationServiceTest {
         verify(reservationGroupRepository).findExpiredPendingIdsByScheduleId(eq(99L), any(LocalDateTime.class));
         var inOrder = inOrder(paymentRepository, reservationGroupRepository, reservationRepository);
         inOrder.verify(paymentRepository).findByReservationGroupIdForUpdate(7L);
-        inOrder.verify(reservationGroupRepository).findById(7L);
-        inOrder.verify(reservationRepository).findByReservationGroupId(7L);
+        inOrder.verify(reservationGroupRepository).findByIdForUpdate(7L);
+        inOrder.verify(reservationRepository).findByReservationGroupIdWithSeat(7L);
     }
 
     @Test
@@ -103,8 +103,8 @@ class ReservationExpirationServiceTest {
         when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
                 .thenReturn(List.of(8L));
         when(paymentRepository.findByReservationGroupIdForUpdate(8L)).thenReturn(Optional.of(fixture.payment()));
-        when(reservationGroupRepository.findById(8L)).thenReturn(Optional.of(fixture.group()));
-        when(reservationRepository.findByReservationGroupId(8L)).thenReturn(fixture.reservations());
+        when(reservationGroupRepository.findByIdForUpdate(8L)).thenReturn(Optional.of(fixture.group()));
+        when(reservationRepository.findByReservationGroupIdWithSeat(8L)).thenReturn(fixture.reservations());
 
         int expiredCount = reservationExpirationService.expireAll();
 
@@ -112,6 +112,27 @@ class ReservationExpirationServiceTest {
         assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
         assertEquals(PaymentStatus.FAILED, fixture.payment().getStatus());
         assertEquals(ReservationStatus.EXPIRED, fixture.reservations().get(0).getStatus());
+    }
+
+    @Test
+    @DisplayName("expireAll: CONFIRMING 결제가 연결된 group은 보정 스케줄러가 처리하도록 만료하지 않는다")
+    void expireAllSkipsConfirmingPayment() {
+        Fixture fixture = createFixture(12L);
+        fixture.payment().confirming();
+
+        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+                .thenReturn(List.of(12L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(12L)).thenReturn(Optional.of(fixture.payment()));
+        when(reservationGroupRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(fixture.group()));
+
+        int expiredCount = reservationExpirationService.expireAll();
+
+        assertEquals(0, expiredCount);
+        assertEquals(PaymentStatus.CONFIRMING, fixture.payment().getStatus());
+        assertEquals(ReservationGroupStatus.PENDING, fixture.group().getStatus());
+        assertEquals(ReservationStatus.PENDING, fixture.reservations().get(0).getStatus());
+        assertEquals(SeatStatus.HELD, fixture.reservations().get(0).getSeat().getStatus());
+        verify(reservationRepository, never()).findByReservationGroupIdWithSeat(12L);
     }
 
     @Test
@@ -123,7 +144,7 @@ class ReservationExpirationServiceTest {
                 .thenReturn(List.of(11L));
         when(paymentRepository.findByReservationGroupIdForUpdate(11L)).thenReturn(Optional.empty());
         when(reservationGroupRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(fixture.group()));
-        when(reservationRepository.findByReservationGroupId(11L)).thenReturn(fixture.reservations());
+        when(reservationRepository.findByReservationGroupIdWithSeat(11L)).thenReturn(fixture.reservations());
 
         int expiredCount = reservationExpirationService.expireAll();
 
@@ -142,14 +163,14 @@ class ReservationExpirationServiceTest {
         when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
                 .thenReturn(List.of(9L));
         when(paymentRepository.findByReservationGroupIdForUpdate(9L)).thenReturn(Optional.of(fixture.payment()));
-        when(reservationGroupRepository.findById(9L)).thenReturn(Optional.of(fixture.group()));
+        when(reservationGroupRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(fixture.group()));
 
         int expiredCount = reservationExpirationService.expireAll();
 
         assertEquals(0, expiredCount);
         assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
         assertEquals(SeatStatus.HELD, fixture.reservations().get(0).getSeat().getStatus());
-        verify(reservationRepository, never()).findByReservationGroupId(9L);
+        verify(reservationRepository, never()).findByReservationGroupIdWithSeat(9L);
     }
 
     @Test

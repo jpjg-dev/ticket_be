@@ -270,6 +270,7 @@ public class DataInitializer implements ApplicationRunner {
             reservationRepository.saveAll(reservations);
 
             Payment payment = paymentRepository.save(new Payment(group, amount, now, "perf-mypage-order-" + sequence));
+            payment.confirming();
             payment.approve("perf-mypage-paykey-" + sequence, "CARD", "DONE");
             group.confirm();
         }
@@ -357,6 +358,7 @@ public class DataInitializer implements ApplicationRunner {
                     bookedSeatIds.add(seat.getId());
                 }
             }
+            payment.confirming();
             payment.approve("paykey-" + orderId, "CARD", "DONE");
             group.confirm();
             for (Reservation reservation : reservations) {
@@ -366,6 +368,7 @@ public class DataInitializer implements ApplicationRunner {
             for (Seat seat : seatsForGroup) {
                 seat.book();
             }
+            payment.confirming();
             payment.approve("paykey-" + orderId, "CARD", "DONE");
             group.confirm();
             for (Reservation reservation : reservations) {

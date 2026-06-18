@@ -3,6 +3,8 @@ package com.jipi.ticket_ledger.payment.application;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmService;
+import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmTransactionService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -19,10 +21,10 @@ import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import jakarta.persistence.EntityNotFoundException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -56,8 +58,21 @@ class PaymentServiceTest {
     @Mock
     private ReservationGroupRepository reservationGroupRepository;
 
-    @InjectMocks
     private PaymentService paymentService;
+
+    @BeforeEach
+    void setUpPaymentService() {
+        PaymentConfirmTransactionService transactionService =
+                new PaymentConfirmTransactionService(paymentRepository, reservationRepository);
+        PaymentConfirmService confirmService = new PaymentConfirmService(tossPaymentClient, transactionService);
+        paymentService = new PaymentService(
+                paymentRepository,
+                reservationRepository,
+                reservationGroupRepository,
+                tossPaymentClient,
+                confirmService
+        );
+    }
 
     @Test
     @DisplayName("readyPayment: 기존 READY 결제가 있으면 재사용한다")
@@ -121,6 +136,25 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("Payment: READY 결제는 CONFIRMING을 거친 뒤 APPROVED로 전이된다")
+    void paymentApproveRequiresConfirmingState() {
+        ReservationGroup reservationGroup = createReservationGroup(LocalDateTime.now().plusMinutes(10));
+        Payment payment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-confirming-guard", "KRW");
+
+        assertThrows(IllegalStateException.class,
+                () -> payment.approve("pay-key-direct", "CARD", "DONE"));
+
+        payment.confirming();
+        assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
+        assertNotNull(payment.getConfirmingAt());
+
+        payment.approve("pay-key-confirming", "CARD", "DONE");
+
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals("pay-key-confirming", payment.getPaymentKey());
+    }
+
+    @Test
     @DisplayName("confirmPayment: amount가 다르면 예외가 발생하고 READY 상태가 유지된다")
     void confirmPaymentAmountMismatch() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
@@ -132,7 +166,7 @@ class PaymentServiceTest {
         assertThrows(IllegalStateException.class,
                 () -> paymentService.confirmPayment("pay-key-2", "order-confirm-2", 10000));
 
-        assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(PaymentStatus.READY, payment.getStatus());
         assertEquals(ReservationGroupStatus.PENDING, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
@@ -143,12 +177,14 @@ class PaymentServiceTest {
     void confirmPaymentAlreadyApproved() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-3", "KRW");
+        payment.confirming();
         payment.approve("pay-key-3", "CARD", "DONE");
         reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-3")).thenReturn(Optional.of(payment));
+        when(paymentRepository.findByOrderId("order-confirm-3")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
 
         Payment confirmed = paymentService.confirmPayment("pay-key-3", "order-confirm-3", 11000);
@@ -260,6 +296,7 @@ class PaymentServiceTest {
     void failPaymentWhenNotReady() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-6");
+        payment.confirming();
         payment.approve("pay-key-2", "CARD", "DONE");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
@@ -275,6 +312,7 @@ class PaymentServiceTest {
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-7");
         ReflectionTestUtils.setField(payment, "id", 1L);
 
+        payment.confirming();
         payment.approve("pay-key-3", "CARD", "DONE");
         reservation.getReservationGroup().confirm();
         reservation.confirm();
@@ -315,6 +353,7 @@ class PaymentServiceTest {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-9");
         ReflectionTestUtils.setField(payment, "id", 1L);
+        payment.confirming();
         payment.approve("pay-key-9", "CARD", "DONE");
         reservation.getReservationGroup().confirm();
         reservation.confirm();
@@ -338,6 +377,7 @@ class PaymentServiceTest {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-10");
         ReflectionTestUtils.setField(payment, "id", 1L);
+        payment.confirming();
         payment.approve("pay-key-10", "CARD", "DONE");
         reservation.getReservationGroup().confirm();
         reservation.confirm();

@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
+import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
@@ -45,6 +46,9 @@ class PayMentControllerTest {
 
     @MockitoBean
     private PaymentService paymentService;
+
+    @MockitoBean
+    private PaymentRecoveryService paymentRecoveryService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -168,6 +172,7 @@ class PayMentControllerTest {
     private PaymentFixture createApprovedPayment() {
         PaymentFixture fixture = createReadyPayment();
         Payment payment = fixture.payment();
+        payment.confirming();
         payment.approve("pay-key", "CARD", "DONE");
         fixture.reservations().forEach(reservation -> {
             reservation.confirm();

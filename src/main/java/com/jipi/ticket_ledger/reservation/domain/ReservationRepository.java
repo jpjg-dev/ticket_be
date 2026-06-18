@@ -27,4 +27,12 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     );
 
     List<Reservation> findByReservationGroupId(Long reservationGroupId);
+
+    @Query("""
+            select r
+            from Reservation r
+            join fetch r.seat
+            where r.reservationGroup.id = :reservationGroupId
+            """)
+    List<Reservation> findByReservationGroupIdWithSeat(@Param("reservationGroupId") Long reservationGroupId);
 }

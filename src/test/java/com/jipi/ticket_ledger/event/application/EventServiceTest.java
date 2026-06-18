@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.global.config.DataInitializer;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
+import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.CacheManager;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.LocalDateTime;
@@ -55,11 +57,75 @@ class EventServiceTest {
     private EventService eventService;
 
     @Test
+    @DisplayName("getEvents: 메인 목록 조회는 좌석 전체를 조회하지 않고 회차 정보만 조립한다")
+    void getEventsDoesNotReadSeatsForMainCatalog() {
+        var now = LocalDateTime.of(2026, 6, 10, 12, 0);
+        var event = new com.jipi.ticket_ledger.event.domain.Event(
+                "Main Event",
+                "description",
+                "venue",
+                now.minusDays(1),
+                now
+        );
+        ReflectionTestUtils.setField(event, "id", 1L);
+
+        var schedule = new com.jipi.ticket_ledger.event.domain.Schedule(
+                event,
+                now.plusDays(1),
+                now.plusDays(1).plusHours(2),
+                now
+        );
+        ReflectionTestUtils.setField(schedule, "id", 10L);
+
+        when(eventRepository.findAllByOrderByBookingOpenAtAsc()).thenReturn(List.of(event));
+        when(scheduleRepository.findByEventIdInOrderByStartAtAsc(List.of(1L))).thenReturn(List.of(schedule));
+
+        var responses = eventService.getEvents();
+
+        assertEquals(1, responses.size());
+        assertEquals(1L, responses.get(0).id());
+        assertEquals(1, responses.get(0).schedules().size());
+        assertEquals(10L, responses.get(0).schedules().get(0).id());
+        verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
+    }
+
+    @Test
+    @DisplayName("getEvent: 상세 조회는 좌석 전체를 조회하지 않고 상세 기본 데이터와 회차만 조립한다")
+    void getEventDoesNotReadSeatsForEventDetail() {
+        var now = LocalDateTime.of(2026, 6, 10, 12, 0);
+        var event = new com.jipi.ticket_ledger.event.domain.Event(
+                "Detail Event",
+                "description",
+                "venue",
+                now.minusDays(1),
+                now
+        );
+        ReflectionTestUtils.setField(event, "id", 1L);
+
+        var schedule = new com.jipi.ticket_ledger.event.domain.Schedule(
+                event,
+                now.plusDays(1),
+                now.plusDays(1).plusHours(2),
+                now
+        );
+        ReflectionTestUtils.setField(schedule, "id", 10L);
+
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
+        when(scheduleRepository.findByEventIdOrderByStartAtAsc(1L)).thenReturn(List.of(schedule));
+
+        var response = eventService.getEvent(1L);
+
+        assertEquals(1L, response.id());
+        assertEquals(1, response.schedules().size());
+        assertEquals(10L, response.schedules().get(0).id());
+        verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
+    }
+
+    @Test
     @DisplayName("getSeats: 해당 회차의 만료 예약을 정리한 뒤 좌석을 조회한다")
     void getSeatsExpiresRequestedScheduleBeforeReadingSeats() {
-        when(scheduleRepository.existsById(10L)).thenReturn(true);
         when(seatRepository.countStatusesByScheduleIds(anyCollection())).thenReturn(List.of());
-        when(seatRepository.findByScheduleId(10L)).thenReturn(List.of());
+        when(seatRepository.findSeatSummariesByScheduleId(10L)).thenReturn(List.of());
 
         var response = eventService.getSeats(10L);
 
@@ -69,13 +135,13 @@ class EventServiceTest {
         var inOrder = inOrder(reservationExpirationService, seatRepository);
         inOrder.verify(reservationExpirationService).expireByScheduleId(10L);
         inOrder.verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        inOrder.verify(seatRepository).findByScheduleId(10L);
+        inOrder.verify(seatRepository).findSeatSummariesByScheduleId(10L);
+        verify(seatRepository, never()).findByScheduleId(10L);
     }
 
     @Test
     @DisplayName("getSeats: AVAILABLE과 HELD가 없고 BOOKED만 있으면 매진으로 보고 좌석 목록을 조회하지 않는다")
     void getSeatsReturnsSoldOutWithoutReadingSeatListWhenAllSeatsAreBooked() {
-        when(scheduleRepository.existsById(10L)).thenReturn(true);
         when(seatRepository.countStatusesByScheduleIds(anyCollection())).thenReturn(List.of(
                 new StatusCount(10L, SeatStatus.BOOKED, 1000)
         ));
@@ -85,23 +151,51 @@ class EventServiceTest {
         assertTrue(response.soldOut());
         assertEquals(10L, response.scheduleId());
         assertEquals(List.of(), response.seats());
+        verify(seatRepository).countStatusesByScheduleIds(anyCollection());
+        verify(seatRepository, never()).findSeatSummariesByScheduleId(10L);
         verify(seatRepository, never()).findByScheduleId(10L);
     }
 
     @Test
-    @DisplayName("getSeats: HELD 좌석이 남아 있으면 만료 복구 가능성이 있으므로 매진으로 보지 않는다")
+    @DisplayName("getSeats: HELD 좌석이 남아 있으면 만료 복구 가능성이 있으므로 매진으로 보지 않고 좌석 목록을 조회한다")
     void getSeatsDoesNotTreatHeldOnlyScheduleAsSoldOut() {
-        when(scheduleRepository.existsById(10L)).thenReturn(true);
         when(seatRepository.countStatusesByScheduleIds(anyCollection())).thenReturn(List.of(
                 new StatusCount(10L, SeatStatus.HELD, 2),
                 new StatusCount(10L, SeatStatus.BOOKED, 998)
         ));
-        when(seatRepository.findByScheduleId(10L)).thenReturn(List.of());
+        when(seatRepository.findSeatSummariesByScheduleId(10L)).thenReturn(List.of());
 
         var response = eventService.getSeats(10L);
 
         assertFalse(response.soldOut());
-        verify(seatRepository).findByScheduleId(10L);
+        verify(seatRepository).countStatusesByScheduleIds(anyCollection());
+        verify(seatRepository).findSeatSummariesByScheduleId(10L);
+        verify(seatRepository, never()).findByScheduleId(10L);
+    }
+
+    @Test
+    @DisplayName("getSeats: 좌석 응답은 엔티티 전체 조회 없이 projection 필드만 매핑한다")
+    void getSeatsMapsSeatSummaryProjection() {
+        when(seatRepository.countStatusesByScheduleIds(anyCollection())).thenReturn(List.of(
+                new StatusCount(10L, SeatStatus.AVAILABLE, 2)
+        ));
+        when(seatRepository.findSeatSummariesByScheduleId(10L)).thenReturn(List.of(
+                new SeatSummary(1L, "A-1", "R", 1000, SeatStatus.AVAILABLE),
+                new SeatSummary(2L, "A-2", "R", 1000, SeatStatus.HELD)
+        ));
+
+        var response = eventService.getSeats(10L);
+
+        assertFalse(response.soldOut());
+        assertEquals(2, response.seats().size());
+        assertEquals(1L, response.seats().get(0).id());
+        assertEquals("A-1", response.seats().get(0).seatNumber());
+        assertEquals("R", response.seats().get(0).grade());
+        assertEquals(1000, response.seats().get(0).price());
+        assertEquals("AVAILABLE", response.seats().get(0).status());
+        verify(seatRepository).countStatusesByScheduleIds(anyCollection());
+        verify(seatRepository).findSeatSummariesByScheduleId(10L);
+        verify(seatRepository, never()).findByScheduleId(10L);
     }
 
     @Test
@@ -150,7 +244,7 @@ class EventServiceTest {
             "cache.event.detail.ttl=5m",
             "cache.event.detail.max-size=100"
     })
-    class EventCacheTest {
+    class EventCacheTest extends PostgresTestContainerSupport {
 
         @Autowired
         private EventService cacheEventService;
@@ -206,14 +300,13 @@ class EventServiceTest {
 
             when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
             when(scheduleRepository.findByEventIdOrderByStartAtAsc(1L)).thenReturn(List.of());
-            when(seatRepository.findByScheduleIdIn(anyCollection())).thenReturn(List.of());
 
             cacheEventService.getEvent(1L);
             cacheEventService.getEvent(1L);
 
             verify(eventRepository, times(1)).findById(1L);
             verify(scheduleRepository, times(1)).findByEventIdOrderByStartAtAsc(1L);
-            verify(seatRepository, times(1)).findByScheduleIdIn(anyCollection());
+            verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
         }
     }
 
@@ -236,6 +329,40 @@ class EventServiceTest {
         @Override
         public long getCount() {
             return count;
+        }
+    }
+
+    private record SeatSummary(
+            Long id,
+            String seatNumber,
+            String grade,
+            Integer price,
+            SeatStatus status
+    ) implements SeatRepository.SeatSummary {
+
+        @Override
+        public Long getId() {
+            return id;
+        }
+
+        @Override
+        public String getSeatNumber() {
+            return seatNumber;
+        }
+
+        @Override
+        public String getGrade() {
+            return grade;
+        }
+
+        @Override
+        public Integer getPrice() {
+            return price;
+        }
+
+        @Override
+        public SeatStatus getStatus() {
+            return status;
         }
     }
 }

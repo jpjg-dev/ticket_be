@@ -2,6 +2,7 @@ package com.jipi.ticket_ledger.payment.presentation;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
+import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
@@ -14,6 +15,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestClientException;
 
 import java.util.Map;
 import java.util.List;
@@ -25,6 +27,7 @@ import java.util.List;
 @Slf4j
 public class PayMentController {
     private final PaymentService paymentService;
+    private final PaymentRecoveryService paymentRecoveryService;
 
     @Operation(summary = "결제 준비", description = "예약 식별자로 결제 요청 정보를 생성합니다.")
     @PostMapping("/ready")
@@ -55,13 +58,24 @@ public class PayMentController {
     @Operation(summary = "결제 승인 확인", description = "토스 결제 성공 후 paymentKey, orderId, amount로 결제를 승인합니다.")
     @PostMapping("/confirm")
     public ConfirmPaymentResponse confirmPayment(@RequestBody @Valid ConfirmPaymentRequest request) {
-        Payment payment = paymentService.confirmPayment(
-                request.paymentKey(),
-                request.orderId(),
-                request.amount()
-        );
-
-        return toPaymentStatusResponse(payment);
+        try {
+            Payment payment = paymentService.confirmPayment(
+                    request.paymentKey(),
+                    request.orderId(),
+                    request.amount()
+            );
+            return toPaymentStatusResponse(payment);
+        } catch (RestClientException | IllegalStateException e) {
+            // confirm 도중 회색지대(통신 끊김/검증 실패 등)로 결제가 CONFIRMING에 남았을 수 있으므로 동기 재조회로 최종 확인을 시도한다.
+            PaymentRecoveryService.SyncReconcileResult result =
+                    paymentRecoveryService.reconcileConfirmingPaymentByOrderId(request.orderId());
+            if (!result.handled()) {
+                // CONFIRMING 회색지대가 아니라 confirm 진입 전 정상 비즈니스 거절(만료/금액 등) → 원래 예외를 그대로 전파한다.
+                throw e;
+            }
+            // 동기 재조회로 해소됐으면 그 상태를, 아직 PG가 응답 못 하면 CONFIRMING을 반환하고 보정 스케줄러에 위임한다.
+            return toPaymentStatusResponse(result.payment());
+        }
     }
 
     @Operation(summary = "결제 상태 조회", description = "결제 식별자로 현재 결제/예약/좌석 상태를 조회합니다.")

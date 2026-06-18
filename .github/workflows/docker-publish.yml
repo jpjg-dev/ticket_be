@@ -18,9 +18,29 @@ env:
   IMAGE_NAME: jpjg-dev/ticket-be
 
 jobs:
+  test:
+    name: Run Backend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout backend repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Run tests
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test
+
   docker-publish:
     name: Build and Push Backend Image
     runs-on: ubuntu-latest
+    needs: test
 
     steps:
       - name: Checkout backend repository

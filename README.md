@@ -1,0 +1,481 @@
+# TicketLedger 백엔드
+
+TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합성, 조회 성능, 사용자 예매 이력 조회 성능을 함께 다루는 티켓 예매 API 서버**입니다. 좌석 선점, 예약 만료, 결제 확정이 서로 어긋나지 않도록 상태 전이와 트랜잭션 경계를 중심으로 설계했습니다.
+
+## 바로가기
+
+- [배포 사이트](#배포-사이트)
+- [운영 환경 로그인 정보](#운영-환경-로그인-정보)
+- [30초 요약](#30초-요약)
+- [해결한 문제 요약](#해결한-문제-요약)
+- [시스템 아키텍처](#시스템-아키텍처)
+- [성능 테스트 해석 기준](#성능-테스트-해석-기준)
+- [핵심 문제](#핵심-문제)
+- [핵심 도메인 흐름](#핵심-도메인-흐름)
+- [주요 설계 판단](#주요-설계-판단)
+- [정합성 검증 시나리오](#정합성-검증-시나리오)
+- [인기 공연 성능 개선 결과](#인기-공연-성능-개선-결과)
+- [마이페이지 N+1 개선 결과](#마이페이지-n1-개선-결과)
+- [병목을 어떻게 좁혔는가](#병목을-어떻게-좁혔는가)
+- [주요 API 흐름](#주요-api-흐름)
+- [패키지 구조](#패키지-구조)
+- [기술 스택](#기술-스택)
+- [실행 방법](#실행-방법)
+- [상세 문서 바로가기](#상세-문서-바로가기)
+
+## 배포 사이트
+
+- 서비스: [https://ticketledger.dev](https://ticketledger.dev)
+- API 명세서: 운영 사이트에서 관리자 계정으로 로그인하면 헤더의 `API 문서` 버튼이 노출됩니다.
+- Swagger UI: [https://ticketledger.dev/swagger-ui/index.html](https://ticketledger.dev/swagger-ui/index.html)
+- Swagger에서 `401`이 표시되면 메인 페이지로 돌아가 새로고침한 뒤, 다시 `API 문서`로 이동해 Swagger 화면을 새로고침하면 됩니다.
+
+## 운영 환경 로그인 정보
+
+배포 사이트 확인용 운영 계정입니다.
+
+| 구분 | 이메일 | 비밀번호 |
+| --- | --- | --- |
+| 관리자 | `admin@admin.com` | `a123456789` |
+| 일반 사용자 | `user@user.com` | `a123456789` |
+
+## 30초 요약
+
+- 인기 공연 오픈 시점에 같은 좌석으로 요청이 몰리는 상황을 가정했습니다.
+- 예매 단위는 개별 좌석이 아니라 `ReservationGroup`으로 묶었습니다.
+- 좌석 선점은 정렬된 좌석 ID와 DB 행 잠금으로 처리했습니다.
+- 결제 승인은 `READY -> CONFIRMING -> APPROVED`로 나누고, PG 호출 전후 트랜잭션을 분리했습니다.
+- 결제되지 않은 선점 좌석은 만료 후 다시 `AVAILABLE`로 복구합니다.
+- 고부하 전체 여정 테스트에서는 완료 결제 `1,000`건, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 확인했습니다.
+- 마이페이지는 예매 그룹 `100`개 조건에서 N+1과 반복 조회 비용을 줄였습니다.
+
+## 해결한 문제 요약
+
+| 영역 | 문제 | 해결 | 검증 |
+| --- | --- | --- | --- |
+| 예약/결제 정합성 | 같은 좌석에 예약 요청이 동시에 몰릴 수 있습니다. | 좌석 ID 정렬, DB 행 잠금, `ReservationGroup` 단위 상태 전이로 처리했습니다. | 완료 결제 `1,000`, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0` |
+| 인기 공연 조회 성능 | 매진 이후에도 좌석 `1,000`건 조회가 반복될 수 있습니다. | 공연 목록/상세 캐시, 좌석 조회 트랜잭션 범위 축소, SoldOut 정책을 적용했습니다. | 전체 여정 RPS `223.06 -> 336.94`, p95 `15.60s -> 244ms` |
+| 마이페이지 N+1 | 예매 이력이 많아질수록 연관 데이터 조회와 DTO 조립 비용이 커집니다. | `reservation/payment` fetch join과 groupId 기준 `Map` 재사용으로 반복 조회를 제거했습니다. | group `100` 기준 p95 `202.75ms -> 17.52ms`, 처리량 `60.73 -> 663.46 req/s` |
+
+## 시스템 아키텍처
+
+### 운영 / 배포 구조
+
+운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 nginx, frontend, backend, PostgreSQL을 하나의 네트워크(`ticket-network`)로 묶어 운영합니다. 외부 진입점은 nginx `80/443`으로 제한하고, frontend, backend, PostgreSQL은 직접 노출하지 않습니다.
+
+![TicketLedger 운영 전체 아키텍처](docs/assets/images/backend-system-architecture-dark-clean-public-ports-only.png)
+
+### 요청 흐름
+
+사용자 요청은 nginx가 받아 대부분 frontend로 전달하고, frontend가 API Route proxy를 통해 Docker 내부 네트워크에서 backend를 호출합니다. 백엔드로 직접 전달되는 외부 경로는 `/swagger-ui`, `/api-docs` 문서 경로로 제한하며, 결제 승인과 조회는 backend가 Toss Payments로 아웃바운드 호출합니다.
+
+## 성능 테스트 해석 기준
+
+- 성능 수치는 운영 최대 RPS나 SLO를 보장하는 값이 아니라, 같은 로컬 통제 조건에서의 개선 전후 비교값입니다.
+- k6 부하 발생기, 애플리케이션 서버, PostgreSQL, Mock PG를 같은 로컬 장비에서 실행했습니다.
+- 부하 발생기와 애플리케이션이 CPU·네트워크·디스크 자원을 공유하므로 절대 수치를 운영 처리량으로 해석하지 않습니다.
+- `ramping-arrival-rate`는 응답 완료와 독립적으로 iteration을 시작하는 open-model 실행 방식입니다.
+- 인기 공연 시나리오에서는 정상 경합 거부와 매진 거부가 장애가 아니므로, 예상 밖 오류와 분리해서 봤습니다.
+- 결제 완료 RPS는 좌석 수 `1,000`개에 의해 상한이 생기므로 전체 여정 RPS와 분리해서 해석했습니다.
+- 좌석 상태는 캐시하지 않았고, SoldOut 정책은 매진 확정 뒤 반복 좌석 조회를 줄이는 보조 최적화로만 사용했습니다.
+
+## 핵심 문제
+
+| 문제 | 필요한 처리 |
+| --- | --- |
+| 동일 좌석에 여러 사용자가 동시에 접근합니다. | 하나의 요청만 좌석 선점에 성공하고 나머지는 정상 경합으로 거부되어야 합니다. |
+| 사용자는 여러 좌석을 한 번에 예매할 수 있습니다. | 선택한 좌석 전체가 가능할 때만 예매 그룹이 생성되어야 합니다. |
+| 선점 후 결제하지 않는 사용자가 생깁니다. | 결제되지 않은 좌석은 만료 후 다시 예매 가능 상태로 돌아가야 합니다. |
+| 결제 완료는 여러 상태를 함께 바꿉니다. | 결제, 예매 그룹, 개별 예매, 좌석 상태가 하나의 결과로 확정되어야 합니다. |
+| 인기 공연 오픈 시점에는 조회와 경합 실패가 반복됩니다. | 정상 경합/매진 거부와 예상 밖 오류를 분리해서 처리해야 합니다. |
+| 예매 이력이 많은 사용자의 마이페이지 조회가 느려집니다. | 필요한 예매/결제/좌석 정보를 유지하면서 반복 조회 비용을 줄여야 합니다. |
+
+## 핵심 도메인 흐름
+
+```text
+공연/회차 선택
+-> 좌석 조회
+-> 좌석 선점
+-> ReservationGroup 생성
+-> Payment READY 생성
+-> Payment CONFIRMING 저장
+-> PG 승인 요청
+-> Payment APPROVED
+-> ReservationGroup / Reservation CONFIRMED
+-> Seat BOOKED
+```
+
+### 결제 데이터 흐름 (정상)
+
+결제 승인은 PG 호출 전에 짧은 트랜잭션으로 `Payment`를 `CONFIRMING`으로 남기고, PG 호출 후 다시 짧은 트랜잭션으로 내부 상태를 확정합니다. 외부 PG 호출 동안 DB 락을 오래 잡지 않도록 트랜잭션 경계를 나눴습니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User Browser
+    participant API as Spring Boot API
+    participant Payment as PaymentService
+    participant Confirm as PaymentConfirmService
+    participant Tx as PaymentConfirmTransactionService
+    participant Toss as Toss Payments
+    participant DB as PostgreSQL
+
+    User->>API: POST /payments/ready
+    API->>Payment: 결제 준비 요청
+    Payment->>DB: Payment READY 저장
+    API-->>User: orderId, amount 반환
+
+    User->>API: POST /payments/confirm
+    API->>Payment: 결제 승인 요청
+    Payment->>Confirm: confirm 위임
+    Confirm->>Tx: READY 검증 + CONFIRMING 저장
+    Tx->>DB: Tx1 커밋
+    Note over Tx,DB: PG 호출 전 durable 마커
+    Confirm->>Toss: 승인 API 호출(멱등키)
+    Toss-->>Confirm: 승인 결과
+    Confirm->>Tx: 승인 결과 반영
+    Tx->>DB: Tx2 커밋: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
+    API-->>User: 결제 완료 응답
+```
+
+### 결제 장애 대응 1: PG 호출 실패 / 응답 불명
+
+PG 승인 호출에서 타임아웃이나 네트워크 예외가 발생하면 결제 실패로 바로 단정하지 않습니다. 요청 처리가 살아있는 동안에는 PG 상태를 즉시 재조회하고, `DONE`이면 내부 상태를 승인으로 확정합니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Confirm as PaymentConfirmService
+    participant Toss as Toss Payments
+    participant DB as PostgreSQL
+
+    Confirm->>DB: READY -> CONFIRMING 커밋
+    Confirm->>Toss: 승인 API 호출
+    Toss--xConfirm: 타임아웃 / 네트워크 예외
+    Confirm->>Toss: 결제 상태 재조회(lookup)
+    Toss-->>Confirm: 실제 상태 응답
+
+    alt 승인 완료(DONE) + 금액/통화/주문 일치
+        Confirm->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
+    else 승인 아님
+        Confirm-->>Confirm: 예외 전파
+    end
+```
+
+요청 처리 계층에도 같은 안전망을 둡니다. 컨트롤러는 confirm이 회색지대로 실패하면 결제가 `CONFIRMING`일 때만 동기 재조회를 한 번 더 시도하고, 그래도 확정되지 않으면 `CONFIRMING` 상태를 응답해 보정 스케줄러에 위임합니다. 만료 같은 정상 거절은 그대로 예외로 전달합니다.
+
+### 결제 장애 대응 2: PG 성공 후 내부 반영 실패
+
+PG 승인은 성공했지만 내부 DB 반영 전에 프로세스가 중단되면 결제가 `CONFIRMING`에 남습니다. 보정 스케줄러는 오래된 `CONFIRMING` 결제를 찾아 PG 상태를 조회하고, 좌석이 아직 유효하면 승인으로 확정합니다. 좌석이 이미 유효하지 않거나 PG 응답 금액·통화가 우리 기대값과 불일치하면, 고객이 낸 금액 그대로 환불한 뒤 실패 상태로 정리합니다. (`orderId` 자체가 불일치하는 경우는 우리 결제건 여부가 의심스러워 자동 처리하지 않고 알림 후 보류합니다.)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Recovery as PaymentRecoveryService
+    participant Tx as PaymentRecoveryTransactionService
+    participant Toss as Toss Payments
+    participant DB as PostgreSQL
+
+    Recovery->>DB: 오래된 CONFIRMING 결제 조회
+    Recovery->>Toss: orderId로 PG 상태 조회
+    Toss-->>Recovery: 실제 상태 응답
+    Recovery->>Tx: 보정 트랜잭션 요청
+
+    alt DONE + 좌석 HELD + 금액/통화 일치
+        Tx->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
+    else DONE + 좌석 유효하지 않음
+        Tx->>Toss: 결제 취소 / 환불
+        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
+    else DONE + 금액/통화 불일치
+        Tx->>Toss: 결제 취소 / 환불
+        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
+    else 미승인
+        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
+    end
+```
+
+### 상태 전이 요약
+
+| 대상 | 주요 상태 전이 |
+| --- | --- |
+| Seat | `AVAILABLE -> HELD -> BOOKED`, `HELD -> AVAILABLE`, `BOOKED -> AVAILABLE` |
+| ReservationGroup | `PENDING -> CONFIRMED`, `PENDING -> EXPIRED`, `CONFIRMED -> CANCELED` |
+| Reservation | `PENDING -> CONFIRMED`, `PENDING -> EXPIRED`, `CONFIRMED -> CANCELED` |
+| Payment | `READY -> CONFIRMING -> APPROVED`, `READY/CONFIRMING -> FAILED`, `APPROVED -> CANCELED` |
+
+`CONFIRMING`은 PG 승인 호출에 들어갔지만 내부 확정이 아직 끝나지 않은 상태입니다. 이 상태는 동기 재조회와 비동기 보정 스케줄러의 기준점으로 사용합니다.
+
+상세 상태 정책은 [docs/design/state-design.md](docs/design/state-design.md)에 정리했습니다.
+
+## 주요 설계 판단
+
+README에는 선택과 대안의 핵심만 요약하고, 상세 트레이드오프와 실험 근거는 docs 문서에 분리했습니다.
+
+| 판단 | 선택하지 않은 대안 | 선택 이유 | 검증 근거 |
+| --- | --- | --- | --- |
+| `ReservationGroup` 기준으로 예매를 묶었습니다. | 좌석마다 독립 예매를 생성하는 방식 | 다중 좌석 예매와 결제 1건의 관계를 명확히 관리하기 위해서입니다. | 부분 성공 예매 그룹 `0`을 확인했습니다. |
+| 좌석 ID를 정렬한 뒤 DB 행 잠금을 사용했습니다. | Redis 분산락을 먼저 도입하는 방식 | 현재 단일 DB 구조에서는 잠금 책임을 DB 트랜잭션 안에 두는 편이 단순하고 검증하기 쉽기 때문입니다. | 동일/겹치는 좌석 요청에서 하나의 예매 그룹만 성공했습니다. |
+| 결제 승인에 `CONFIRMING` durable 마커를 적용했습니다. | PG 호출 동안 DB 락을 계속 잡는 방식 | 외부 호출 시간을 트랜잭션 밖으로 빼면서, 크래시 이후에도 보정 대상을 남기기 위해서입니다. | `CONFIRMING` 보정, 만료 경합, PG 재조회 테스트를 통과했습니다. |
+| 가용 상태 기반 SoldOut 정책을 적용했습니다. | 매진 이후에도 좌석 목록 projection 조회를 반복하는 방식 | 만료 좌석의 즉시 재판매 정책은 유지하되, `AVAILABLE=0`, `HELD=0`, `BOOKED>0`이면 좌석 목록 조회를 생략하기 위해서입니다. | 전체 여정 p95 `2.66s -> 244ms`, 좌석 조회 p95 `1.31s -> 11.58ms`, dropped iteration `1,108 -> 0`을 확인했습니다. |
+| PG 승인/취소 후 상태를 재확인합니다. | PG 응답이나 redirect 결과만 신뢰하는 방식 | 외부 API 응답을 받지 못한 경우에도 내부 상태를 한 방향으로 수렴시키기 위해서입니다. | `paymentKey` 조회 결과를 기준으로 승인/취소 상태를 확정했습니다. |
+| 정상 경합 거부와 예상 밖 오류를 분리했습니다. | HTTP 실패율만 보는 방식 | 인기 공연에서는 매진/경합 거부가 장애가 아니라 정상 결과일 수 있기 때문입니다. | k6 지표에서 예상된 거부와 예상 밖 오류를 나눴고 예상 밖 오류 `0`을 확인했습니다. |
+
+## 정합성 검증 시나리오
+
+| 시나리오 | 구현 방식 | 검증 결과 |
+| --- | --- | --- |
+| 동일 좌석 동시 선점 | 좌석 ID 정렬 + DB 행 잠금 | 하나의 예매 그룹만 성공했습니다. |
+| 겹치는 좌석 묶음 요청 | 같은 좌석 집합에 동일한 잠금 순서 적용 | 중복 활성 좌석이 생기지 않았습니다. |
+| 다중 좌석 예매 | `ReservationGroup` 기준으로 전체 좌석을 한 번에 검증 | 부분 성공 예매 그룹 `0`을 확인했습니다. |
+| 예약 만료 | 만료된 예매 그룹, 예매, 좌석, 결제를 같은 흐름으로 정리 | 좌석이 다시 `AVAILABLE`로 복구되었습니다. |
+| 중복 결제 준비 | 같은 예매 그룹에 대해 기존 `READY` 결제를 재사용 | 결제 row가 중복 생성되지 않았습니다. |
+| 중복 결제 승인 | 동일 `orderId` 동시 승인 요청을 같은 멱등키로 처리 | 승인 결제 row `1`건으로 수렴했습니다. |
+| 결제 승인 | `CONFIRMING` 마커 이후 PG 결과를 검증하고 예매/좌석 상태 확정 | 상태 불일치 `0`을 확인했습니다. |
+| 결제 취소 | 승인된 결제, 예매 그룹, 예매, 좌석 상태를 같은 흐름으로 복구 | 좌석이 다시 `AVAILABLE`로 복구되었습니다. |
+| 결제 승인과 만료 경합 | `CONFIRMING` 결제는 만료 대상에서 제외하고 상태 재확인 | 승인 중인 결제를 만료로 덮어쓰지 않았습니다. |
+| PG 승인 후 내부 반영 중단 | 오래된 `CONFIRMING` 결제를 PG 조회로 보정 | `DONE + HELD`는 승인 확정, 좌석 소실·금액 불일치는 환불 후 실패로 정리했습니다. |
+| 리프레시 토큰 재발급 | 리프레시 토큰 조건부 갱신 | 같은 토큰 동시 재발급 요청 중 하나만 성공했습니다. |
+
+## 인기 공연 성능 개선 결과
+
+인기 공연 오픈 직후 시나리오는 공연 목록, 상세, 좌석 조회, 예약 생성, 결제 준비, 모의 PG 승인, 결제 확정까지 이어지는 전체 여정으로 측정했습니다.
+
+### 측정 시나리오 (인기 공연 오픈 스파이크)
+
+아래 수치는 다음 부하 조건에서 나온 값입니다. (`performance/k6/popular-event-payment-arrival-rate-spike.js`)
+
+| 항목 | 값 |
+| --- | --- |
+| 부하 모델 | `ramping-arrival-rate` (open model — 응답과 무관하게 초당 요청을 투입) |
+| 도착률 구간 | `10 → 100 → 300 → 500 → 1,000 iter/s → 100` |
+| 구간 시간 | `5s + 10s·4 + 5s` = 총 `50s` |
+| 스파이크 정점 | 초당 `1,000` iteration 투입 (`preAllocatedVUs 1,500` / `maxVUs 3,000`) |
+| 1 iteration | 목록 → 상세 → 좌석 조회 → 예약 → 결제 준비 → 결제 확정 전체 여정 |
+| 좌석 풀 | 단일 회차 `1,000`석 |
+| 합격 기준 | 예상 밖 오류율 `< 1%`, 결제 완료율 `> 99%` |
+
+> 부하 단위는 동접 VU가 아니라 **초당 iteration 투입량(arrival rate)** 입니다. open model이라 서버가 느려져도 투입량이 줄지 않아 인기 공연 오픈 순간을 더 가혹하게 재현하며, VU(최대 `3,000`)는 이 도착률을 만들기 위한 워커일 뿐입니다.
+
+이 수치의 해석 기준은 위 [성능 테스트 해석 기준](#성능-테스트-해석-기준)을 따릅니다. README에서는 p95와 RPS보다 **정합성이 깨지지 않았는지**를 더 중요한 기준으로 봅니다.
+
+| 단계 | 핵심 변경 | 전체 여정 RPS | 전체 여정 p95 | 시작 실패 iteration | 완료 결제 | 예상 밖 오류 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 초기 관찰 | 캐시/SoldOut 정책 전 | `223.06 RPS` | `15.60s` | `5,694` | `1,000` | `0` |
+| 공연 캐시 | 목록/상세 Caffeine 캐시 | `311.46 RPS` | `2.93s` | `1,274` | `1,000` | `0` |
+| 트랜잭션 분리 | 만료 처리 쓰기 트랜잭션과 좌석 조회 분리 | `314.78 RPS` | `2.66s` | `1,108` | `1,000` | `0` |
+| SoldOut 정책 | 가용 상태 기반 좌석 목록 조회 생략 | `336.94 RPS` | `244ms` | `0` | `1,000` | `0` |
+
+DB 사후 검증 결과:
+
+| 항목 | 결과 |
+| --- | ---: |
+| `BOOKED` 좌석 | `1,000` |
+| 예매 그룹 | `1,000` |
+| 결제 | `1,000` |
+| 중복 활성 좌석 배정 | `0` |
+| 부분 성공 예매 그룹 | `0` |
+| `APPROVED / CONFIRMED / BOOKED` 상태 불일치 | `0` |
+
+상세 실험 과정과 해석은 [docs/performance/performance-e2e-optimization-summary.md](docs/performance/performance-e2e-optimization-summary.md), 전체 성능 테스트 전략은 [docs/performance/performance-test-strategy.md](docs/performance/performance-test-strategy.md)에 정리했습니다.
+
+## 마이페이지 N+1 개선 결과
+
+마이페이지 조회는 예매 그룹, 개별 좌석, 결제 정보를 함께 보여줘야 하므로 응답 구조를 단순히 줄이는 방식으로 해결하지 않았습니다. 대신 한 번 조회한 예매 목록을 groupId 기준으로 묶어 재사용하고, DTO 변환 중 필요한 연관 데이터는 fetch join으로 함께 가져오도록 정리했습니다.
+
+| 조건 | 개선 전 p95 | 개선 후 p95 | 개선 전 처리량 | 개선 후 처리량 |
+| --- | ---: | ---: | ---: | ---: |
+| group `100`, `10 VU / 30s` | `202.75ms` | `17.52ms` | `60.73 req/s` | `663.46 req/s` |
+
+선택 이유:
+
+- `Reservation` 조회에는 `ReservationGroup`, `Seat`, `Schedule`, `Event`가 필요하므로 fetch join으로 DTO 변환 중 발생하는 지연 로딩을 줄였습니다.
+- `Payment` 조회에는 `ReservationGroup`이 필요하므로 payment 목록도 fetch join으로 가져왔습니다.
+- 결제 DTO에도 같은 좌석 목록이 필요하지만 groupId가 같다면 이미 조회한 reservation 목록을 재사용할 수 있어, `findByReservationGroupId(...)`를 반복 호출하지 않도록 `Map<Long, List<Reservation>>`으로 묶었습니다.
+- 인덱스 후보 `reservations(reservation_group_id)`는 `EXPLAIN ANALYZE`에서 실제 사용 이득이 확인되지 않아 Flyway migration에는 반영하지 않았습니다.
+
+## 병목을 어떻게 좁혔는가
+
+성능 개선은 특정 원인을 미리 단정하지 않고, 같은 인기 공연 전체 여정 조건에서 가설을 하나씩 확인하는 방식으로 진행했습니다.
+
+| 가설 | 실험 | 결과 | 판단 |
+| --- | --- | --- | --- |
+| 예약 만료 처리 트랜잭션이 병목입니다. | 만료 처리 제거/트랜잭션 범위 분리 후 재측정 | 일부 개선은 있었지만 전체 병목을 단독으로 설명하지 못했습니다. | 단독 원인으로 보지 않았습니다. |
+| DB 커넥션 풀이 부족합니다. | Hikari pool 크기 조정 후 재측정 | p95와 완료 처리량 차이가 크지 않았습니다. | 단독 원인으로 보지 않았습니다. |
+| 매진 이후에도 좌석 목록 조회가 반복됩니다. | 회차별 가용 상태를 먼저 집계하고, `soldOut=true`이면 좌석 목록 조회 없이 빈 `seats`를 반환했습니다. | 완료 결제 `1,000`, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 유지했습니다. 응답 크기 감소는 부가 효과로 봤습니다. | SoldOut 정책으로 채택했습니다. |
+
+이 과정에서 핵심으로 본 것은 p95 자체보다, 조회 최적화 이후에도 예약·결제 상태 정합성이 깨지지 않는지였습니다.
+
+<a id="주요-api-흐름"></a>
+<details>
+<summary>주요 API 흐름</summary>
+
+### 인증
+
+```text
+POST /api/v1/auth/login
+-> 이메일/비밀번호 검증
+-> 액세스 토큰 + 리프레시 토큰 발급
+-> HttpOnly 쿠키 반환
+```
+
+```text
+POST /api/v1/auth/reissue
+-> 리프레시 토큰 조건부 갱신
+-> 한 번만 소비되도록 재발급
+```
+
+```text
+GET /api/v1/users/me
+-> 현재 로그인 사용자 정보 반환
+```
+
+인증 흐름과 쿠키 기반 토큰 정책은 [docs/design/auth-flow-readme.md](docs/design/auth-flow-readme.md)에 정리했습니다.
+
+### 공연/좌석
+
+```text
+GET /api/v1/event
+GET /api/v1/event/{eventId}
+GET /api/v1/event/schedules/availability?scheduleIds=...
+GET /api/v1/event/schedules/{scheduleId}/seats
+```
+
+`/seats`는 회차별 만료 처리를 먼저 수행합니다. 이후 가용 상태 기준으로 매진이면 `{ scheduleId, soldOut: true, seats: [] }`를 반환합니다.
+
+### 예약/결제
+
+```text
+POST /api/v1/reservations
+POST /api/v1/payments/ready
+POST /api/v1/payments/confirm
+POST /api/v1/payments/{paymentId}/cancel
+GET  /api/v1/payments/{paymentId}/status
+```
+
+결제 승인은 `READY -> CONFIRMING` 커밋, PG 호출, `APPROVED / CONFIRMED / BOOKED` 커밋으로 나뉩니다. 결제 취소는 승인된 결제, 예매 그룹, 예매, 좌석 상태를 같은 흐름으로 복구합니다.
+
+보정 스케줄러는 오래된 `CONFIRMING` 결제를 주기적으로 조회하고, PG 상태를 기준으로 승인 확정 또는 실패/환불 상태로 정리합니다.
+
+</details>
+
+## 패키지 구조
+
+도메인별 패키지를 먼저 나누고, 각 도메인 내부를 `presentation`, `application`, `domain`, `infrastructure` 책임으로 분리했습니다.
+
+```text
+├── reservation          # 예매 / 좌석 선점 / 만료
+│   ├── presentation     # ReservationController
+│   │   └── dto          # CreateReservationRequest, ReservationResponse
+│   ├── application      # ReservationService, ReservationExpirationService, Scheduler
+│   └── domain           # Reservation, ReservationGroup, Status, Repository
+├── payment              # 결제 준비 / 승인 / 취소 / 보정
+│   ├── presentation     # PayMentController
+│   │   └── dto          # ReadyPayment*, ConfirmPayment*
+│   ├── application      # PaymentService, PaymentLogFormatter
+│   │   ├── confirm      # ConfirmService, TransactionService, PG 승인 검증
+│   │   └── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService
+│   ├── domain           # Payment, PaymentStatus, PaymentRepository
+│   └── infrastructure   # TossPaymentClient, Toss 요청/응답 모델, TossPaymentStatus
+├── auth                 # 로그인 / 토큰 / 쿠키 인증
+│   ├── presentation     # AuthController
+│   │   └── dto          # 로그인 요청/응답 DTO
+│   ├── application      # AuthService
+│   ├── domain           # RefreshToken, RefreshTokenRepository
+│   └── infrastructure   # JwtTokenProvider, JwtAuthenticationFilter, CookieProvider, TokenHasher
+├── event                # 공연 / 회차 / 좌석 조회
+│   ├── presentation     # EventController
+│   │   └── dto          # EventListResponse, EventDetailResponse, ScheduleResponse
+│   ├── application      # EventService
+│   └── domain           # Event, Schedule, Repository
+├── seat                 # 좌석 상태
+│   ├── presentation
+│   │   └── dto          # SeatResponse, SeatListResponse, SeatAvailabilityResponse
+│   └── domain           # Seat, SeatStatus, SeatRepository
+├── user                 # 사용자 / 마이페이지
+│   ├── presentation     # UserController
+│   │   └── dto          # 회원/마이페이지 응답 DTO
+│   ├── application      # UserService
+│   └── domain           # User, UserRole, UserStatus, UserRepository
+└── global               # 전 계층 공통 관심사
+    ├── config           # Cache, Security, Swagger, 초기 데이터
+    ├── security         # CSRF Origin 필터/설정
+    └── exception/log    # 예외, 로그
+```
+
+계층별 책임은 다음과 같이 구분했습니다.
+
+| 계층 | 책임 |
+| --- | --- |
+| `presentation` | API 입출력, Controller, 요청/응답 DTO |
+| `application` | 유스케이스, 트랜잭션 경계, 서비스 조합 |
+| `domain` | 엔티티, 상태, Repository 계약 |
+| `infrastructure` | JWT, Cookie, Toss Payments 같은 외부 연동 |
+| `global` | 보안, 설정, 예외, 로그 등 공통 관심사 |
+
+## 기술 스택
+
+| 영역 | 사용 기술 | 사용 이유 |
+| --- | --- | --- |
+| 언어 | Java 21 | Spring Boot 기반 백엔드 구현에 사용했습니다. |
+| 프레임워크 | Spring Boot 3.5.13, Spring Web | REST API와 계층형 애플리케이션 구성을 위해 사용했습니다. |
+| 영속성 | Spring Data JPA, PostgreSQL, Flyway | 상태 전이, 행 잠금, 스키마 관리를 위해 사용했습니다. |
+| 보안 | Spring Security, JWT, HttpOnly 쿠키 | 쿠키 기반 인증과 권한 검증을 위해 사용했습니다. |
+| 캐시 | Spring Cache, Caffeine | 공연 목록/상세 조회 최적화에 사용했습니다. |
+| API 문서 | springdoc-openapi, Swagger UI | 운영 환경에서 API 확인이 가능하도록 사용했습니다. |
+| 테스트 | JUnit 5, Spring Boot Test, Spring Security Test, Mockito | 상태 전이와 동시성 흐름 검증에 사용했습니다. |
+| 성능 | k6, 모의 PG | 인기 공연 전체 여정 흐름을 외부 PG 부하 없이 검증하기 위해 사용했습니다. |
+
+<a id="실행-방법"></a>
+<details>
+<summary>실행 방법</summary>
+
+### 로컬 테스트
+
+```powershell
+.\gradlew.bat test
+```
+
+특정 테스트만 실행할 때:
+
+```powershell
+.\gradlew.bat test --tests "com.jipi.ticket_ledger.event.application.EventServiceTest"
+```
+
+### 성능 테스트 전제
+
+- 성능 테스트는 `dev,perf` 프로필을 기준으로 실행합니다.
+- 모의 PG는 `127.0.0.1:18080`에서 실행합니다.
+- 성능 테스트 사용자 풀은 `performance/data/perf-users.json`에 준비합니다.
+
+```powershell
+node performance/mock-pg/mock-pg-server.js
+.\performance\reset-load-test-seats.ps1
+$env:LOAD_PROFILE="arrival"
+k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
+```
+
+### 주요 확인값
+
+- `arrival_e2e_journey_duration`
+- `arrival_e2e_seat_lookup_duration`
+- `arrival_e2e_payment_completed`
+- `arrival_e2e_unexpected_rate`
+- `dropped_iterations`
+- DB 사후 정합성: 중복 활성 좌석, 부분 성공 예매 그룹, 상태 불일치
+
+</details>
+
+## 상세 문서 바로가기
+
+| 문서 | 내용 |
+| --- | --- |
+| [docs/architecture/system-architecture.md](docs/architecture/system-architecture.md) | 운영 배포 구조와 요청 흐름 |
+| [docs/design/state-design.md](docs/design/state-design.md) | 좌석, 예매, 결제 상태 전이 정책 |
+| [docs/design/auth-flow-readme.md](docs/design/auth-flow-readme.md) | 로그인, 재발급, HttpOnly 쿠키 인증 흐름 |
+| [docs/design/external-api-client-tradeoffs.md](docs/design/external-api-client-tradeoffs.md) | PG 연동 HTTP 클라이언트 선택 기준 |
+| [docs/design/payment-failure-recovery-design.md](docs/design/payment-failure-recovery-design.md) | CONFIRMING 기반 PG 성공 후 내부 실패 보정 설계와 남은 리팩토링 후보 |
+| [docs/testing/concurrentTest.md](docs/testing/concurrentTest.md) | 겹치는 좌석 요청의 동시성 검증 |
+| [docs/testing/TestCase.md](docs/testing/TestCase.md) | 상태 전이와 API 테스트 체크리스트 |
+| [docs/performance/performance-e2e-optimization-summary.md](docs/performance/performance-e2e-optimization-summary.md) | 인기 공연 전체 여정 성능 개선 과정과 최종 지표 |
+| [docs/performance/performance-test-strategy.md](docs/performance/performance-test-strategy.md) | k6 성능 테스트 시나리오와 측정 기준 |
+| [docs/planning/backend-feature-roadmap.md](docs/planning/backend-feature-roadmap.md) | 후속 확장 후보와 설계 기준 |

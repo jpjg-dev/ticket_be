@@ -11,6 +11,10 @@ import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
+import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
+import com.jipi.ticket_ledger.payment.presentation.PayMentController;
+import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
+import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
@@ -21,6 +25,7 @@ import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
+import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -48,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -59,13 +65,19 @@ import static org.mockito.Mockito.when;
         "logging.level.org.hibernate.orm.jdbc.bind=OFF",
         "logging.level.org.hibernate.type.descriptor.sql=OFF"
 })
-class PaymentServiceIntegrationTest {
+class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
     @MockitoBean
     private TossPaymentClient tossPaymentClient;
 
     @Autowired
     private PaymentService paymentService;
+
+    @Autowired
+    private PaymentRecoveryService paymentRecoveryService;
+
+    @Autowired
+    private PayMentController payMentController;
 
     @Autowired
     private ReservationExpirationService reservationExpirationService;
@@ -194,8 +206,8 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: 동일 orderId 승인 동시 요청은 PG를 한 번만 호출하고 확정 상태를 재사용한다")
-    void confirmPaymentDuplicateRequestCallsPgOnce() throws Exception {
+    @DisplayName("confirmPayment: 동일 orderId 승인 동시 요청은 중복 결제를 만들지 않고 확정 상태로 수렴한다")
+    void confirmPaymentDuplicateRequestConvergesWithoutDuplicatePayment() throws Exception {
         Fixture fixture = createPendingReservationFixture(false, 2);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
         paymentIds.add(ready.getId());
@@ -247,9 +259,18 @@ class PaymentServiceIntegrationTest {
         ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
         List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
         List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
+        long paymentCount = paymentRepository.findAll().stream()
+                .filter(candidate -> candidate.getReservationGroup().getId().equals(fixture.reservationGroupId))
+                .count();
+        long approvedPaymentCount = paymentRepository.findAll().stream()
+                .filter(candidate -> candidate.getReservationGroup().getId().equals(fixture.reservationGroupId))
+                .filter(candidate -> candidate.getStatus() == PaymentStatus.APPROVED)
+                .count();
 
-        verify(tossPaymentClient, times(1))
+        verify(tossPaymentClient, times(2))
                 .confirm("pay-key-duplicate-confirm", ready.getOrderId(), totalAmountWithVat, "confirm:" + ready.getOrderId());
+        assertEquals(1L, paymentCount);
+        assertEquals(1L, approvedPaymentCount);
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CONFIRMED, group.getStatus());
         assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CONFIRMED));
@@ -303,13 +324,11 @@ class PaymentServiceIntegrationTest {
                     () -> reservationExpirationService.expireByScheduleId(fixture.scheduleId)
             );
 
-            Thread.sleep(200);
-            assertFalse(expirationFuture.isDone(), "만료 처리는 승인 요청이 보유한 Payment 락을 기다려야 합니다.");
+            assertEquals(0, expirationFuture.get(10, TimeUnit.SECONDS));
 
             releasePg.countDown();
 
             assertEquals(PaymentStatus.APPROVED, confirmFuture.get(10, TimeUnit.SECONDS).getStatus());
-            assertEquals(0, expirationFuture.get(10, TimeUnit.SECONDS));
         } finally {
             releasePg.countDown();
             executor.shutdownNow();
@@ -410,6 +429,371 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("recoverConfirmingPayments: 오래된 CONFIRMING 결제는 PG DONE 조회 결과로 승인 상태에 수렴한다")
+    void recoverConfirmingPaymentDone() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-recovered",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(1, recoveredCount);
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals("pay-key-recovered", payment.getPaymentKey());
+        assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
+        assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
+    @Test
+    @DisplayName("recoverConfirmingPayments: PG DONE이지만 예약이 만료돼 좌석이 유효하지 않으면 환불 후 FAILED로 정리하고 좌석을 푼다")
+    void recoverConfirmingPaymentDoneButExpiredRefunds() {
+        Fixture fixture = createPendingReservationFixture(true); // 만료된 예약: group expiresAt 과거, 좌석은 아직 HELD
+        Payment ready = paymentRepository.save(new Payment(
+                reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
+                fixture.price,
+                LocalDateTime.now(),
+                "expired-confirming-order-" + System.nanoTime()
+        ));
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-refunded",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+        when(tossPaymentClient.cancel("pay-key-refunded", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
+                .thenReturn(new TossCancelResponse("pay-key-refunded", "CANCELED", String.valueOf(totalAmountWithVat), "KRW"));
+
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(1, recoveredCount);
+        assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.EXPIRED, group.getStatus());
+        assertEquals(ReservationStatus.EXPIRED, reservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+        verify(tossPaymentClient, times(1))
+                .cancel("pay-key-refunded", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId());
+    }
+
+    @Test
+    @DisplayName("recoverConfirmingPayments: 좌석 유실 환불이 타임아웃되면 CONFIRMING을 유지하고 다음 주기에 재시도한다")
+    void recoverConfirmingPaymentDoneButRefundTimeoutKeepsConfirmingForRetry() {
+        Fixture fixture = createPendingReservationFixture(true);
+        Payment ready = paymentRepository.save(new Payment(
+                reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
+                fixture.price,
+                LocalDateTime.now(),
+                "expired-confirming-refund-timeout-order-" + System.nanoTime()
+        ));
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+
+        TossPaymentLookupResponse lookupResponse = new TossPaymentLookupResponse(
+                "pay-key-refund-timeout",
+                ready.getOrderId(),
+                "DONE",
+                "CARD",
+                totalAmountWithVat,
+                "KRW"
+        );
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(lookupResponse, lookupResponse);
+        when(tossPaymentClient.cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
+                .thenThrow(new ResourceAccessException("timeout"))
+                .thenReturn(new TossCancelResponse("pay-key-refund-timeout", "CANCELED", String.valueOf(totalAmountWithVat), "KRW"));
+
+        int firstRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment stillConfirming = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup stillPendingGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        Reservation stillPendingReservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat stillHeldSeat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(0, firstRecoveredCount);
+        assertEquals(PaymentStatus.CONFIRMING, stillConfirming.getStatus());
+        assertEquals(ReservationGroupStatus.PENDING, stillPendingGroup.getStatus());
+        assertEquals(ReservationStatus.PENDING, stillPendingReservation.getStatus());
+        assertEquals(SeatStatus.HELD, stillHeldSeat.getStatus());
+
+        int secondRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment failed = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup expiredGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        Reservation expiredReservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat releasedSeat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(1, secondRecoveredCount);
+        assertEquals(PaymentStatus.FAILED, failed.getStatus());
+        assertEquals(ReservationGroupStatus.EXPIRED, expiredGroup.getStatus());
+        assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, releasedSeat.getStatus());
+        verify(tossPaymentClient, times(2))
+                .cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId());
+    }
+
+    @Test
+    @DisplayName("recoverConfirmingPayments: 한 건이 예외로 실패해도 배치가 멈추지 않고 나머지를 계속 보정한다")
+    void recoverConfirmingPaymentsIsolatesFailingItem() {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+        // 독성 결제(A): 재조회가 항상 예외를 던져 보정에 실패한다 (예: 예상 못 한 NPE)
+        Fixture fixtureA = createPendingReservationFixture(false);
+        Payment poison = paymentRepository.save(new Payment(
+                reservationGroupRepository.findById(fixtureA.reservationGroupId).orElseThrow(),
+                fixtureA.price,
+                LocalDateTime.now(),
+                "poison-order-" + System.nanoTime()
+        ));
+        paymentIds.add(poison.getId());
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(poison.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+        when(tossPaymentClient.getPaymentByOrderId(poison.getOrderId()))
+                .thenThrow(new RuntimeException("simulated NPE during reconcile"));
+
+        // 정상 결제(B): DONE + 좌석 유효 → 정상적으로 보정되어야 한다
+        Fixture fixtureB = createPendingReservationFixture(false);
+        Payment healthy = paymentService.readyPayment(fixtureB.reservationGroupId);
+        paymentIds.add(healthy.getId());
+        int totalAmountWithVat = amountWithVat(healthy.getAmount());
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(healthy.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+        when(tossPaymentClient.getPaymentByOrderId(healthy.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-healthy",
+                        healthy.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        int recoveredCount = assertDoesNotThrow(() ->
+                paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO));
+
+        Payment poisonAfter = paymentRepository.findById(poison.getId()).orElseThrow();
+        Payment healthyAfter = paymentRepository.findById(healthy.getId()).orElseThrow();
+
+        assertEquals(1, recoveredCount);                                  // 정상 건만 복구
+        assertEquals(PaymentStatus.CONFIRMING, poisonAfter.getStatus());  // 독성 건은 격리되어 그대로 남음
+        assertEquals(PaymentStatus.APPROVED, healthyAfter.getStatus());   // 뒤 건이 막히지 않고 보정됨
+    }
+
+    @Test
+    @DisplayName("recoverConfirmingPayments: PG DONE이지만 금액이 불일치하면 환불 후 FAILED로 정리하고 좌석을 푼다")
+    void recoverConfirmingPaymentDoneButAmountMismatchRefunds() {
+        Fixture fixture = createPendingReservationFixture(false); // 유효한 예약, 좌석은 HELD
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-amount-mismatch",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat + 1, // 우리 기대 금액과 불일치
+                        "KRW"
+                ));
+        when(tossPaymentClient.cancel("pay-key-amount-mismatch", "PG_DATA_MISMATCH", "KRW", "cancel:" + ready.getId()))
+                .thenReturn(new TossCancelResponse("pay-key-amount-mismatch", "CANCELED", String.valueOf(totalAmountWithVat + 1), "KRW"));
+
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(1, recoveredCount);
+        assertEquals(PaymentStatus.FAILED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.EXPIRED, group.getStatus());
+        assertEquals(ReservationStatus.EXPIRED, reservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+        verify(tossPaymentClient, times(1))
+                .cancel("pay-key-amount-mismatch", "PG_DATA_MISMATCH", "KRW", "cancel:" + ready.getId());
+    }
+
+    @Test
+    @DisplayName("recoverConfirmingPayments: PG 조회 orderId가 불일치하면 자동 처리하지 않고 CONFIRMING을 유지한다")
+    void recoverConfirmingPaymentOrderIdMismatchKeepsConfirming() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+        });
+
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-order-mismatch",
+                        "different-order-id", // 우리 orderId와 불일치 → 우리 결제건 여부 의심
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(0, recoveredCount);
+        assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
+        assertEquals(ReservationStatus.PENDING, reservation.getStatus());
+        assertEquals(SeatStatus.HELD, seat.getStatus());
+        verify(tossPaymentClient, never()).cancel(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("컨트롤러 confirm: 서비스 재조회까지 실패해 CONFIRMING으로 남아도 동기 재조회가 DONE이면 APPROVED를 반환한다")
+    void confirmControllerReconcilesConfirmingToApproved() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-ctrl-reconcile"))
+                .thenThrow(new ResourceAccessException("timeout")); // 서비스 1차 재조회도 실패 → CONFIRMING 잔존
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-ctrl-reconcile",
+                        ready.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        totalAmountWithVat,
+                        "KRW"
+                ));
+
+        // 실제 HTTP 요청의 OSIV 세션을 흉내내기 위해 트랜잭션 경계 안에서 컨트롤러를 호출한다(응답의 lazy 연관 로딩).
+        ConfirmPaymentResponse response = new TransactionTemplate(transactionManager).execute(status ->
+                payMentController.confirmPayment(
+                        new ConfirmPaymentRequest("pay-key-ctrl-reconcile", ready.getOrderId(), totalAmountWithVat)));
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(PaymentStatus.APPROVED, response.paymentStatus());
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
+    @Test
+    @DisplayName("컨트롤러 confirm: PG가 끝까지 응답하지 않으면 500 대신 CONFIRMING 상태를 반환하고 스케줄러에 위임한다")
+    void confirmControllerReturnsConfirmingWhenPgStillDown() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-ctrl-down"))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+                .thenThrow(new ResourceAccessException("timeout")); // 컨트롤러 동기 재조회도 실패
+
+        ConfirmPaymentResponse response = new TransactionTemplate(transactionManager).execute(status ->
+                payMentController.confirmPayment(
+                        new ConfirmPaymentRequest("pay-key-ctrl-down", ready.getOrderId(), totalAmountWithVat)));
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+
+        assertEquals(PaymentStatus.CONFIRMING, response.paymentStatus());
+        assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
+        assertEquals(SeatStatus.HELD, seat.getStatus());
+    }
+
+    @Test
+    @DisplayName("컨트롤러 confirm: 만료 등 정상 비즈니스 거절(결제가 CONFIRMING이 아님)은 동기 재조회로 삼키지 않고 예외를 그대로 전파한다")
+    void confirmControllerPropagatesBusinessRejection() {
+        Fixture fixture = createPendingReservationFixture(true);
+        Payment ready = paymentRepository.save(new Payment(
+                reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
+                fixture.price,
+                LocalDateTime.now(),
+                "ctrl-expired-order-" + System.nanoTime()
+        ));
+        paymentIds.add(ready.getId());
+
+        assertThrows(IllegalStateException.class, () -> payMentController.confirmPayment(
+                new ConfirmPaymentRequest("pay-key-ctrl-expired", ready.getOrderId(), amountWithVat(fixture.price))));
+
+        Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+        assertEquals(PaymentStatus.READY, payment.getStatus());
+        verifyNoInteractions(tossPaymentClient);
+    }
+
+    @Test
     @DisplayName("confirmPayment: 만료된 예약이면 예외가 발생하고 트랜잭션 롤백으로 READY/PENDING/HELD가 유지된다")
     void confirmPaymentExpiredReservation() {
         Fixture fixture = createPendingReservationFixture(true);
@@ -454,7 +838,7 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: PG 승인 응답 금액이 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    @DisplayName("confirmPayment: PG 승인 응답 금액이 다르면 예외가 발생하고 CONFIRMING/PENDING/HELD가 유지된다")
     void confirmPaymentRejectsPgAmountMismatch() {
         Fixture fixture = createPendingReservationFixture(false);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
@@ -478,7 +862,7 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: PG 승인 응답 통화가 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    @DisplayName("confirmPayment: PG 승인 응답 통화가 다르면 예외가 발생하고 CONFIRMING/PENDING/HELD가 유지된다")
     void confirmPaymentRejectsPgCurrencyMismatch() {
         Fixture fixture = createPendingReservationFixture(false);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
@@ -502,7 +886,7 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: PG 승인 응답 결제키가 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    @DisplayName("confirmPayment: PG 승인 응답 결제키가 다르면 예외가 발생하고 CONFIRMING/PENDING/HELD가 유지된다")
     void confirmPaymentRejectsPgPaymentKeyMismatch() {
         Fixture fixture = createPendingReservationFixture(false);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
@@ -526,7 +910,7 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: PG 승인 응답 주문번호가 다르면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    @DisplayName("confirmPayment: PG 승인 응답 주문번호가 다르면 예외가 발생하고 CONFIRMING/PENDING/HELD가 유지된다")
     void confirmPaymentRejectsPgOrderIdMismatch() {
         Fixture fixture = createPendingReservationFixture(false);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
@@ -550,7 +934,7 @@ class PaymentServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: PG 승인 응답 상태가 DONE이 아니면 예외가 발생하고 READY/PENDING/HELD가 유지된다")
+    @DisplayName("confirmPayment: PG 승인 응답 상태가 DONE이 아니면 예외가 발생하고 CONFIRMING/PENDING/HELD가 유지된다")
     void confirmPaymentRejectsPgStatusMismatch() {
         Fixture fixture = createPendingReservationFixture(false);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
@@ -915,7 +1299,7 @@ class PaymentServiceIntegrationTest {
         Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
         Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
 
-        assertEquals(PaymentStatus.READY, payment.getStatus());
+        assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, seat.getStatus());
     }

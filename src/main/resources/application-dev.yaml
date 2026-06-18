@@ -29,6 +29,12 @@ reservation:
   expire-scheduler:
     fixed-delay-ms: 1500000000000 # 15 seconds
 
+#결제 복구 스케쥴러
+payment:
+  recovery-scheduler:
+    grace-ms: 60000 # 60 seconds
+    fixed-delay-ms: 60000 # 1 minute
+
 security:
   csrf-origin:
     allowed-origins:
@@ -41,11 +47,11 @@ management:
       exposure:
         include: health, metrics, prometheus
 
-cache:
-  event:
-    list:
-      ttl: 10s
-      max-size: 1
-    detail:
-      ttl: 30s
-      max-size: 100
+#cache:
+#  event:
+#    list:
+#      ttl: 10s
+#      max-size: 1
+#    detail:
+#      ttl: 30s
+#      max-size: 100

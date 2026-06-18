@@ -10,10 +10,13 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 @Repository
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findByReservationGroupId(Long reservationGroupId);
+
+    Optional<Payment> findByOrderId(String orderId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.reservationGroup.id = :reservationGroupId")
@@ -26,6 +29,14 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.id = :paymentId")
     Optional<Payment> findByIdForUpdate(Long paymentId);
+
+    @Query("""
+            select p.id
+            from Payment p
+            where p.status = com.jipi.ticket_ledger.payment.domain.PaymentStatus.CONFIRMING
+              and p.confirmingAt <= :threshold
+            """)
+    List<Long> findStaleConfirmingIds(@Param("threshold") LocalDateTime threshold);
 
     @Query("""
             select p

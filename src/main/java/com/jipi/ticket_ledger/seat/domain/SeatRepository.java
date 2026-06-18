@@ -14,6 +14,18 @@ import java.util.List;
 @Repository
 public interface SeatRepository extends JpaRepository<Seat, Long> {
 
+    interface SeatSummary {
+        Long getId();
+
+        String getSeatNumber();
+
+        String getGrade();
+
+        Integer getPrice();
+
+        SeatStatus getStatus();
+    }
+
     interface SeatStatusCount {
         Long getScheduleId();
 
@@ -28,6 +40,18 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
 
     //특정 회차 좌석 목록
     List<Seat> findByScheduleId(Long scheduleId);
+
+    @Query("""
+            select s.id as id,
+                   s.seatNumber as seatNumber,
+                   s.grade as grade,
+                   s.price as price,
+                   s.status as status
+            from Seat s
+            where s.schedule.id = :scheduleId
+            order by s.id asc
+            """)
+    List<SeatSummary> findSeatSummariesByScheduleId(@Param("scheduleId") Long scheduleId);
 
     List<Seat> findByScheduleIdIn(Collection<Long> scheduleIds);
 

@@ -40,3 +40,8 @@ out/
 .vscode/
 /docs/private/
 /performance/data/
+/docs/superpowers/
+
+### Claude ###
+CLAUDE.md
+.claude/
