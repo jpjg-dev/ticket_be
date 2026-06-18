@@ -6,6 +6,9 @@ spring:
   application:
     name: ticket-ledger
 
+  lifecycle:
+    timeout-per-shutdown-phase: 10s
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -14,6 +17,7 @@ spring:
 
 server:
   port: ${PORT:8080}
+  shutdown: graceful
 
 jwt:
   secret: ${JWT_SECRET}
