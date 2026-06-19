@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.payment.domain;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -35,8 +36,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             from Payment p
             where p.status = com.jipi.ticket_ledger.payment.domain.PaymentStatus.CONFIRMING
               and p.confirmingAt <= :threshold
+            order by p.id asc
             """)
-    List<Long> findStaleConfirmingIds(@Param("threshold") Instant threshold);
+    List<Long> findStaleConfirmingIds(@Param("threshold") Instant threshold, Pageable pageable);
 
     @Query("""
             select p

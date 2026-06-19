@@ -469,6 +469,51 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
+    @DisplayName("recoverConfirmingPayments: 설정된 batch-size 만큼만 오래된 CONFIRMING 결제를 보정한다")
+    void recoverConfirmingPaymentsUsesConfiguredBatchSize() {
+        Fixture firstFixture = createPendingReservationFixture(false);
+        Payment firstReady = paymentService.readyPayment(firstFixture.reservationGroupId);
+        paymentIds.add(firstReady.getId());
+        int firstTotalAmountWithVat = amountWithVat(firstReady.getAmount());
+
+        Fixture secondFixture = createPendingReservationFixture(false);
+        Payment secondReady = paymentService.readyPayment(secondFixture.reservationGroupId);
+        paymentIds.add(secondReady.getId());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment firstPayment = paymentRepository.findById(firstReady.getId()).orElseThrow();
+            firstPayment.confirming();
+            ReflectionTestUtils.setField(firstPayment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
+
+            Payment secondPayment = paymentRepository.findById(secondReady.getId()).orElseThrow();
+            secondPayment.confirming();
+            ReflectionTestUtils.setField(secondPayment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
+        });
+
+        when(tossPaymentClient.getPaymentByOrderId(firstReady.getOrderId()))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-batch-first",
+                        firstReady.getOrderId(),
+                        "DONE",
+                        "CARD",
+                        firstTotalAmountWithVat,
+                        "KRW"
+                ));
+
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(Duration.ZERO, 1);
+
+        Payment firstPayment = paymentRepository.findById(firstReady.getId()).orElseThrow();
+        Payment secondPayment = paymentRepository.findById(secondReady.getId()).orElseThrow();
+
+        assertEquals(1, recoveredCount);
+        assertEquals(PaymentStatus.APPROVED, firstPayment.getStatus());
+        assertEquals(PaymentStatus.CONFIRMING, secondPayment.getStatus());
+        verify(tossPaymentClient, times(1)).getPaymentByOrderId(firstReady.getOrderId());
+        verify(tossPaymentClient, never()).getPaymentByOrderId(secondReady.getOrderId());
+    }
+
+    @Test
     @DisplayName("recoverConfirmingPayments: PG DONE이지만 예약이 만료돼 좌석이 유효하지 않으면 환불 후 FAILED로 정리하고 좌석을 푼다")
     void recoverConfirmingPaymentDoneButExpiredRefunds() {
         Fixture fixture = createPendingReservationFixture(true); // 만료된 예약: group expiresAt 과거, 좌석은 아직 HELD
