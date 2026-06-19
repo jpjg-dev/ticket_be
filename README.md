@@ -493,6 +493,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 | --- | --- |
 | [docs/architecture/system-architecture.md](docs/architecture/system-architecture.md) | 운영 배포 구조와 요청 흐름 |
 | [docs/design/state-design.md](docs/design/state-design.md) | 좌석, 예매, 결제 상태 전이 정책 |
+| [docs/design/time-policy.md](docs/design/time-policy.md) | UTC 저장과 로컬 공연 시간 구분 정책 |
 | [docs/design/auth-flow-readme.md](docs/design/auth-flow-readme.md) | 로그인, 재발급, HttpOnly 쿠키 인증 흐름 |
 | [docs/design/external-api-client-tradeoffs.md](docs/design/external-api-client-tradeoffs.md) | PG 연동 HTTP 클라이언트 선택 기준 |
 | [docs/design/payment-failure-recovery-design.md](docs/design/payment-failure-recovery-design.md) | CONFIRMING 기반 PG 성공 후 내부 실패 보정 설계와 남은 리팩토링 후보 |
