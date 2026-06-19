@@ -21,6 +21,11 @@ public class PaymentRecoveryScheduler {
     @Scheduled(fixedDelayString = "${payment.recovery-scheduler.fixed-delay-ms:60000}")
     public void recoverConfirmingPayments() {
         int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(Duration.ofMillis(graceMs));
-        log.info("Recover confirming payments completed. recoveredCount={}", recoveredCount);
+        // 처리할 게 없는 빈 주기는 로그를 더럽히므로 debug 로만 남기고, 실제 보정이 있을 때만 info 로 남긴다.
+        if (recoveredCount > 0) {
+            log.info("Recover confirming payments completed. recoveredCount={}", recoveredCount);
+        } else {
+            log.debug("Recover confirming payments completed. recoveredCount={}", recoveredCount);
+        }
     }
 }

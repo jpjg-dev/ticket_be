@@ -15,6 +15,11 @@ public class ReservationExpirationScheduler {
     @Scheduled(fixedDelayString = "${reservation.expire-scheduler.fixed-delay-ms}")
     public void expireReservations() {
         int expiredCount = reservationExpirationService.expireAll();
-        log.info("Expire reservations completed. expiredCount={}", expiredCount);
+        // 처리할 게 없는 빈 주기는 로그를 더럽히므로 debug 로만 남기고, 실제 만료가 있을 때만 info 로 남긴다.
+        if (expiredCount > 0) {
+            log.info("Expire reservations completed. expiredCount={}", expiredCount);
+        } else {
+            log.debug("Expire reservations completed. expiredCount={}", expiredCount);
+        }
     }
 }

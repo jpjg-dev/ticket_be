@@ -37,3 +37,8 @@ toss:
   payments:
     base-url: https://api.tosspayments.com
     secret-key: ${TOSS_SECRET_KEY}
+
+logging:
+  pattern:
+    # 모든 로그 줄에 [traceId|userId] 를 찍어 요청 단위로 장애를 추적한다(값 없으면 빈칸).
+    level: "%5p [%X{traceId:-}|%X{userId:-}]"
