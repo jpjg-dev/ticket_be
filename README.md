@@ -12,6 +12,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 - [성능 테스트 해석 기준](#성능-테스트-해석-기준)
 - [핵심 문제](#핵심-문제)
 - [핵심 도메인 흐름](#핵심-도메인-흐름)
+- [운영 관측성](#운영-관측성)
 - [주요 설계 판단](#주요-설계-판단)
 - [정합성 검증 시나리오](#정합성-검증-시나리오)
 - [인기 공연 성능 개선 결과](#인기-공연-성능-개선-결과)
@@ -206,6 +207,27 @@ sequenceDiagram
 `CONFIRMING`은 PG 승인 호출에 들어갔지만 내부 확정이 아직 끝나지 않은 상태입니다. 이 상태는 동기 재조회와 비동기 보정 스케줄러의 기준점으로 사용합니다.
 
 상세 상태 정책은 [docs/design/state-design.md](docs/design/state-design.md)에 정리했습니다.
+
+## 운영 관측성
+
+운영에서 장애가 났을 때 "누가 / 어떤 요청을 / 어떤 결과로" 추적할 수 있도록, 분산 추적 인프라(Sleuth/OTel) 없이 단일 서비스에 맞는 경량 3계층 로깅을 적용했습니다.
+
+| 계층 | 구현 | 목적 |
+| --- | --- | --- |
+| 상관관계 ID | `TraceIdFilter`가 요청마다 traceId 발급 → MDC에 담아 모든 로그 줄에 자동 부착(`%X{traceId}`). 인증 통과 후 `JwtAuthenticationFilter`가 userId도 주입 | 한 요청의 전 처리 흐름(인증→컨트롤러→서비스→PG 호출)을 traceId로 묶음 |
+| 접근 로그 | `AccessLogFilter`가 요청 1건당 요약 한 줄(method/path/status/durationMs/ip), 5xx는 warn | 요청 단위 유입/응답 추적 |
+| 에러 추적 | `ErrorResponse`에 traceId 노출, `GlobalExceptionHandler`에서 4xx=warn(스택 생략)/5xx=error(스택 포함) 일원화 | 사용자에게 내려간 에러를 서버 로그와 연결 |
+
+설계 판단:
+
+- traceId 필터는 `Ordered.HIGHEST_PRECEDENCE`로 등록해 Spring Security 필터(`DelegatingFilterProxy`, order `-100`)보다 먼저 실행 → 인증 실패 로그까지 traceId로 묶입니다.
+- 스레드 풀 재사용에 따른 MDC 값 누수를 막기 위해 요청 종료 시 `finally`에서 `MDC.clear()` 합니다.
+- 접근 로그에는 request body/query string을 남기지 않습니다(비밀번호·토큰·결제정보 유출 방지).
+- `DataAccessException`은 SQL/스키마가 새지 않도록 클라이언트에 고정 메시지만 반환하고, 상세·스택은 서버 로그에만 남깁니다.
+- 실제 클라이언트 IP는 다단 프록시(nginx→FE→BE)에서 유실되므로, nginx의 `X-Real-IP`/`X-Forwarded-For`를 FE(BFF/SSR)가 전달하고 backend가 이를 읽습니다.
+- 주기 스케줄러는 처리량이 있을 때만 info, 0건이면 debug로 남겨 로그 노이즈를 줄였습니다.
+
+설계 근거와 트레이드오프 상세는 비공개 설계 문서(`docs/private/design/logging-design-decision.md`, `logging-filters-explained.md`)에 정리했습니다.
 
 ## 주요 설계 판단
 
