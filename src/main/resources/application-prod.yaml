@@ -13,12 +13,19 @@ reservation:
   hold-duration: 5m # 5 minutes 뒤 만료
   expire-scheduler:
     fixed-delay-ms: 60000 # 1 minute 마다 만료된 예약 확인 후 정리
+    batch-size: 100
 
 #결제 복구 스케쥴러
 payment:
   recovery-scheduler:
     grace-ms: 60000 # 60 seconds
     fixed-delay-ms: 60000 # 1 minute
+    batch-size: 20
+
+toss:
+  payments:
+    connect-timeout: 2s
+    read-timeout: 5s
 
 logging:
   level:
