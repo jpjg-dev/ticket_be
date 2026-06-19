@@ -17,6 +17,8 @@ import com.jipi.ticket_ledger.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.data.domain.Pageable;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -54,7 +56,7 @@ class ReservationExpirationServiceTest {
     void expireAllForReservationGroup() {
         Fixture fixture = createFixture(3L);
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
                 .thenReturn(List.of(3L));
         when(paymentRepository.findByReservationGroupIdForUpdate(3L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(fixture.group()));
@@ -100,7 +102,7 @@ class ReservationExpirationServiceTest {
         Fixture fixture = createFixture(8L);
         fixture.payment().fail();
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
                 .thenReturn(List.of(8L));
         when(paymentRepository.findByReservationGroupIdForUpdate(8L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(8L)).thenReturn(Optional.of(fixture.group()));
@@ -120,7 +122,7 @@ class ReservationExpirationServiceTest {
         Fixture fixture = createFixture(12L);
         fixture.payment().confirming();
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
                 .thenReturn(List.of(12L));
         when(paymentRepository.findByReservationGroupIdForUpdate(12L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(fixture.group()));
@@ -140,7 +142,7 @@ class ReservationExpirationServiceTest {
     void expireAllLocksGroupWhenPaymentDoesNotExist() {
         Fixture fixture = createFixture(11L);
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
                 .thenReturn(List.of(11L));
         when(paymentRepository.findByReservationGroupIdForUpdate(11L)).thenReturn(Optional.empty());
         when(reservationGroupRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(fixture.group()));
@@ -160,7 +162,7 @@ class ReservationExpirationServiceTest {
         Fixture fixture = createFixture(9L);
         fixture.group().expire();
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
                 .thenReturn(List.of(9L));
         when(paymentRepository.findByReservationGroupIdForUpdate(9L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(fixture.group()));
@@ -177,7 +179,7 @@ class ReservationExpirationServiceTest {
     @DisplayName("expireAll: 만료 대상이 없으면 상태 변경이 없다")
     void expireAllDoesNothingWithoutExpiredGroups() {
         Fixture fixture = createFixture(10L);
-        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
                 .thenReturn(List.of());
 
         int expiredCount = reservationExpirationService.expireAll();
@@ -187,6 +189,20 @@ class ReservationExpirationServiceTest {
         assertEquals(PaymentStatus.READY, fixture.payment().getStatus());
         assertEquals(ReservationStatus.PENDING, fixture.reservations().get(0).getStatus());
         assertEquals(SeatStatus.HELD, fixture.reservations().get(0).getSeat().getStatus());
+    }
+
+    @Test
+    @DisplayName("expireAll: 설정된 batch-size 만큼만 만료 후보를 조회한다")
+    void expireAllUsesConfiguredBatchSize() {
+        ReflectionTestUtils.setField(reservationExpirationService, "batchSize", 2);
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        reservationExpirationService.expireAll();
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(reservationGroupRepository).findExpiredPendingIds(any(java.time.Instant.class), pageableCaptor.capture());
+        assertEquals(2, pageableCaptor.getValue().getPageSize());
     }
 
     private Fixture createFixture(Long groupId) {
