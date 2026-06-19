@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
@@ -54,22 +55,36 @@ public class PaymentRecoveryService {
     }
 
     @Transactional(readOnly = true)
-    public List<Long> findStaleConfirmingPaymentIds(Duration grace) {
-        return paymentRepository.findStaleConfirmingIds(Instant.now().minus(grace));
+    public List<Long> findStaleConfirmingPaymentIds(Duration grace, int batchSize) {
+        return paymentRepository.findStaleConfirmingIds(
+                Instant.now().minus(grace),
+                PageRequest.of(0, batchSize)
+        );
     }
 
     public int reconcileStaleConfirmingPayments(Duration grace) {
+        return reconcileStaleConfirmingPayments(grace, Integer.MAX_VALUE);
+    }
+
+    public int reconcileStaleConfirmingPayments(Duration grace, int batchSize) {
         int recoveredCount = 0;
-        for (Long paymentId : findStaleConfirmingPaymentIds(grace)) {
+        List<Long> paymentIds = findStaleConfirmingPaymentIds(grace, batchSize);
+        int failedCount = 0;
+        for (Long paymentId : paymentIds) {
             try {
                 if (reconcileConfirmingPayment(paymentId)) {
                     recoveredCount++;
                 }
             } catch (Exception e) {
+                failedCount++;
                 // 한 건의 실패(PG 오류·데이터 이상 등)가 배치 전체를 멈추지 않도록 격리한다.
                 // 실패 건은 CONFIRMING으로 남아 다음 주기에 재시도되며, 매번 노출되도록 크게 로깅한다.
                 log.error("Failed to reconcile CONFIRMING payment, skipping to next. paymentId={}", paymentId, e);
             }
+        }
+        if (!paymentIds.isEmpty()) {
+            log.info("Reconcile CONFIRMING payment batch finished. candidateCount={} recoveredCount={} failedCount={}",
+                    paymentIds.size(), recoveredCount, failedCount);
         }
         return recoveredCount;
     }

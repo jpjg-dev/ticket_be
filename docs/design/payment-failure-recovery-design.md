@@ -90,6 +90,28 @@ status = CONFIRMING AND confirming_at < now - grace
 
 `fixedDelay` 약 30초~1분. 만료 스케줄러 패턴(`ReservationExpirationScheduler`)을 재사용합니다.
 
+### 6. 재기동 후 backlog 보호
+
+서버가 중단된 동안 오래된 `CONFIRMING` 결제나 만료 예약이 많이 쌓일 수 있습니다. 이때 중요한 목표는 "한 번에 얼마나 많이 복구할 수 있는가"가 아니라, **backlog 처리 자체가 서버를 다시 압박해 재장애를 만들지 않도록 하는 것**입니다.
+
+그래서 스케줄러는 한 주기에 처리할 후보 수를 설정값으로 제한합니다.
+
+```text
+payment.recovery-scheduler.batch-size
+reservation.expire-scheduler.batch-size
+```
+
+처리하지 못한 후보는 상태를 유지하고 다음 주기에 이어서 처리합니다. 이 방식은 복구 속도를 일부 포기하는 대신, 재기동 직후 DB 커넥션·외부 PG 호출·락 경합이 한 번에 몰리는 위험을 줄입니다. batch-size는 최적값이 아니라 안전한 시작점이며, backlog 테스트와 운영 지표를 보고 조정합니다.
+
+운영 기본값:
+
+| 작업 | 기본 batch-size | 이유 |
+| --- | ---: | --- |
+| 결제 보정 | `20` | PG 조회/취소 외부 호출이 포함되므로 작게 시작합니다. |
+| 예약 만료(스케줄러) | `100` | 외부 호출 없이 DB 상태 전이가 중심이라 결제 보정보다 크게 둡니다. |
+
+> batch-size 제한은 **저빈도·전역 일괄 처리인 스케줄러 경로**(`expireAll`)에만 적용합니다. 좌석 조회(`/seats`)마다 호출되는 **고빈도 수동 만료**(`expireByScheduleId`)는 만료되는 족족 비워져 후보가 얕게 유지되므로 상한을 두지 않고 해당 회차를 즉시 최신화합니다. 사람이 보지 않는 회차의 backlog는 스케줄러가 백스톱으로 정리합니다.
+
 ## 만료 스케줄러와의 경합
 
 - **만료 스케줄러는 결제가 `CONFIRMING`인 예약의 좌석을 풀지 않습니다.** 돈이 떠 있을 수 있으므로 보정이 처리하도록 양보합니다.
@@ -132,6 +154,8 @@ ALTER TABLE payments ADD COLUMN confirming_at timestamp NULL;
 ### 반영됨
 
 - **보정 스케줄러 건별 예외 격리**: `PaymentRecoveryService.reconcileStaleConfirmingPayments` 루프를 건별 try-catch로 감싸, 한 건의 실패(PG 오류·NPE·데이터 이상 등)가 배치 전체를 중단시키지 않도록 했습니다. 실패 건은 `CONFIRMING`으로 남아 다음 주기에 재시도되며 `log.error`로 노출됩니다. 이 격리 전에는 한 건의 결정적 예외(poison pill)가 그 뒤 결제들을 영구히 방치(좌석 영구 HELD + 결제 미정리)시킬 수 있었습니다.
+- **보정/만료 스케줄러 batch-size 제한**: 재기동 후 backlog가 한 번에 몰려 서버를 다시 압박하지 않도록, 결제 보정과 예약 만료 후보 조회를 한 주기당 설정된 개수로 제한했습니다.
+- **Toss Payments timeout 명시**: 외부 PG 호출이 무한 대기하지 않도록 connect/read timeout을 설정했습니다. timeout은 결제 실패 확정이 아니라 결과 불명 상태로 보고, 기존 `CONFIRMING` 조회/보정 흐름으로 수렴시킵니다.
 
 ## 관련 문서
 

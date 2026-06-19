@@ -46,7 +46,9 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 - 예매 단위는 개별 좌석이 아니라 `ReservationGroup`으로 묶었습니다.
 - 좌석 선점은 정렬된 좌석 ID와 DB 행 잠금으로 처리했습니다.
 - 결제 승인은 `READY -> CONFIRMING -> APPROVED`로 나누고, PG 호출 전후 트랜잭션을 분리했습니다.
+- Toss Payments 호출에는 connect/read timeout을 두고, 응답 불명 상태는 `CONFIRMING` 보정 흐름으로 수렴시킵니다.
 - 결제되지 않은 선점 좌석은 만료 후 다시 `AVAILABLE`로 복구합니다.
+- 재기동 후 backlog가 한 번에 몰리지 않도록 보정/만료 스케줄러는 한 주기 처리량을 제한합니다.
 - 고부하 전체 여정 테스트에서는 완료 결제 `1,000`건, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 확인했습니다.
 - 마이페이지는 예매 그룹 `100`개 조건에서 N+1과 반복 조회 비용을 줄였습니다.
 
@@ -228,6 +230,19 @@ sequenceDiagram
 - 주기 스케줄러는 처리량이 있을 때만 info, 0건이면 debug로 남겨 로그 노이즈를 줄였습니다.
 
 설계 근거와 트레이드오프 상세는 비공개 설계 문서(`docs/private/design/logging-design-decision.md`, `logging-filters-explained.md`)에 정리했습니다.
+
+### 외부 호출 / backlog 보호 설정
+
+운영 프로필은 외부 PG 지연과 재기동 직후 backlog를 같이 고려해 보수적인 시작값을 사용합니다.
+
+| 항목 | 운영값 | 의도 |
+| --- | ---: | --- |
+| Toss connect timeout | `2s` | 연결 자체가 지연되는 외부 장애에서 요청 thread가 오래 묶이지 않게 합니다. |
+| Toss read timeout | `5s` | 결제 결과 응답 대기가 길어질 때 결과 불명으로 보고 `CONFIRMING` 보정 흐름에 넘깁니다. |
+| 결제 보정 batch-size | `20` | PG 조회/취소 외부 호출이 포함되므로 한 주기 처리량을 작게 시작합니다. |
+| 예약 만료 batch-size | `100` | DB 상태 전이가 중심인 전역 스케줄러 backlog를 제한합니다. |
+
+이 값들은 최대 처리량 목표가 아니라, 서버 재기동 직후 backlog 처리 때문에 다시 장애가 나는 상황을 막기 위한 안전한 시작점입니다. 실제 조정은 `CONFIRMING` 잔존 수, 보정 실패 수, 만료 후보 수, DB/PG 부하 지표를 보고 진행합니다.
 
 ## 주요 설계 판단
 
@@ -493,6 +508,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 | --- | --- |
 | [docs/architecture/system-architecture.md](docs/architecture/system-architecture.md) | 운영 배포 구조와 요청 흐름 |
 | [docs/design/state-design.md](docs/design/state-design.md) | 좌석, 예매, 결제 상태 전이 정책 |
+| [docs/design/time-policy.md](docs/design/time-policy.md) | UTC 저장과 로컬 공연 시간 구분 정책 |
 | [docs/design/auth-flow-readme.md](docs/design/auth-flow-readme.md) | 로그인, 재발급, HttpOnly 쿠키 인증 흐름 |
 | [docs/design/external-api-client-tradeoffs.md](docs/design/external-api-client-tradeoffs.md) | PG 연동 HTTP 클라이언트 선택 기준 |
 | [docs/design/payment-failure-recovery-design.md](docs/design/payment-failure-recovery-design.md) | CONFIRMING 기반 PG 성공 후 내부 실패 보정 설계와 남은 리팩토링 후보 |

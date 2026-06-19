@@ -43,6 +43,8 @@ toss:
   payments:
     base-url: https://api.tosspayments.com
     secret-key: ${TOSS_SECRET_KEY}
+    connect-timeout: 2s
+    read-timeout: 5s
 
 app:
   time:

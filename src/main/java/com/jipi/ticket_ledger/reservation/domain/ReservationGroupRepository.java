@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.reservation.domain;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -18,8 +19,9 @@ public interface ReservationGroupRepository extends JpaRepository<ReservationGro
             from ReservationGroup rg
             where rg.status = com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus.PENDING
               and rg.expiresAt <= :time
+            order by rg.id asc
             """)
-    List<Long> findExpiredPendingIds(@Param("time") Instant time);
+    List<Long> findExpiredPendingIds(@Param("time") Instant time, Pageable pageable);
 
     @Query("""
             select distinct r.reservationGroup.id
