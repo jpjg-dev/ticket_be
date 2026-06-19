@@ -40,6 +40,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.ResourceAccessException;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -282,7 +284,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     void confirmPaymentWinsAgainstConcurrentExpiration() throws Exception {
         Fixture fixture = createPendingReservationFixture(false);
         ReservationGroup reservationGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
-        LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(2);
+        Instant expiresAt = Instant.now().plusSeconds(2);
         ReflectionTestUtils.setField(reservationGroup, "expiresAt", expiresAt);
         reservationGroupRepository.saveAndFlush(reservationGroup);
 
@@ -315,7 +317,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             );
             assertTrue(confirmReachedPg.await(10, TimeUnit.SECONDS), "승인 요청이 PG 호출 지점까지 진입해야 합니다.");
 
-            long millisUntilExpired = java.time.Duration.between(LocalDateTime.now(), expiresAt).toMillis();
+            long millisUntilExpired = Duration.between(Instant.now(), expiresAt).toMillis();
             if (millisUntilExpired > 0) {
                 Thread.sleep(millisUntilExpired + 100);
             }
@@ -440,7 +442,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
             payment.confirming();
-            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
         when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
@@ -483,7 +485,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
             payment.confirming();
-            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
         when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
@@ -531,7 +533,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
             payment.confirming();
-            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
         TossPaymentLookupResponse lookupResponse = new TossPaymentLookupResponse(
@@ -594,7 +596,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(poison.getId()).orElseThrow();
             payment.confirming();
-            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
         when(tossPaymentClient.getPaymentByOrderId(poison.getOrderId()))
                 .thenThrow(new RuntimeException("simulated NPE during reconcile"));
@@ -607,7 +609,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(healthy.getId()).orElseThrow();
             payment.confirming();
-            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
         when(tossPaymentClient.getPaymentByOrderId(healthy.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
@@ -642,7 +644,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
             payment.confirming();
-            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
         when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
@@ -685,7 +687,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
             payment.confirming();
-            ReflectionTestUtils.setField(payment, "confirmingAt", LocalDateTime.now().minusMinutes(10));
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
         when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))

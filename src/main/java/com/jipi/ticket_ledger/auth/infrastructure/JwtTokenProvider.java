@@ -9,8 +9,7 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.Instant;
 import java.util.Date;
 
 @Component
@@ -82,10 +81,8 @@ public class JwtTokenProvider {
     }
 
     // 토큰의 만료 시각을 RefreshToken 엔티티 저장 형식에 맞춰 변환한다.
-    public LocalDateTime getExpirationAsLocalDateTime(String token) {
-        return getExpiration(token).toInstant()
-                .atZone(ZoneId.systemDefault())
-                .toLocalDateTime();
+    public Instant getExpirationAsInstant(String token) {
+        return getExpiration(token).toInstant();
     }
 
     // 액세스 토큰인지 타입으로 확인한다.

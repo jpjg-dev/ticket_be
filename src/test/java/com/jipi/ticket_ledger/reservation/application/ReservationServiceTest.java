@@ -26,6 +26,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,6 +56,8 @@ class ReservationServiceTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(reservationService, "holdDuration", Duration.ofMinutes(5));
+        // 공연 시작 비교를 테스트의 LocalDateTime.now()와 같은 존으로 맞춰 CI 타임존에 무관하게 한다.
+        ReflectionTestUtils.setField(reservationService, "serviceZoneId", ZoneId.systemDefault().getId());
     }
 
     @Test
@@ -85,7 +88,7 @@ class ReservationServiceTest {
         assertNotNull(savedReservation.getExpiresAt());
         assertEquals(savedReservation.getReservedAt().plus(Duration.ofMinutes(5)), savedReservation.getExpiresAt());
         assertEquals(savedReservation.getReservationGroup().getExpiresAt(), savedReservation.getExpiresAt());
-        verify(reservationGroupRepository, never()).findByExpiresAtLessThanEqual(any(LocalDateTime.class));
+        verify(reservationGroupRepository, never()).findByExpiresAtLessThanEqual(any(java.time.Instant.class));
     }
 
     @Test

@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -128,7 +128,7 @@ public class PaymentConfirmTransactionService {
             throw new IllegalStateException("결제 대기 중인 예약만 승인할 수 있습니다.");
         }
 
-        if (payment.getReservationGroup().isExpiredAt(LocalDateTime.now())) {
+        if (payment.getReservationGroup().isExpiredAt(Instant.now())) {
             log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
                     LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId,
                     "RESERVATION_EXPIRED", PaymentLogFormatter.maskPaymentKey(paymentKey));

@@ -16,7 +16,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 @Getter
@@ -35,23 +37,31 @@ public class ReservationGroup {
     private User user;
 
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(nullable = false)
-    private LocalDateTime expiresAt;
+    private Instant expiresAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ReservationGroupStatus status;
 
-    public ReservationGroup(User user, LocalDateTime now, LocalDateTime expiresAt) {
+    public ReservationGroup(User user, Instant now, Instant expiresAt) {
         this.user = user;
         this.createdAt = now;
         this.expiresAt = expiresAt;
         this.status = ReservationGroupStatus.PENDING;
     }
 
-    public boolean isExpiredAt(LocalDateTime now) {
+    public ReservationGroup(User user, LocalDateTime now, LocalDateTime expiresAt) {
+        this(
+                user,
+                now.atZone(ZoneId.systemDefault()).toInstant(),
+                expiresAt.atZone(ZoneId.systemDefault()).toInstant()
+        );
+    }
+
+    public boolean isExpiredAt(Instant now) {
         return !this.expiresAt.isAfter(now);
     }
 
@@ -76,7 +86,7 @@ public class ReservationGroup {
         this.status = ReservationGroupStatus.EXPIRED;
     }
 
-    public void validateReadyPayment(List<Reservation> reservations, LocalDateTime now) {
+    public void validateReadyPayment(List<Reservation> reservations, Instant now) {
         boolean hasInvalidReservation = reservations.stream()
                 .anyMatch(reservation -> reservation.getStatus() != ReservationStatus.PENDING);
 

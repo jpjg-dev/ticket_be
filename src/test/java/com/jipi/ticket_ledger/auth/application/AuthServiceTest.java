@@ -18,7 +18,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.LocalDateTime;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,7 +57,7 @@ class AuthServiceTest {
     @Test
     @DisplayName("login: 정상 로그인 시 토큰을 발급하고 Refresh Token을 저장한다")
     void login_success() {
-        LocalDateTime expiresAt = LocalDateTime.of(2026, 5, 13, 12, 0);
+        Instant expiresAt = Instant.parse("2026-05-13T03:00:00Z");
         User user = org.mockito.Mockito.mock(User.class);
 
         when(userRepository.findByEmail("user@test.com")).thenReturn(Optional.of(user));
@@ -67,7 +68,7 @@ class AuthServiceTest {
         when(jwtTokenProvider.createAccessToken(1L)).thenReturn("access-token");
         when(jwtTokenProvider.createRefreshToken(eq(1L), anyString())).thenReturn("refresh-token");
         when(tokenHasher.hash("refresh-token")).thenReturn("refresh-hash");
-        when(jwtTokenProvider.getExpirationAsLocalDateTime("refresh-token")).thenReturn(expiresAt);
+        when(jwtTokenProvider.getExpirationAsInstant("refresh-token")).thenReturn(expiresAt);
 
         AuthResponseLoginDTO response = authService.login(new AuthRequestLoginDTO("user@test.com", "password"));
 
@@ -103,9 +104,9 @@ class AuthServiceTest {
     @Test
     @DisplayName("reissue: 기존 Refresh Token을 폐기하고 새 토큰을 발급한다")
     void reissue_refreshTokenRotation() {
-        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(30);
+        Instant expiresAt = Instant.now().plus(Duration.ofMinutes(30));
         User user = org.mockito.Mockito.mock(User.class);
-        RefreshToken savedToken = new RefreshToken(user, "old-hash", "old-jti", expiresAt, LocalDateTime.now().minusMinutes(1));
+        RefreshToken savedToken = new RefreshToken(user, "old-hash", "old-jti", expiresAt, Instant.now().minus(Duration.ofMinutes(1)));
 
         when(jwtTokenProvider.isValidToken("old-refresh")).thenReturn(true);
         when(jwtTokenProvider.isRefreshToken("old-refresh")).thenReturn(true);
@@ -115,11 +116,11 @@ class AuthServiceTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(user.getStatus()).thenReturn(UserStatus.ACTIVE);
         when(user.getId()).thenReturn(1L);
-        when(refreshTokenRepository.consumeIfActive(eq("old-jti"), eq(1L), eq("old-hash"), any(LocalDateTime.class))).thenReturn(1);
+        when(refreshTokenRepository.consumeIfActive(eq("old-jti"), eq(1L), eq("old-hash"), any(java.time.Instant.class))).thenReturn(1);
         when(jwtTokenProvider.createAccessToken(1L)).thenReturn("new-access");
         when(jwtTokenProvider.createRefreshToken(eq(1L), anyString())).thenReturn("new-refresh");
         when(tokenHasher.hash("new-refresh")).thenReturn("new-hash");
-        when(jwtTokenProvider.getExpirationAsLocalDateTime("new-refresh")).thenReturn(expiresAt.plusMinutes(30));
+        when(jwtTokenProvider.getExpirationAsInstant("new-refresh")).thenReturn(expiresAt.plus(Duration.ofMinutes(30)));
 
         AuthResponseLoginDTO response = authService.reissue("old-refresh");
 
@@ -147,7 +148,7 @@ class AuthServiceTest {
         when(tokenHasher.hash("old-refresh")).thenReturn("old-hash");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(user.getStatus()).thenReturn(UserStatus.ACTIVE);
-        when(refreshTokenRepository.consumeIfActive(eq("old-jti"), eq(1L), eq("old-hash"), any(LocalDateTime.class))).thenReturn(0);
+        when(refreshTokenRepository.consumeIfActive(eq("old-jti"), eq(1L), eq("old-hash"), any(java.time.Instant.class))).thenReturn(0);
 
         assertThrows(com.jipi.ticket_ledger.global.exception.AuthUnauthorizedException.class,
                 () -> authService.reissue("old-refresh"));
@@ -158,9 +159,9 @@ class AuthServiceTest {
     @Test
     @DisplayName("logout: 저장된 Refresh Token을 revoke 처리한다")
     void logout_revokesRefreshToken() {
-        LocalDateTime now = LocalDateTime.of(2026, 5, 13, 10, 0);
+        Instant now = Instant.parse("2026-05-13T01:00:00Z");
         User user = org.mockito.Mockito.mock(User.class);
-        RefreshToken savedToken = new RefreshToken(user, "token-hash", "logout-jti", now.plusMinutes(10), now.minusMinutes(1));
+        RefreshToken savedToken = new RefreshToken(user, "token-hash", "logout-jti", now.plus(Duration.ofMinutes(10)), now.minus(Duration.ofMinutes(1)));
 
         when(jwtTokenProvider.isValidToken("refresh-token")).thenReturn(true);
         when(jwtTokenProvider.isRefreshToken("refresh-token")).thenReturn(true);

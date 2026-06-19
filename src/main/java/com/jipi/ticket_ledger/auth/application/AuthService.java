@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Service
@@ -50,8 +50,8 @@ public class AuthService {
                 user,
                 refreshTokenHash,
                 jti,
-                jwtTokenProvider.getExpirationAsLocalDateTime(refreshToken),
-                LocalDateTime.now()
+                jwtTokenProvider.getExpirationAsInstant(refreshToken),
+                Instant.now()
         ));
 
         log.info("event={} userId={} email={}", LogEvents.AUTH_LOGIN_SUCCESS, user.getId(), request.email());
@@ -79,7 +79,7 @@ public class AuthService {
         // 토큰 원문을 저장하지 않기 위해 해시값으로 비교한다.
         String refreshTokenHash = tokenHasher.hash(refreshToken);
         // 이후 만료/사용 시각 비교에 사용할 현재 시각을 확보한다.
-        LocalDateTime now = LocalDateTime.now();
+        Instant now = Instant.now();
 
         // 사용자 정보가 존재하고 활성 상태인지 확인한다.
         User user = userRepository.findById(userId)
@@ -108,7 +108,7 @@ public class AuthService {
                 user,
                 newRefreshTokenHash,
                 newJti,
-                jwtTokenProvider.getExpirationAsLocalDateTime(newRefreshToken),
+                jwtTokenProvider.getExpirationAsInstant(newRefreshToken),
                 now
         ));
 
@@ -146,7 +146,7 @@ public class AuthService {
                 .filter(savedToken -> !savedToken.isRevoked())
                 // 조건을 모두 통과한 토큰에 대해 폐기 시점을 기록한다.
                 .ifPresent(savedToken -> {
-                    savedToken.revoke(LocalDateTime.now());
+                    savedToken.revoke(Instant.now());
                     log.info("event={} userId={}", LogEvents.AUTH_LOGOUT_SUCCESS, userId);
                 });
     }

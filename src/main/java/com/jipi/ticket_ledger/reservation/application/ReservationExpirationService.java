@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -29,14 +29,14 @@ public class ReservationExpirationService {
 
     public int expireAll() {
         return expireGroups(
-                reservationGroupRepository.findExpiredPendingIds(LocalDateTime.now()),
+                reservationGroupRepository.findExpiredPendingIds(Instant.now()),
                 "SCHEDULER"
         );
     }
 
     public int expireByScheduleId(Long scheduleId) {
         return expireGroups(
-                reservationGroupRepository.findExpiredPendingIdsByScheduleId(scheduleId, LocalDateTime.now()),
+                reservationGroupRepository.findExpiredPendingIdsByScheduleId(scheduleId, Instant.now()),
                 "SEAT_QUERY"
         );
     }
@@ -48,7 +48,7 @@ public class ReservationExpirationService {
             ReservationGroup reservationGroup = reservationGroupRepository.findByIdForUpdate(reservationGroupId).orElse(null);
             if (reservationGroup == null
                     || reservationGroup.getStatus() != ReservationGroupStatus.PENDING
-                    || !reservationGroup.isExpiredAt(LocalDateTime.now())) {
+                    || !reservationGroup.isExpiredAt(Instant.now())) {
                 continue;
             }
 

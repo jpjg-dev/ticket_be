@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -43,7 +43,7 @@ public class PaymentService {
                 .orElseThrow(() -> new EntityNotFoundException("예매 묶음을 찾을 수 없습니다."));
         List<Reservation> reservations = getReservationsByGroupId(reservationGroupId);
 
-        reservationGroup.validateReadyPayment(reservations, LocalDateTime.now());
+        reservationGroup.validateReadyPayment(reservations, Instant.now());
 
         Payment existingPayment = paymentRepository.findByReservationGroupId(reservationGroupId)
                 .orElse(null);
@@ -57,7 +57,7 @@ public class PaymentService {
                     new Payment(
                             reservationGroup,
                             seatTotalAmount,
-                            LocalDateTime.now(),
+                            Instant.now(),
                             createOrderId(reservationGroupId),
                             "KRW"
                     )
@@ -95,7 +95,7 @@ public class PaymentService {
 
         payment.fail();
 
-        if (!isExpired(payment, reservations, LocalDateTime.now())) {
+        if (!isExpired(payment, reservations, Instant.now())) {
             log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
                     LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_ONLY");
             return;
@@ -204,12 +204,12 @@ public class PaymentService {
         return "cancel:" + paymentId;
     }
 
-    private boolean isExpired(Payment payment, List<Reservation> reservations, LocalDateTime now) {
+    private boolean isExpired(Payment payment, List<Reservation> reservations, Instant now) {
         return payment.getReservationGroup().isExpiredAt(now);
     }
 
     private void applyCancellation(Payment payment, List<Reservation> reservations) {
-        payment.cancel(LocalDateTime.now());
+        payment.cancel(Instant.now());
         payment.getReservationGroup().cancel();
         reservations.forEach(reservation -> {
             reservation.cancel();

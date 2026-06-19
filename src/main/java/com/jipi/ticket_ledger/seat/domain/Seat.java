@@ -6,7 +6,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Getter
 @Entity
@@ -40,15 +42,19 @@ public class Seat {
     private SeatStatus status;
 
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
-    public Seat(Schedule schedule, String seatNumber, String grade, Integer price, LocalDateTime createdAt) {
+    public Seat(Schedule schedule, String seatNumber, String grade, Integer price, Instant createdAt) {
         this.schedule = schedule;
         this.seatNumber = seatNumber;
         this.grade = grade;
         this.price = price;
         this.status = SeatStatus.AVAILABLE;
         this.createdAt = createdAt;
+    }
+
+    public Seat(Schedule schedule, String seatNumber, String grade, Integer price, LocalDateTime createdAt) {
+        this(schedule, seatNumber, grade, price, createdAt.atZone(ZoneId.systemDefault()).toInstant());
     }
 
     public void hold(){

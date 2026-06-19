@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.user.presentation.dto;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -29,7 +30,7 @@ public record ResponseMyPageDTO(
             String status,
             Integer amount,
             String method,
-            LocalDateTime requestedAt,
+            Instant requestedAt,
             List<SeatItem> seats
     ) {
     }

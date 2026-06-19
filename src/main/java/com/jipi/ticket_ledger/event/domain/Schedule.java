@@ -5,7 +5,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Getter
 @Entity
@@ -28,12 +30,16 @@ public class Schedule {
     private LocalDateTime endAt;
 
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
-    public Schedule(Event event, LocalDateTime startAt, LocalDateTime endAt, LocalDateTime createdAt) {
+    public Schedule(Event event, LocalDateTime startAt, LocalDateTime endAt, Instant createdAt) {
         this.event = event;
         this.startAt = startAt;
         this.endAt = endAt;
         this.createdAt = createdAt;
+    }
+
+    public Schedule(Event event, LocalDateTime startAt, LocalDateTime endAt, LocalDateTime createdAt) {
+        this(event, startAt, endAt, createdAt.atZone(ZoneId.systemDefault()).toInstant());
     }
 }

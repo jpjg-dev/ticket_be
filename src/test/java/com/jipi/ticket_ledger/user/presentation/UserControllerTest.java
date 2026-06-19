@@ -21,6 +21,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -77,7 +78,7 @@ class UserControllerTest {
     @DisplayName("GET /api/v1/users/{userId}: 본인 마이페이지 정보를 반환한다")
     void getUserInfoSuccess() throws Exception {
         LocalDateTime startAt = LocalDateTime.of(2026, 5, 13, 19, 30);
-        LocalDateTime requestedAt = LocalDateTime.of(2026, 5, 12, 10, 0);
+        Instant requestedAt = Instant.parse("2026-05-12T01:00:00Z");
         ResponseMyPageDTO response = new ResponseMyPageDTO(
                 List.of(new ResponseMyPageDTO.ReservationGroupItem(
                         10L,
