@@ -4,7 +4,7 @@ public record ReadyPaymentResponse(
         Long paymentId,
         String orderId,
         Integer amount,
-        Integer supplyAmount,
+        Integer seatTotalAmount,
         Integer vatAmount,
         String orderName,
         String currency
