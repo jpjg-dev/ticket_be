@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.auth.infrastructure;
 
+import com.jipi.ticket_ledger.global.log.TraceIdFilter;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.domain.UserStatus;
@@ -14,6 +15,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -68,6 +70,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // 인증 객체를 생성해 SecurityContext에 저장한다.
         Authentication authentication = new UsernamePasswordAuthenticationToken(user.getId(), null, authorities);
         SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        // 인증된 사용자 식별자를 MDC에 넣어 이후 로그에서 누구의 요청인지 추적할 수 있게 한다.
+        // (요청 종료 시 TraceIdFilter 가 MDC 전체를 정리한다.)
+        MDC.put(TraceIdFilter.USER_ID, String.valueOf(user.getId()));
 
         // 다음 필터로 요청을 넘긴다.
         filterChain.doFilter(request, response);
