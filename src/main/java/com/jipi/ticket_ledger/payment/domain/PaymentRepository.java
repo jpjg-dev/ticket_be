@@ -10,7 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Repository
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
@@ -36,7 +36,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             where p.status = com.jipi.ticket_ledger.payment.domain.PaymentStatus.CONFIRMING
               and p.confirmingAt <= :threshold
             """)
-    List<Long> findStaleConfirmingIds(@Param("threshold") LocalDateTime threshold);
+    List<Long> findStaleConfirmingIds(@Param("threshold") Instant threshold);
 
     @Query("""
             select p

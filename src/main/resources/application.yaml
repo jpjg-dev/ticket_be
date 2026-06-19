@@ -15,6 +15,12 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
+  jpa:
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
 server:
   port: ${PORT:8080}
   shutdown: graceful
@@ -37,6 +43,13 @@ toss:
   payments:
     base-url: https://api.tosspayments.com
     secret-key: ${TOSS_SECRET_KEY}
+
+app:
+  time:
+    # 공연 일정(LocalDateTime)을 "현재 몇 시인가"로 해석할 때 쓰는 서비스 로컬 타임존.
+    # 컨테이너 타임존에 의존하지 않도록 코드에서 명시적으로 사용한다.
+    # 향후 해외 공연장을 지원하면 이 단일 존 대신 venue별 타임존으로 확장한다.
+    service-zone: Asia/Seoul
 
 logging:
   pattern:

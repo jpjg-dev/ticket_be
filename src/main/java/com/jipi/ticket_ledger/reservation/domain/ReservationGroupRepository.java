@@ -6,12 +6,12 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 public interface ReservationGroupRepository extends JpaRepository<ReservationGroup, Long> {
-    List<ReservationGroup> findByExpiresAtLessThanEqual(LocalDateTime time);
+    List<ReservationGroup> findByExpiresAtLessThanEqual(Instant time);
 
     @Query("""
             select rg.id
@@ -19,7 +19,7 @@ public interface ReservationGroupRepository extends JpaRepository<ReservationGro
             where rg.status = com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus.PENDING
               and rg.expiresAt <= :time
             """)
-    List<Long> findExpiredPendingIds(@Param("time") LocalDateTime time);
+    List<Long> findExpiredPendingIds(@Param("time") Instant time);
 
     @Query("""
             select distinct r.reservationGroup.id
@@ -30,7 +30,7 @@ public interface ReservationGroupRepository extends JpaRepository<ReservationGro
             """)
     List<Long> findExpiredPendingIdsByScheduleId(
             @Param("scheduleId") Long scheduleId,
-            @Param("time") LocalDateTime time
+            @Param("time") Instant time
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

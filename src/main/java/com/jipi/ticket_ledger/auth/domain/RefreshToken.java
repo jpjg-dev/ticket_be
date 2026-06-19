@@ -6,7 +6,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Getter
@@ -34,18 +36,18 @@ public class RefreshToken {
     private String jti;
 
     @Column(name = "expires_at", nullable = false)
-    private LocalDateTime expiresAt;
+    private Instant expiresAt;
 
     @Column(name = "revoked_at")
-    private LocalDateTime revokedAt;
+    private Instant revokedAt;
 
     @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(name = "last_used_at")
-    private LocalDateTime lastUsedAt;
+    private Instant lastUsedAt;
 
-    public RefreshToken(User user, String tokenHash, String jti, LocalDateTime expiresAt, LocalDateTime createdAt) {
+    public RefreshToken(User user, String tokenHash, String jti, Instant expiresAt, Instant createdAt) {
         this.user = user;
         this.tokenHash = tokenHash;
         this.jti = jti;
@@ -53,16 +55,30 @@ public class RefreshToken {
         this.createdAt = createdAt;
     }
 
+    public RefreshToken(User user, String tokenHash, String jti, LocalDateTime expiresAt, LocalDateTime createdAt) {
+        this(
+                user,
+                tokenHash,
+                jti,
+                expiresAt.atZone(ZoneId.systemDefault()).toInstant(),
+                createdAt.atZone(ZoneId.systemDefault()).toInstant()
+        );
+    }
+
+
+    public void revoke(Instant revokedAt) {
+        this.revokedAt = revokedAt;
+    }
 
     public void revoke(LocalDateTime revokedAt) {
-        this.revokedAt = revokedAt;
+        revoke(revokedAt.atZone(ZoneId.systemDefault()).toInstant());
     }
 
     public boolean isRevoked() {
         return this.revokedAt != null;
     }
 
-    public boolean isExpiredAt(LocalDateTime now) {
+    public boolean isExpiredAt(Instant now) {
         return !this.expiresAt.isAfter(now);
     }
 }

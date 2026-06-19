@@ -1,6 +1,6 @@
 package com.jipi.ticket_ledger.event.presentation.dto;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 public record EventDetailResponse(
@@ -8,7 +8,7 @@ public record EventDetailResponse(
         String title,
         String description,
         String venue,
-        LocalDateTime bookingOpenAt,
+        Instant bookingOpenAt,
         List<ScheduleResponse> schedules
 ) {
 }

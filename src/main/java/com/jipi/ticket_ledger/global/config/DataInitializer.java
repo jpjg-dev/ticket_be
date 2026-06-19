@@ -23,6 +23,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -54,57 +56,58 @@ public class DataInitializer implements ApplicationRunner {
             return;
         }
 
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime base = now.withMinute(0).withSecond(0).withNano(0);
+        Instant now = Instant.now();
+        LocalDateTime localNow = LocalDateTime.now();
+        LocalDateTime base = localNow.withMinute(0).withSecond(0).withNano(0);
 
         // booking open times updated to be relative to current time (최근 기준으로 재분배)
         Event phantom = createEvent(
                 "오페라의 유령",
                 "파리 오페라하우스를 배경으로 한 클래식 뮤지컬",
                 "블루스퀘어 신한카드홀",
-                base.minusDays(10),
+                now.minus(Duration.ofDays(10)),
                 now
         );
         Event lesMiserables = createEvent(
                 "레미제라블",
                 "혁명과 구원의 감정을 밀도 있게 다루는 대형 뮤지컬",
                 "샤롯데씨어터",
-                base.minusDays(7),
+                now.minus(Duration.ofDays(7)),
                 now
         );
         Event wicked = createEvent(
                 "위키드",
                 "초록 마녀와 마법 세계를 중심으로 한 판타지 뮤지컬",
                 "예술의전당 오페라극장",
-                base.minusDays(4),
+                now.minus(Duration.ofDays(4)),
                 now
         );
         Event chicago = createEvent(
                 "시카고",
                 "재즈와 쇼맨십이 강한 스테디셀러 뮤지컬",
                 "디큐브 링크아트센터",
-                base.minusDays(2),
+                now.minus(Duration.ofDays(2)),
                 now
         );
         Event matahari = createEvent(
                 "마타하리",
                 "전쟁과 무대 사이를 오가는 비극적 인물을 다룬 창작 뮤지컬",
                 "세종문화회관 대극장",
-                base.minusDays(1),
+                now.minus(Duration.ofDays(1)),
                 now
         );
         Event hadestown = createEvent(
                 "하데스타운",
                 "신화를 현대적으로 해석한 음악 중심의 뮤지컬",
                 "충무아트센터 대극장",
-                base.plusDays(1),
+                now.plus(Duration.ofDays(1)),
                 now
         );
         Event kinkyBoots = createEvent(
                 "킹키부츠",
                 "에너지와 퍼포먼스가 강한 팝 스타일 뮤지컬",
                 "LG아트센터 서울",
-                base.plusDays(5),
+                now.plus(Duration.ofDays(5)),
                 now
         );
 
@@ -144,7 +147,7 @@ public class DataInitializer implements ApplicationRunner {
         createMyPagePerformanceSeed(now);
     }
 
-    private Event createEvent(String title, String description, String venue, LocalDateTime bookingOpenAt, LocalDateTime now) {
+    private Event createEvent(String title, String description, String venue, Instant bookingOpenAt, Instant now) {
         return eventRepository.save(new Event(
                 title,
                 description,
@@ -154,7 +157,7 @@ public class DataInitializer implements ApplicationRunner {
         ));
     }
 
-    private void createSchedulesWithSeats(Event event, LocalDateTime now, List<LocalDateTime> startTimes) {
+    private void createSchedulesWithSeats(Event event, Instant now, List<LocalDateTime> startTimes) {
         for (LocalDateTime startAt : startTimes) {
             Schedule schedule = scheduleRepository.save(new Schedule(
                     event,
@@ -167,7 +170,7 @@ public class DataInitializer implements ApplicationRunner {
         }
     }
 
-    private void saveSeats(Schedule schedule, LocalDateTime now) {
+    private void saveSeats(Schedule schedule, Instant now) {
         seatRepository.saveAll(List.of(
                 new Seat(schedule, "A-1", "VIP", 1000, now),
                 new Seat(schedule, "A-2", "VIP", 1000, now),
@@ -180,7 +183,7 @@ public class DataInitializer implements ApplicationRunner {
         ));
     }
 
-    private void createReservationAndPayments(LocalDateTime now) {
+    private void createReservationAndPayments(Instant now) {
         List<User> users = createSeedUsers(now, 100);
 
         List<Seat> allSeats = seatRepository.findAll();
@@ -221,7 +224,7 @@ public class DataInitializer implements ApplicationRunner {
         }
     }
 
-    private void createMyPagePerformanceSeed(LocalDateTime now) {
+    private void createMyPagePerformanceSeed(Instant now) {
         if (!isDevProfile()) {
             return;
         }
@@ -238,23 +241,24 @@ public class DataInitializer implements ApplicationRunner {
             return;
         }
 
+        LocalDateTime scheduleBase = LocalDateTime.now();
         Event event = createEvent(
                 "[성능테스트] 마이페이지 이력",
                 "마이페이지 조회 성능 측정을 위한 개발 환경 전용 데이터",
                 "Performance Test Hall",
-                now.minusDays(1),
+                now.minus(Duration.ofDays(1)),
                 now
         );
         Schedule schedule = scheduleRepository.save(new Schedule(
                 event,
-                now.plusDays(30).withHour(19).withMinute(0).withSecond(0).withNano(0),
-                now.plusDays(30).withHour(21).withMinute(30).withSecond(0).withNano(0),
+                scheduleBase.plusDays(30).withHour(19).withMinute(0).withSecond(0).withNano(0),
+                scheduleBase.plusDays(30).withHour(21).withMinute(30).withSecond(0).withNano(0),
                 now
         ));
 
         for (int i = 1; i <= groupsToCreate; i++) {
             int sequence = existingConfirmedGroups + i;
-            ReservationGroup group = reservationGroupRepository.save(new ReservationGroup(user, now, now.plusMinutes(10)));
+            ReservationGroup group = reservationGroupRepository.save(new ReservationGroup(user, now, now.plus(Duration.ofMinutes(10))));
             List<Seat> seats = createPerformanceSeats(schedule, sequence, now);
 
             int amount = 0;
@@ -262,7 +266,7 @@ public class DataInitializer implements ApplicationRunner {
             for (Seat seat : seats) {
                 seat.hold();
                 seat.book();
-                Reservation reservation = new Reservation(user, seat, group, now, now.plusMinutes(10));
+                Reservation reservation = new Reservation(user, seat, group, now, now.plus(Duration.ofMinutes(10)));
                 reservation.confirm();
                 reservations.add(reservation);
                 amount += seat.getPrice();
@@ -276,7 +280,7 @@ public class DataInitializer implements ApplicationRunner {
         }
     }
 
-    private List<Seat> createPerformanceSeats(Schedule schedule, int groupSequence, LocalDateTime now) {
+    private List<Seat> createPerformanceSeats(Schedule schedule, int groupSequence, Instant now) {
         List<Seat> seats = new ArrayList<>();
         for (int i = 1; i <= MYPAGE_PERFORMANCE_SEATS_PER_GROUP; i++) {
             seats.add(new Seat(schedule, "P-" + groupSequence + "-" + i, "R", 1000, now));
@@ -288,7 +292,7 @@ public class DataInitializer implements ApplicationRunner {
         return Arrays.asList(environment.getActiveProfiles()).contains("dev");
     }
 
-    private List<User> createSeedUsers(LocalDateTime now, int count) {
+    private List<User> createSeedUsers(Instant now, int count) {
         String encodedPassword = passwordEncoder.encode("a123456789");
         List<User> users = new ArrayList<>();
         for (int i = 1; i <= count; i++) {
@@ -325,12 +329,12 @@ public class DataInitializer implements ApplicationRunner {
             List<Seat> seatPool,
             int[] cursor,
             Set<Long> bookedSeatIds,
-            LocalDateTime now,
+            Instant now,
             int orderSequence
     ) {
-        LocalDateTime expiresAt = seed.status == ReservationGroupStatus.EXPIRED
-                ? now.minusMinutes(1)
-                : now.plusMinutes(10);
+        Instant expiresAt = seed.status == ReservationGroupStatus.EXPIRED
+                ? now.minus(Duration.ofMinutes(1))
+                : now.plus(Duration.ofMinutes(10));
 
         ReservationGroup group = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
         List<Seat> seatsForGroup = new ArrayList<>();

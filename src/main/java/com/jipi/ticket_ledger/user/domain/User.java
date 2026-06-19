@@ -4,7 +4,9 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -25,10 +27,10 @@ public class User {
     private String name;
 
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @Column(nullable = true)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -39,12 +41,16 @@ public class User {
     private UserRole role;
 
 
-    public User(String email, String password, String name, LocalDateTime createdAt) {
+    public User(String email, String password, String name, Instant createdAt) {
         this.email = email;
         this.password = password;
         this.name = name;
         this.createdAt = createdAt;
         this.status = UserStatus.ACTIVE;
         this.role = UserRole.ROLE_USER;
+    }
+
+    public User(String email, String password, String name, LocalDateTime createdAt) {
+        this(email, password, name, createdAt.atZone(ZoneId.systemDefault()).toInstant());
     }
 }

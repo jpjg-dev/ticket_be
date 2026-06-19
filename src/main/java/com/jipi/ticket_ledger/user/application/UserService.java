@@ -19,7 +19,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +44,7 @@ public class UserService {
             log.warn("event={} email={} reason={}", LogEvents.USER_SIGNUP_REJECT, request.email(), "DUPLICATE_EMAIL");
             throw new IllegalStateException("이미 존재하는 이메일입니다.");
         }
-        User user = userRepository.save(new User(request.email(), passwordEncoder.encode(request.password()), request.name(), LocalDateTime.now()));
+        User user = userRepository.save(new User(request.email(), passwordEncoder.encode(request.password()), request.name(), Instant.now()));
         log.info("event={} userId={} email={} name={}", LogEvents.USER_SIGNUP_SUCCESS, user.getId(), request.email(), request.name());
         return "회원가입이 완료되었습니다.";
     }

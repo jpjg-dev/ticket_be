@@ -15,7 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -56,7 +56,7 @@ class AuthServiceConcurrencyTest extends PostgresTestContainerSupport {
     @DisplayName("reissue: 동일 Refresh Token 동시 요청은 하나만 성공한다")
     void reissueConcurrentSameRefreshTokenSucceedsOnce() throws InterruptedException {
         String runId = String.valueOf(System.nanoTime());
-        LocalDateTime now = LocalDateTime.now();
+        Instant now = Instant.now();
         User user = userRepository.save(new User(
                 "refresh-concurrency-" + runId + "@test.com",
                 "password",
@@ -69,7 +69,7 @@ class AuthServiceConcurrencyTest extends PostgresTestContainerSupport {
                 user,
                 tokenHasher.hash(refreshToken),
                 jti,
-                jwtTokenProvider.getExpirationAsLocalDateTime(refreshToken),
+                jwtTokenProvider.getExpirationAsInstant(refreshToken),
                 now
         ));
 
@@ -129,7 +129,7 @@ class AuthServiceConcurrencyTest extends PostgresTestContainerSupport {
     @DisplayName("reissue: 같은 사용자의 서로 다른 Refresh Token은 각각 재발급할 수 있다")
     void reissueDifferentRefreshTokensForSameUserBothSucceed() {
         String runId = String.valueOf(System.nanoTime());
-        LocalDateTime now = LocalDateTime.now();
+        Instant now = Instant.now();
         User user = userRepository.save(new User(
                 "refresh-multi-login-" + runId + "@test.com",
                 "password",
@@ -151,13 +151,13 @@ class AuthServiceConcurrencyTest extends PostgresTestContainerSupport {
         deleteUserAndTokens(user);
     }
 
-    private String saveRefreshToken(User user, String jti, LocalDateTime now) {
+    private String saveRefreshToken(User user, String jti, Instant now) {
         String refreshToken = jwtTokenProvider.createRefreshToken(user.getId(), jti);
         refreshTokenRepository.save(new RefreshToken(
                 user,
                 tokenHasher.hash(refreshToken),
                 jti,
-                jwtTokenProvider.getExpirationAsLocalDateTime(refreshToken),
+                jwtTokenProvider.getExpirationAsInstant(refreshToken),
                 now
         ));
         return refreshToken;

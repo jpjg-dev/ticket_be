@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -34,6 +36,11 @@ public class ReservationService {
 
     @Value("${reservation.hold-duration}")
     private Duration holdDuration;
+
+    // 공연 시작 시간(공연장 로컬 LocalDateTime)을 "지금 몇 시인가"로 비교할 때 쓰는 서비스 타임존.
+    // 컨테이너 타임존에 의존하지 않도록 코드에서 명시적으로 사용한다(향후 venue별 존으로 확장).
+    @Value("${app.time.service-zone:Asia/Seoul}")
+    private String serviceZoneId;
 
     public Long createReservation(Long userId, List<Long> seatIds) {
         log.info("event={} userId={} requestedSeatCount={}",
@@ -57,10 +64,11 @@ public class ReservationService {
         validateSameSchedule(seats);
 
         // 2) 좌석 상태를 AVAILABLE -> HELD로 변경해 임시 선점한다.
-        LocalDateTime now = LocalDateTime.now();
+        Instant now = Instant.now();
+        // 예매 오픈은 절대 시점(Instant)으로, 공연 시작은 공연장 로컬(LocalDateTime + 서비스 타임존)으로 검증한다.
         validateBookingOpen(seats, now);
-        validateScheduleNotStarted(seats, now);
-        LocalDateTime expiresAt = now.plus(holdDuration);
+        validateScheduleNotStarted(seats, LocalDateTime.now(ZoneId.of(serviceZoneId)));
+        Instant expiresAt = now.plus(holdDuration);
         ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
 
         List<Reservation> reservations = seats.stream()
@@ -110,8 +118,8 @@ public class ReservationService {
         }
     }
 
-    private void validateBookingOpen(List<Seat> seats, LocalDateTime now) {
-        LocalDateTime bookingOpenAt = seats.get(0).getSchedule().getEvent().getBookingOpenAt();
+    private void validateBookingOpen(List<Seat> seats, Instant now) {
+        Instant bookingOpenAt = seats.get(0).getSchedule().getEvent().getBookingOpenAt();
         if (bookingOpenAt.isAfter(now)) {
             log.warn("event={} bookingOpenAt={} now={} reason={}",
                     LogEvents.RESERVATION_CREATE_REJECT, bookingOpenAt, now, "BOOKING_NOT_OPEN");

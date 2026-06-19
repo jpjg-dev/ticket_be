@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Optional;
 
 @Repository
@@ -28,6 +28,6 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
             @Param("jti") String jti,
             @Param("userId") Long userId,
             @Param("tokenHash") String tokenHash,
-            @Param("now") LocalDateTime now
+            @Param("now") Instant now
     );
 }

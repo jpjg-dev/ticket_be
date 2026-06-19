@@ -54,7 +54,7 @@ class ReservationExpirationServiceTest {
     void expireAllForReservationGroup() {
         Fixture fixture = createFixture(3L);
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
                 .thenReturn(List.of(3L));
         when(paymentRepository.findByReservationGroupIdForUpdate(3L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(fixture.group()));
@@ -76,7 +76,7 @@ class ReservationExpirationServiceTest {
     void expireByScheduleIdTargetsOnlyRequestedSchedule() {
         Fixture fixture = createFixture(7L);
 
-        when(reservationGroupRepository.findExpiredPendingIdsByScheduleId(eq(99L), any(LocalDateTime.class)))
+        when(reservationGroupRepository.findExpiredPendingIdsByScheduleId(eq(99L), any(java.time.Instant.class)))
                 .thenReturn(List.of(7L));
         when(paymentRepository.findByReservationGroupIdForUpdate(7L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(fixture.group()));
@@ -87,7 +87,7 @@ class ReservationExpirationServiceTest {
         assertEquals(2, expiredCount);
         assertEquals(ReservationGroupStatus.EXPIRED, fixture.group().getStatus());
         assertEquals(ReservationStatus.EXPIRED, fixture.reservations().get(0).getStatus());
-        verify(reservationGroupRepository).findExpiredPendingIdsByScheduleId(eq(99L), any(LocalDateTime.class));
+        verify(reservationGroupRepository).findExpiredPendingIdsByScheduleId(eq(99L), any(java.time.Instant.class));
         var inOrder = inOrder(paymentRepository, reservationGroupRepository, reservationRepository);
         inOrder.verify(paymentRepository).findByReservationGroupIdForUpdate(7L);
         inOrder.verify(reservationGroupRepository).findByIdForUpdate(7L);
@@ -100,7 +100,7 @@ class ReservationExpirationServiceTest {
         Fixture fixture = createFixture(8L);
         fixture.payment().fail();
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
                 .thenReturn(List.of(8L));
         when(paymentRepository.findByReservationGroupIdForUpdate(8L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(8L)).thenReturn(Optional.of(fixture.group()));
@@ -120,7 +120,7 @@ class ReservationExpirationServiceTest {
         Fixture fixture = createFixture(12L);
         fixture.payment().confirming();
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
                 .thenReturn(List.of(12L));
         when(paymentRepository.findByReservationGroupIdForUpdate(12L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(fixture.group()));
@@ -140,7 +140,7 @@ class ReservationExpirationServiceTest {
     void expireAllLocksGroupWhenPaymentDoesNotExist() {
         Fixture fixture = createFixture(11L);
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
                 .thenReturn(List.of(11L));
         when(paymentRepository.findByReservationGroupIdForUpdate(11L)).thenReturn(Optional.empty());
         when(reservationGroupRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(fixture.group()));
@@ -160,7 +160,7 @@ class ReservationExpirationServiceTest {
         Fixture fixture = createFixture(9L);
         fixture.group().expire();
 
-        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
                 .thenReturn(List.of(9L));
         when(paymentRepository.findByReservationGroupIdForUpdate(9L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(fixture.group()));
@@ -177,7 +177,7 @@ class ReservationExpirationServiceTest {
     @DisplayName("expireAll: 만료 대상이 없으면 상태 변경이 없다")
     void expireAllDoesNothingWithoutExpiredGroups() {
         Fixture fixture = createFixture(10L);
-        when(reservationGroupRepository.findExpiredPendingIds(any(LocalDateTime.class)))
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class)))
                 .thenReturn(List.of());
 
         int expiredCount = reservationExpirationService.expireAll();

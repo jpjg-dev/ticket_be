@@ -6,7 +6,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Getter
 @Entity
@@ -29,13 +31,13 @@ public class Payment {
     private PaymentStatus status;
 
     @Column(nullable = false)
-    private LocalDateTime requestedAt;
+    private Instant requestedAt;
 
-    private LocalDateTime confirmingAt;
+    private Instant confirmingAt;
 
-    private LocalDateTime approvedAt;
+    private Instant approvedAt;
 
-    private LocalDateTime canceledAt;
+    private Instant canceledAt;
 
     @Column(nullable = false, unique = true, length = 100)
     private String orderId;
@@ -52,17 +54,25 @@ public class Payment {
     @Column(nullable = false, length = 10)
     private String currency;
 
-    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId) {
+    public Payment(ReservationGroup reservationGroup, Integer amount, Instant now, String orderId) {
         this(reservationGroup, amount, now, orderId, "KRW");
     }
 
-    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId, String currency) {
+    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId) {
+        this(reservationGroup, amount, now.atZone(ZoneId.systemDefault()).toInstant(), orderId);
+    }
+
+    public Payment(ReservationGroup reservationGroup, Integer amount, Instant now, String orderId, String currency) {
         this.reservationGroup = reservationGroup;
         this.amount = amount;
         this.status = PaymentStatus.READY;
         this.requestedAt = now;
         this.orderId = orderId;
         this.currency = currency;
+    }
+
+    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId, String currency) {
+        this(reservationGroup, amount, now.atZone(ZoneId.systemDefault()).toInstant(), orderId, currency);
     }
 
     public Integer totalAmountWithVat() {
@@ -75,7 +85,7 @@ public class Payment {
             throw new IllegalStateException("결제 대기 상태에서만 승인 진행 상태로 변경할 수 있습니다.");
         }
         this.status = PaymentStatus.CONFIRMING;
-        this.confirmingAt = LocalDateTime.now();
+        this.confirmingAt = Instant.now();
     }
 
     public void approve(String paymentKey, String method, String pgStatus) {
@@ -86,7 +96,7 @@ public class Payment {
         this.method = method;
         this.pgStatus = pgStatus;
         this.status = PaymentStatus.APPROVED;
-        this.approvedAt = LocalDateTime.now();
+        this.approvedAt = Instant.now();
     }
 
     public void fail() {
@@ -96,11 +106,15 @@ public class Payment {
         this.status = PaymentStatus.FAILED;
     }
 
-    public void cancel(LocalDateTime canceledAt) {
+    public void cancel(Instant canceledAt) {
         if (this.status != PaymentStatus.APPROVED) {
             throw new IllegalStateException("승인된 결제만 취소할 수 있습니다.");
         }
         this.status = PaymentStatus.CANCELED;
         this.canceledAt = canceledAt;
+    }
+
+    public void cancel(LocalDateTime canceledAt) {
+        cancel(canceledAt.atZone(ZoneId.systemDefault()).toInstant());
     }
 }

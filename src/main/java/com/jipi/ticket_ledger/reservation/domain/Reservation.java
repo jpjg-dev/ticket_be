@@ -7,7 +7,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Getter
 @Entity
@@ -35,20 +37,34 @@ public class Reservation {
     private ReservationStatus status;
 
     @Column(nullable = false)
-    private LocalDateTime reservedAt;
+    private Instant reservedAt;
 
     @Column(nullable = false)
-    private LocalDateTime expiresAt;
+    private Instant expiresAt;
 
-    private LocalDateTime canceledAt;
+    private Instant canceledAt;
 
-    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now, LocalDateTime expiresAt) {
+    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, Instant now, Instant expiresAt) {
         this.user = user;
         this.seat = seat;
         this.reservationGroup = reservationGroup;
         this.status = ReservationStatus.PENDING;
         this.reservedAt = now;
         this.expiresAt = expiresAt;
+    }
+
+    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now, LocalDateTime expiresAt) {
+        this(
+                user,
+                seat,
+                reservationGroup,
+                now.atZone(ZoneId.systemDefault()).toInstant(),
+                expiresAt.atZone(ZoneId.systemDefault()).toInstant()
+        );
+    }
+
+    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now, Instant expiresAt) {
+        this(user, seat, reservationGroup, now.atZone(ZoneId.systemDefault()).toInstant(), expiresAt);
     }
 
     public void confirm() {
@@ -59,7 +75,7 @@ public class Reservation {
     public void cancel() {
         if (this.status != ReservationStatus.PENDING && this.status != ReservationStatus.CONFIRMED) throw new IllegalStateException("진행 중이거나 확정된 예매만 취소할 수 있습니다.");
         this.status = ReservationStatus.CANCELED;
-        this.canceledAt = LocalDateTime.now();
+        this.canceledAt = Instant.now();
     }
 
     public void expire() {
@@ -72,7 +88,7 @@ public class Reservation {
     }
 
     //만료여부 확인
-    public boolean isExpiredAt(LocalDateTime now) {
+    public boolean isExpiredAt(Instant now) {
         return !this.expiresAt.isAfter(now);
     }
 }

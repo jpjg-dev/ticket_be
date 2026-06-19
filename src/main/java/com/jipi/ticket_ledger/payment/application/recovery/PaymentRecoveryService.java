@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -55,7 +55,7 @@ public class PaymentRecoveryService {
 
     @Transactional(readOnly = true)
     public List<Long> findStaleConfirmingPaymentIds(Duration grace) {
-        return paymentRepository.findStaleConfirmingIds(LocalDateTime.now().minus(grace));
+        return paymentRepository.findStaleConfirmingIds(Instant.now().minus(grace));
     }
 
     public int reconcileStaleConfirmingPayments(Duration grace) {
