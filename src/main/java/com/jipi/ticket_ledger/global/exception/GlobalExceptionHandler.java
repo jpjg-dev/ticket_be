@@ -4,6 +4,7 @@ import com.jipi.ticket_ledger.global.log.LogEvents;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -48,6 +49,15 @@ public class GlobalExceptionHandler {
         log.warn("event={} code=BAD_REQUEST status=400 message={}", LogEvents.API_ERROR, message);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse("BAD_REQUEST", message));
+    }
+
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleDataAccess(DataAccessException e) {
+        // DB 예외 메시지에는 SQL/스키마 등 내부 정보가 섞일 수 있어 클라이언트에는 절대 노출하지 않는다.
+        // 상세(메시지·스택)는 서버 로그에만 남기고, traceId/userId 는 MDC 로 자동 부착돼 추적 가능하다.
+        log.error("event={} code=DB_ERROR status=500 message={}", LogEvents.API_ERROR, e.getMessage(), e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다."));
     }
 
     @ExceptionHandler(Exception.class)
