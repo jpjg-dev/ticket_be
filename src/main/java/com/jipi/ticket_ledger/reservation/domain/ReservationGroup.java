@@ -17,6 +17,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Entity
@@ -73,5 +74,33 @@ public class ReservationGroup {
             throw new IllegalStateException("대기 상태의 예매 묶음만 만료 처리할 수 있습니다.");
         }
         this.status = ReservationGroupStatus.EXPIRED;
+    }
+
+    public void validateReadyPayment(List<Reservation> reservations, LocalDateTime now) {
+        boolean hasInvalidReservation = reservations.stream()
+                .anyMatch(reservation -> reservation.getStatus() != ReservationStatus.PENDING);
+
+        if (hasInvalidReservation) {
+            throw new IllegalStateException("결제 대기 중인 예매만 결제를 시작할 수 있습니다.");
+        }
+
+        if (isExpiredAt(now)) {
+            expireReservations(reservations);
+            throw new IllegalStateException("예매 시간이 만료되어 결제를 시작할 수 없습니다.");
+        }
+    }
+
+    public Integer seatTotalAmount(List<Reservation> reservations) {
+        return reservations.stream()
+                .mapToInt(reservation -> reservation.getSeat().getPrice())
+                .sum();
+    }
+
+    public void expireReservations(List<Reservation> reservations) {
+        expire();
+        reservations.forEach(reservation -> {
+            reservation.expire();
+            reservation.getSeat().release();
+        });
     }
 }

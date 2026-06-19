@@ -35,9 +35,9 @@ public class PayMentController {
         Payment payment = paymentService.readyPayment(request.reservationGroupId());
         List<Reservation> reservations = paymentService.getReservationsForPayment(payment);
         Reservation firstReservation = reservations.get(0);
-        int supplyAmount = payment.getAmount();
-        int vatAmount = (int) Math.round(supplyAmount * 0.1d);
-        int totalAmount = supplyAmount + vatAmount;
+        int seatTotalAmount = payment.getAmount();
+        int vatAmount = (int) Math.round(seatTotalAmount * 0.1d);
+        int totalAmount = seatTotalAmount + vatAmount;
 
         String orderName = firstReservation.getSeat().getSchedule().getEvent().getTitle()
                 + " "
@@ -48,7 +48,7 @@ public class PayMentController {
                 payment.getId(),
                 payment.getOrderId(),
                 totalAmount,
-                supplyAmount,
+                seatTotalAmount,
                 vatAmount,
                 orderName,
                 payment.getCurrency()

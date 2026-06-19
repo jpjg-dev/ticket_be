@@ -39,10 +39,11 @@ public class PaymentService {
     //결제 대기
     @Transactional
     public Payment readyPayment(Long reservationGroupId) {
-        ReservationGroup reservationGroup = getReservationGroup(reservationGroupId);
+        ReservationGroup reservationGroup = reservationGroupRepository.findById(reservationGroupId)
+                .orElseThrow(() -> new EntityNotFoundException("예매 묶음을 찾을 수 없습니다."));
         List<Reservation> reservations = getReservationsByGroupId(reservationGroupId);
 
-        validateReadyPayment(reservationGroup, reservations);
+        reservationGroup.validateReadyPayment(reservations, LocalDateTime.now());
 
         Payment existingPayment = paymentRepository.findByReservationGroupId(reservationGroupId)
                 .orElse(null);
@@ -50,12 +51,12 @@ public class PaymentService {
             return existingPayment;
         }
 
-        Integer supplyAmount = calculateSupplyAmount(reservations);
+        Integer seatTotalAmount = reservationGroup.seatTotalAmount(reservations);
         try {
             return paymentRepository.save(
                     new Payment(
                             reservationGroup,
-                            supplyAmount,
+                            seatTotalAmount,
                             LocalDateTime.now(),
                             createOrderId(reservationGroupId),
                             "KRW"
@@ -100,7 +101,7 @@ public class PaymentService {
             return;
         }
 
-        expireReservations(payment.getReservationGroup(), reservations);
+        payment.getReservationGroup().expireReservations(reservations);
         log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
                 LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_AND_EXPIRE");
     }
@@ -187,39 +188,12 @@ public class PaymentService {
                 .orElseThrow(() -> new EntityNotFoundException("결제를 찾을 수 없습니다."));
     }
 
-    private ReservationGroup getReservationGroup(Long reservationGroupId) {
-        return reservationGroupRepository.findById(reservationGroupId)
-                .orElseThrow(() -> new EntityNotFoundException("예매 묶음을 찾을 수 없습니다."));
-    }
-
     private List<Reservation> getReservationsByGroupId(Long reservationGroupId) {
         List<Reservation> reservations = reservationRepository.findByReservationGroupId(reservationGroupId);
         if (reservations.isEmpty()) {
             throw new EntityNotFoundException("예매를 찾을 수 없습니다.");
         }
         return reservations;
-    }
-
-    private void validateReadyPayment(ReservationGroup reservationGroup, List<Reservation> reservations) {
-        boolean hasInvalidReservation = reservations.stream()
-                .anyMatch(reservation -> reservation.getStatus() != ReservationStatus.PENDING);
-        if (hasInvalidReservation) {
-            throw new IllegalStateException("결제 대기 중인 예매만 결제를 시작할 수 있습니다.");
-        }
-
-        if (reservationGroup.isExpiredAt(LocalDateTime.now())) {
-            reservations.forEach(reservation -> {
-                reservation.expire();
-                reservation.getSeat().release();
-            });
-            throw new IllegalStateException("예매 시간이 만료되어 결제를 시작할 수 없습니다.");
-        }
-    }
-
-    private Integer calculateSupplyAmount(List<Reservation> reservations) {
-        return reservations.stream()
-                .mapToInt(reservation -> reservation.getSeat().getPrice())
-                .sum();
     }
 
     private String createOrderId(Long reservationGroupId) {
@@ -232,14 +206,6 @@ public class PaymentService {
 
     private boolean isExpired(Payment payment, List<Reservation> reservations, LocalDateTime now) {
         return payment.getReservationGroup().isExpiredAt(now);
-    }
-
-    private void expireReservations(ReservationGroup reservationGroup, List<Reservation> reservations) {
-        reservationGroup.expire();
-        reservations.forEach(reservation -> {
-            reservation.expire();
-            reservation.getSeat().release();
-        });
     }
 
     private void applyCancellation(Payment payment, List<Reservation> reservations) {
