@@ -4,6 +4,9 @@ public final class LogEvents {
     private LogEvents() {
     }
 
+    public static final String HTTP_REQUEST = "HTTP_REQUEST";
+    public static final String API_ERROR = "API_ERROR";
+
     public static final String PAYMENT_CONFIRM_START = "PAYMENT_CONFIRM_START";
     public static final String PAYMENT_CONFIRM_REJECT = "PAYMENT_CONFIRM_REJECT";
     public static final String PAYMENT_CONFIRM_SUCCESS = "PAYMENT_CONFIRM_SUCCESS";
