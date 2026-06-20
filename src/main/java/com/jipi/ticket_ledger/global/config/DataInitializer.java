@@ -26,6 +26,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -57,90 +58,90 @@ public class DataInitializer implements ApplicationRunner {
         }
 
         Instant now = Instant.now();
+        // 데모 시각은 기동 시점 기준 상대 분배(V8 마이그레이션과 동일 규칙). KST 자정 기준 + 자연 시각.
+        LocalDateTime base = LocalDateTime.now(ZoneId.of("Asia/Seoul")).toLocalDate().atStartOfDay();
 
-        // 예매 오픈: 절대시각(UTC) 고정. 5개는 이미 오픈(과거), 2개는 오픈 예정(미래).
-        // 공연 시각: KST 벽시계 고정. V6 마이그레이션과 동일한 값을 사용한다(빈 DB seed ↔ 기존 DB 보정 일치).
-        // 주의: 고정값이라 시간이 지나면 과거 회차가 늘어난다. 시연 전 날짜 조정이 필요할 수 있다.
+        // 예매 오픈: 절대시각(now 기준). 5개는 이미 오픈(과거), 2개는 오픈 예정(미래).
         Event phantom = createEvent(
                 "오페라의 유령",
                 "파리 오페라하우스를 배경으로 한 클래식 뮤지컬",
                 "블루스퀘어 신한카드홀",
-                Instant.parse("2026-05-20T01:00:00Z"),
+                now.minus(Duration.ofDays(20)),
                 now
         );
         Event lesMiserables = createEvent(
                 "레미제라블",
                 "혁명과 구원의 감정을 밀도 있게 다루는 대형 뮤지컬",
                 "샤롯데씨어터",
-                Instant.parse("2026-05-25T01:00:00Z"),
+                now.minus(Duration.ofDays(15)),
                 now
         );
         Event wicked = createEvent(
                 "위키드",
                 "초록 마녀와 마법 세계를 중심으로 한 판타지 뮤지컬",
                 "예술의전당 오페라극장",
-                Instant.parse("2026-06-01T01:00:00Z"),
+                now.minus(Duration.ofDays(10)),
                 now
         );
         Event chicago = createEvent(
                 "시카고",
                 "재즈와 쇼맨십이 강한 스테디셀러 뮤지컬",
                 "디큐브 링크아트센터",
-                Instant.parse("2026-06-10T01:00:00Z"),
+                now.minus(Duration.ofDays(7)),
                 now
         );
         Event matahari = createEvent(
                 "마타하리",
                 "전쟁과 무대 사이를 오가는 비극적 인물을 다룬 창작 뮤지컬",
                 "세종문화회관 대극장",
-                Instant.parse("2026-06-15T01:00:00Z"),
+                now.minus(Duration.ofDays(5)),
                 now
         );
         Event hadestown = createEvent(
                 "하데스타운",
                 "신화를 현대적으로 해석한 음악 중심의 뮤지컬",
                 "충무아트센터 대극장",
-                Instant.parse("2026-07-05T01:00:00Z"),
+                now.plus(Duration.ofDays(3)),
                 now
         );
         Event kinkyBoots = createEvent(
                 "킹키부츠",
                 "에너지와 퍼포먼스가 강한 팝 스타일 뮤지컬",
                 "LG아트센터 서울",
-                Instant.parse("2026-07-20T01:00:00Z"),
+                now.plus(Duration.ofDays(7)),
                 now
         );
 
-        // 공연 회차: 공연장 KST 벽시계 고정(자연스러운 19:00·14:00·15:00·20:00대). 과거 일부 + 미래 다수.
+        // 공연 회차: KST 벽시계, 기동일 기준 상대 + 자연 시각. 과거 일부 + 근시일 + 수개월 후로 분산.
         createSchedulesWithSeats(phantom, now, List.of(
-                LocalDateTime.of(2026, 6, 10, 19, 0),
-                LocalDateTime.of(2026, 8, 15, 19, 0),
-                LocalDateTime.of(2026, 9, 5, 15, 0)
+                base.plusDays(-3).plusHours(19),
+                base.plusDays(5).plusHours(19),
+                base.plusDays(40).plusHours(15)
         ));
         createSchedulesWithSeats(lesMiserables, now, List.of(
-                LocalDateTime.of(2026, 6, 13, 19, 0),
-                LocalDateTime.of(2026, 9, 20, 19, 0),
-                LocalDateTime.of(2026, 11, 15, 14, 0)
+                base.plusDays(2).plusHours(19),
+                base.plusDays(18).plusHours(19),
+                base.plusDays(60).plusHours(14)
         ));
         createSchedulesWithSeats(wicked, now, List.of(
-                LocalDateTime.of(2026, 6, 15, 20, 0),
-                LocalDateTime.of(2026, 10, 3, 19, 0)
+                base.plusDays(7).plusHours(20),
+                base.plusDays(35).plusHours(19)
         ));
         createSchedulesWithSeats(chicago, now, List.of(
-                LocalDateTime.of(2026, 8, 22, 15, 0),
-                LocalDateTime.of(2026, 10, 10, 19, 0)
+                base.plusDays(10).plusHours(15),
+                base.plusDays(50).plusHours(19)
         ));
         createSchedulesWithSeats(matahari, now, List.of(
-                LocalDateTime.of(2026, 9, 12, 20, 0),
-                LocalDateTime.of(2026, 11, 28, 14, 0)
+                base.plusDays(14).plusHours(20),
+                base.plusDays(75).plusHours(14)
         ));
         createSchedulesWithSeats(hadestown, now, List.of(
-                LocalDateTime.of(2026, 8, 30, 19, 0),
-                LocalDateTime.of(2026, 12, 5, 15, 0)
+                base.plusDays(21).plusHours(19),
+                base.plusDays(95).plusHours(15)
         ));
         createSchedulesWithSeats(kinkyBoots, now, List.of(
-                LocalDateTime.of(2026, 10, 18, 19, 0),
-                LocalDateTime.of(2027, 1, 10, 14, 0)
+                base.plusDays(28).plusHours(19),
+                base.plusDays(130).plusHours(14)
         ));
 
         createReservationAndPayments(now);
