@@ -17,10 +17,13 @@ import com.jipi.ticket_ledger.seat.presentation.dto.SeatResponse;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -40,6 +43,9 @@ public class EventService {
     private final SeatRepository seatRepository;
     private final ReservationExpirationService reservationExpirationService;
 
+    @Value("${app.time.service-zone:Asia/Seoul}")
+    private String serviceZoneId = "Asia/Seoul";
+
     @Transactional(readOnly = true)
     @Cacheable(CacheNames.EVENT_LIST)
     public List<EventListResponse> getEvents() {
@@ -48,14 +54,17 @@ public class EventService {
             return Collections.emptyList();
         }
 
+        LocalDateTime now = LocalDateTime.now(ZoneId.of(serviceZoneId));
         Map<Long, List<Schedule>> schedulesByEventId = groupSchedulesByEventId(
-                scheduleRepository.findByEventIdInOrderByStartAtAsc(
-                        events.stream().map(Event::getId).toList()
+                scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(
+                        events.stream().map(Event::getId).toList(),
+                        now
                 )
         );
 
         return events.stream()
                 .map(event -> toEventListResponse(event, schedulesByEventId.getOrDefault(event.getId(), List.of())))
+                .filter(event -> !event.schedules().isEmpty())
                 .toList();
     }
 
@@ -65,7 +74,8 @@ public class EventService {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new EntityNotFoundException("공연을 찾을 수 없습니다."));
 
-        List<Schedule> schedules = scheduleRepository.findByEventIdOrderByStartAtAsc(eventId);
+        LocalDateTime now = LocalDateTime.now(ZoneId.of(serviceZoneId));
+        List<Schedule> schedules = scheduleRepository.findByEventIdAndStartAtAfterOrderByStartAtAsc(eventId, now);
         return toEventDetailResponse(event, schedules);
     }
 

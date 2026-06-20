@@ -377,6 +377,8 @@ GET /api/v1/event/schedules/availability?scheduleIds=...
 GET /api/v1/event/schedules/{scheduleId}/seats
 ```
 
+`/event`, `/event/{eventId}`는 이미 시작한 회차를 제외하고 예매 가능한 미래 회차만 응답합니다. 미래 회차가 없는 공연은 목록 응답에서 제외됩니다.
+
 `/seats`는 회차별 만료 처리를 먼저 수행합니다. 이후 가용 상태 기준으로 매진이면 `{ scheduleId, soldOut: true, seats: [] }`를 반환합니다.
 
 ### 예약/결제
