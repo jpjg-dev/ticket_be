@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -78,7 +79,8 @@ class EventServiceTest {
         ReflectionTestUtils.setField(schedule, "id", 10L);
 
         when(eventRepository.findAllByOrderByBookingOpenAtAsc()).thenReturn(List.of(event));
-        when(scheduleRepository.findByEventIdInOrderByStartAtAsc(List.of(1L))).thenReturn(List.of(schedule));
+        when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
+                .thenReturn(List.of(schedule));
 
         var responses = eventService.getEvents();
 
@@ -86,6 +88,29 @@ class EventServiceTest {
         assertEquals(1L, responses.get(0).id());
         assertEquals(1, responses.get(0).schedules().size());
         assertEquals(10L, responses.get(0).schedules().get(0).id());
+        verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
+    }
+
+    @Test
+    @DisplayName("getEvents: 예매 가능한 미래 회차가 없는 공연은 메인 목록에서 제외한다")
+    void getEventsExcludesEventsWithoutBookableSchedules() {
+        var now = LocalDateTime.of(2026, 6, 10, 12, 0);
+        var event = new com.jipi.ticket_ledger.event.domain.Event(
+                "Ended Event",
+                "description",
+                "venue",
+                now.minusDays(10),
+                now
+        );
+        ReflectionTestUtils.setField(event, "id", 1L);
+
+        when(eventRepository.findAllByOrderByBookingOpenAtAsc()).thenReturn(List.of(event));
+        when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
+                .thenReturn(List.of());
+
+        var responses = eventService.getEvents();
+
+        assertTrue(responses.isEmpty());
         verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
     }
 
@@ -111,7 +136,8 @@ class EventServiceTest {
         ReflectionTestUtils.setField(schedule, "id", 10L);
 
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
-        when(scheduleRepository.findByEventIdOrderByStartAtAsc(1L)).thenReturn(List.of(schedule));
+        when(scheduleRepository.findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class)))
+                .thenReturn(List.of(schedule));
 
         var response = eventService.getEvent(1L);
 
@@ -282,7 +308,7 @@ class EventServiceTest {
             cacheEventService.getEvents();
 
             verify(eventRepository, times(1)).findAllByOrderByBookingOpenAtAsc();
-            verify(scheduleRepository, never()).findByEventIdInOrderByStartAtAsc(anyCollection());
+            verify(scheduleRepository, never()).findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class));
             verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
         }
 
@@ -299,13 +325,14 @@ class EventServiceTest {
             );
 
             when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
-            when(scheduleRepository.findByEventIdOrderByStartAtAsc(1L)).thenReturn(List.of());
+            when(scheduleRepository.findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class)))
+                    .thenReturn(List.of());
 
             cacheEventService.getEvent(1L);
             cacheEventService.getEvent(1L);
 
             verify(eventRepository, times(1)).findById(1L);
-            verify(scheduleRepository, times(1)).findByEventIdOrderByStartAtAsc(1L);
+            verify(scheduleRepository, times(1)).findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class));
             verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
         }
     }
