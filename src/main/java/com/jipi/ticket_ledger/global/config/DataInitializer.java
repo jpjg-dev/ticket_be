@@ -58,7 +58,8 @@ public class DataInitializer implements ApplicationRunner {
         }
 
         Instant now = Instant.now();
-        // 데모 시각은 기동 시점 기준 상대 분배(V8 마이그레이션과 동일 규칙). KST 자정 기준 + 자연 시각.
+        // 데모 시각은 기동 시점 기준 상대 분배(V9 마이그레이션과 동일 규칙). KST 자정 기준 + 자연 시각.
+        // 회차는 공연별 '연속 런'(인접 날짜/같은 날 다른 시각), 공연들끼리는 시작 시기를 다양하게 둔다.
         LocalDateTime base = LocalDateTime.now(ZoneId.of("Asia/Seoul")).toLocalDate().atStartOfDay();
 
         // 예매 오픈: 절대시각(now 기준). 5개는 이미 오픈(과거), 2개는 오픈 예정(미래).
@@ -66,82 +67,82 @@ public class DataInitializer implements ApplicationRunner {
                 "오페라의 유령",
                 "파리 오페라하우스를 배경으로 한 클래식 뮤지컬",
                 "블루스퀘어 신한카드홀",
-                now.minus(Duration.ofDays(20)),
+                now.minus(Duration.ofDays(25)),
                 now
         );
         Event lesMiserables = createEvent(
                 "레미제라블",
                 "혁명과 구원의 감정을 밀도 있게 다루는 대형 뮤지컬",
                 "샤롯데씨어터",
-                now.minus(Duration.ofDays(15)),
+                now.minus(Duration.ofDays(12)),
                 now
         );
         Event wicked = createEvent(
                 "위키드",
                 "초록 마녀와 마법 세계를 중심으로 한 판타지 뮤지컬",
                 "예술의전당 오페라극장",
-                now.minus(Duration.ofDays(10)),
+                now.minus(Duration.ofDays(8)),
                 now
         );
         Event chicago = createEvent(
                 "시카고",
                 "재즈와 쇼맨십이 강한 스테디셀러 뮤지컬",
                 "디큐브 링크아트센터",
-                now.minus(Duration.ofDays(7)),
+                now.minus(Duration.ofDays(6)),
                 now
         );
         Event matahari = createEvent(
                 "마타하리",
                 "전쟁과 무대 사이를 오가는 비극적 인물을 다룬 창작 뮤지컬",
                 "세종문화회관 대극장",
-                now.minus(Duration.ofDays(5)),
+                now.minus(Duration.ofDays(4)),
                 now
         );
         Event hadestown = createEvent(
                 "하데스타운",
                 "신화를 현대적으로 해석한 음악 중심의 뮤지컬",
                 "충무아트센터 대극장",
-                now.plus(Duration.ofDays(3)),
+                now.plus(Duration.ofDays(2)),
                 now
         );
         Event kinkyBoots = createEvent(
                 "킹키부츠",
                 "에너지와 퍼포먼스가 강한 팝 스타일 뮤지컬",
                 "LG아트센터 서울",
-                now.plus(Duration.ofDays(7)),
+                now.plus(Duration.ofDays(5)),
                 now
         );
 
-        // 공연 회차: KST 벽시계, 기동일 기준 상대 + 자연 시각. 과거 일부 + 근시일 + 수개월 후로 분산.
+        // 공연 회차: 공연별 연속 런. 오페라는 이미 시작한 런(첫 회차 과거 → 필터 시연).
         createSchedulesWithSeats(phantom, now, List.of(
-                base.plusDays(-3).plusHours(19),
-                base.plusDays(5).plusHours(19),
-                base.plusDays(40).plusHours(15)
+                base.plusDays(-1).plusHours(19),
+                base.plusDays(1).plusHours(19),
+                base.plusDays(2).plusHours(14)
         ));
         createSchedulesWithSeats(lesMiserables, now, List.of(
-                base.plusDays(2).plusHours(19),
-                base.plusDays(18).plusHours(19),
-                base.plusDays(60).plusHours(14)
+                base.plusDays(3).plusHours(19),
+                base.plusDays(4).plusHours(15),
+                base.plusDays(4).plusHours(19)
         ));
         createSchedulesWithSeats(wicked, now, List.of(
-                base.plusDays(7).plusHours(20),
-                base.plusDays(35).plusHours(19)
+                base.plusDays(6).plusHours(20),
+                base.plusDays(7).plusHours(19)
         ));
         createSchedulesWithSeats(chicago, now, List.of(
                 base.plusDays(10).plusHours(15),
-                base.plusDays(50).plusHours(19)
+                base.plusDays(10).plusHours(19)
         ));
         createSchedulesWithSeats(matahari, now, List.of(
-                base.plusDays(14).plusHours(20),
-                base.plusDays(75).plusHours(14)
+                base.plusDays(15).plusHours(19),
+                base.plusDays(16).plusHours(19)
         ));
         createSchedulesWithSeats(hadestown, now, List.of(
-                base.plusDays(21).plusHours(19),
-                base.plusDays(95).plusHours(15)
+                base.plusDays(25).plusHours(19),
+                base.plusDays(26).plusHours(14)
         ));
         createSchedulesWithSeats(kinkyBoots, now, List.of(
-                base.plusDays(28).plusHours(19),
-                base.plusDays(130).plusHours(14)
+                base.plusDays(40).plusHours(19),
+                base.plusDays(41).plusHours(15)
         ));
 
         createReservationAndPayments(now);
