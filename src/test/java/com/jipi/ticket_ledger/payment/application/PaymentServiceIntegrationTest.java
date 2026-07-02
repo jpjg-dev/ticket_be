@@ -1130,6 +1130,59 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
+    @DisplayName("cancelPayment: 취소 중 같은 회차 만료가 실행되어도 확정된 group은 만료 후보가 아니므로 데드락 없이 빠진다")
+    void cancelPaymentDoesNotDeadlockWithConcurrentExpiration() throws Exception {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-expire");
+        int totalAmountWithVat = amountWithVat(fixture.fixture.price);
+        CountDownLatch cancelReachedPg = new CountDownLatch(1);
+        CountDownLatch releasePg = new CountDownLatch(1);
+
+        when(tossPaymentClient.cancel("pay-key-cancel-expire", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenAnswer(invocation -> {
+                    cancelReachedPg.countDown();
+                    if (!releasePg.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("PG 응답 대기 제어에 실패했습니다.");
+                    }
+                    return new TossCancelResponse(
+                            "pay-key-cancel-expire",
+                            "CANCELED",
+                            totalAmountWithVat,
+                            "KRW"
+                    );
+                });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> cancelFuture = executor.submit(() -> {
+                paymentService.cancelPayment(fixture.paymentId, "사용자 요청");
+                return null;
+            });
+            assertTrue(cancelReachedPg.await(10, TimeUnit.SECONDS), "취소 요청이 PG 호출 지점까지 진입해야 합니다.");
+
+            Future<Integer> expirationFuture = executor.submit(
+                    () -> reservationExpirationService.expireByScheduleId(fixture.fixture.scheduleId)
+            );
+
+            assertEquals(0, expirationFuture.get(10, TimeUnit.SECONDS));
+            releasePg.countDown();
+            assertNull(cancelFuture.get(10, TimeUnit.SECONDS));
+        } finally {
+            releasePg.countDown();
+            executor.shutdownNow();
+        }
+
+        Payment payment = paymentRepository.findById(fixture.paymentId).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.fixture.reservationGroupId).orElseThrow();
+        List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.fixture.reservationGroupId);
+        List<Seat> seats = seatRepository.findAllById(fixture.fixture.seatIds);
+
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
+        assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CANCELED));
+        assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
+    }
+
+    @Test
     @DisplayName("cancelPayment: READY 결제는 취소할 수 없고 PG를 호출하지 않는다")
     void cancelPaymentRejectsReadyPayment() {
         Fixture fixture = createPendingReservationFixture(false);
