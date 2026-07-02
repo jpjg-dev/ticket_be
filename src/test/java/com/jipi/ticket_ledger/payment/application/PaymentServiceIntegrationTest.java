@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.domain.PaymentAmount;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
@@ -543,7 +544,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         "KRW"
                 ));
         when(tossPaymentClient.cancel("pay-key-refunded", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
-                .thenReturn(new TossCancelResponse("pay-key-refunded", "CANCELED", String.valueOf(totalAmountWithVat), "KRW"));
+                .thenReturn(new TossCancelResponse("pay-key-refunded", "CANCELED", totalAmountWithVat, "KRW"));
 
         int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
 
@@ -593,7 +594,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 .thenReturn(lookupResponse, lookupResponse);
         when(tossPaymentClient.cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
                 .thenThrow(new ResourceAccessException("timeout"))
-                .thenReturn(new TossCancelResponse("pay-key-refund-timeout", "CANCELED", String.valueOf(totalAmountWithVat), "KRW"));
+                .thenReturn(new TossCancelResponse("pay-key-refund-timeout", "CANCELED", totalAmountWithVat, "KRW"));
 
         int firstRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
 
@@ -702,7 +703,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         "KRW"
                 ));
         when(tossPaymentClient.cancel("pay-key-amount-mismatch", "PG_DATA_MISMATCH", "KRW", "cancel:" + ready.getId()))
-                .thenReturn(new TossCancelResponse("pay-key-amount-mismatch", "CANCELED", String.valueOf(totalAmountWithVat + 1), "KRW"));
+                .thenReturn(new TossCancelResponse("pay-key-amount-mismatch", "CANCELED", totalAmountWithVat + 1, "KRW"));
 
         int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
 
@@ -1085,7 +1086,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                     return new TossCancelResponse(
                             "pay-key-duplicate-cancel",
                             "CANCELED",
-                            String.valueOf(totalAmountWithVat),
+                            totalAmountWithVat,
                             "KRW"
                     );
                 });
@@ -1129,6 +1130,59 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
+    @DisplayName("cancelPayment: 취소 중 같은 회차 만료가 실행되어도 확정된 group은 만료 후보가 아니므로 데드락 없이 빠진다")
+    void cancelPaymentDoesNotDeadlockWithConcurrentExpiration() throws Exception {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-expire");
+        int totalAmountWithVat = amountWithVat(fixture.fixture.price);
+        CountDownLatch cancelReachedPg = new CountDownLatch(1);
+        CountDownLatch releasePg = new CountDownLatch(1);
+
+        when(tossPaymentClient.cancel("pay-key-cancel-expire", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenAnswer(invocation -> {
+                    cancelReachedPg.countDown();
+                    if (!releasePg.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("PG 응답 대기 제어에 실패했습니다.");
+                    }
+                    return new TossCancelResponse(
+                            "pay-key-cancel-expire",
+                            "CANCELED",
+                            totalAmountWithVat,
+                            "KRW"
+                    );
+                });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> cancelFuture = executor.submit(() -> {
+                paymentService.cancelPayment(fixture.paymentId, "사용자 요청");
+                return null;
+            });
+            assertTrue(cancelReachedPg.await(10, TimeUnit.SECONDS), "취소 요청이 PG 호출 지점까지 진입해야 합니다.");
+
+            Future<Integer> expirationFuture = executor.submit(
+                    () -> reservationExpirationService.expireByScheduleId(fixture.fixture.scheduleId)
+            );
+
+            assertEquals(0, expirationFuture.get(10, TimeUnit.SECONDS));
+            releasePg.countDown();
+            assertNull(cancelFuture.get(10, TimeUnit.SECONDS));
+        } finally {
+            releasePg.countDown();
+            executor.shutdownNow();
+        }
+
+        Payment payment = paymentRepository.findById(fixture.paymentId).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.fixture.reservationGroupId).orElseThrow();
+        List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.fixture.reservationGroupId);
+        List<Seat> seats = seatRepository.findAllById(fixture.fixture.seatIds);
+
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
+        assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CANCELED));
+        assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
+    }
+
+    @Test
     @DisplayName("cancelPayment: READY 결제는 취소할 수 없고 PG를 호출하지 않는다")
     void cancelPaymentRejectsReadyPayment() {
         Fixture fixture = createPendingReservationFixture(false);
@@ -1165,7 +1219,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-key-mismatch");
 
         when(tossPaymentClient.cancel("pay-key-cancel-key-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
-                .thenReturn(new TossCancelResponse("different-pay-key", "CANCELED", "110000", "KRW"));
+                .thenReturn(new TossCancelResponse("different-pay-key", "CANCELED", 110000, "KRW"));
 
         assertThrows(IllegalStateException.class,
                 () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
@@ -1179,7 +1233,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-currency-mismatch");
 
         when(tossPaymentClient.cancel("pay-key-cancel-currency-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
-                .thenReturn(new TossCancelResponse("pay-key-cancel-currency-mismatch", "CANCELED", "110000", "USD"));
+                .thenReturn(new TossCancelResponse("pay-key-cancel-currency-mismatch", "CANCELED", 110000, "USD"));
 
         assertThrows(IllegalStateException.class,
                 () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
@@ -1193,7 +1247,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-status-mismatch");
 
         when(tossPaymentClient.cancel("pay-key-cancel-status-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
-                .thenReturn(new TossCancelResponse("pay-key-cancel-status-mismatch", "DONE", "110000", "KRW"));
+                .thenReturn(new TossCancelResponse("pay-key-cancel-status-mismatch", "DONE", 110000, "KRW"));
 
         assertThrows(IllegalStateException.class,
                 () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
@@ -1238,7 +1292,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 .thenReturn(new com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse(
                         "pay-key-group",
                         "CANCELED",
-                        String.valueOf(totalAmountWithVat),
+                        totalAmountWithVat,
                         "KRW"
                 ));
 
@@ -1319,7 +1373,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     private int amountWithVat(int amount) {
-        return amount + (int) Math.round(amount * 0.1d);
+        return PaymentAmount.fromSeatTotalAmount(amount).totalAmount();
     }
 
     private ApprovedPaymentFixture createApprovedPaymentFixture(String paymentKey) {

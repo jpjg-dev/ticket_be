@@ -75,9 +75,12 @@ public class Payment {
         this(reservationGroup, amount, now.atZone(ZoneId.systemDefault()).toInstant(), orderId, currency);
     }
 
+    public PaymentAmount paymentAmount() {
+        return PaymentAmount.fromSeatTotalAmount(this.amount);
+    }
+
     public Integer totalAmountWithVat() {
-        int vat = (int) Math.round(this.amount * 0.1d);
-        return this.amount + vat;
+        return paymentAmount().totalAmount();
     }
 
     public void confirming() {

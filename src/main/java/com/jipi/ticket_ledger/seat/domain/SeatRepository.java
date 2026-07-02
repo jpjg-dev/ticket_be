@@ -38,9 +38,6 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query("select s from Seat s where s.id in :seatIds order by s.id asc")
     List<Seat> findAllByIdInForUpdate(@Param("seatIds") Collection<Long> seatIds);
 
-    //특정 회차 좌석 목록
-    List<Seat> findByScheduleId(Long scheduleId);
-
     @Query("""
             select s.id as id,
                    s.seatNumber as seatNumber,
@@ -52,8 +49,6 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             order by s.id asc
             """)
     List<SeatSummary> findSeatSummariesByScheduleId(@Param("scheduleId") Long scheduleId);
-
-    List<Seat> findByScheduleIdIn(Collection<Long> scheduleIds);
 
     @Query("""
             select s.schedule.id as scheduleId, s.status as status, count(s) as count

@@ -75,6 +75,34 @@ B 요청: [2, 1]
 | 애플리케이션 | `seatIds.distinct().sorted()` 적용 |
 | DB 조회 | `order by s.id asc` 기준으로 `PESSIMISTIC_WRITE` 조회 |
 
+## 결제·만료 경로 락 순서 점검
+
+좌석 선점 외에도 결제 승인, 결제 취소, 예약 만료, 결제 보정은 같은 `Payment`, `ReservationGroup`, `Reservation`, `Seat` 상태를 함께 변경합니다.
+따라서 데드락을 막기 위해 경로별 명시적 비관 락 획득 순서를 점검했습니다.
+
+| 경로 | 명시적 락 획득 순서 | 비고 |
+| --- | --- | --- |
+| 좌석 선점 | `Seat(id asc)` | 좌석 ID 정렬 후 `PESSIMISTIC_WRITE` 조회 |
+| 예약 만료 | `Payment -> ReservationGroup` | 이후 `Reservation`, `Seat` 상태 변경 |
+| 결제 승인 Tx1 | `Payment` | `READY -> CONFIRMING` 마커 저장 |
+| 결제 승인 Tx2 | `Payment` | 이후 `ReservationGroup`, `Reservation`, `Seat` 확정 |
+| 결제 취소 | `Payment` | 이후 `ReservationGroup`, `Reservation`, `Seat` 취소/해제 |
+| 결제 보정 | `Payment` | 이후 승인 확정 또는 실패/좌석 해제 |
+
+현재 코드에서 `ReservationGroup -> Payment`처럼 위 순서를 거꾸로 잡는 명시적 비관 락 경로는 확인되지 않았습니다.
+좌석 묶음은 항상 `Seat(id asc)` 순서로 잠그므로 `Seat 1 -> Seat 2`와 `Seat 2 -> Seat 1`이 서로 기다리는 형태의 좌석 간 데드락도 방어합니다.
+또한 예약 만료는 `PENDING` group만 대상으로 하고, 결제 취소는 `APPROVED` payment만 대상으로 하므로 정상 상태 전이에서는 같은 group을 동시에 만료·취소 처리하지 않습니다.
+
+다만 `Reservation`, `Seat` 변경은 명시적 `for update`가 아니라 엔티티 변경 후 flush 시점의 writer lock으로 반영됩니다.
+따라서 이후 상태 전이 경로를 추가할 때는 다음 순서를 유지합니다.
+
+```text
+Payment -> ReservationGroup -> Reservation -> Seat(id asc)
+```
+
+현재 남은 리스크는 데드락보다 결제 취소·보정 환불에서 `Payment` 락을 잡은 상태로 외부 PG 취소 API를 호출해 락 대기 시간이 길어질 수 있다는 점입니다.
+이 항목은 데드락 이슈가 아니라 트랜잭션 경계 최적화 후보로 별도 관리합니다.
+
 ## 사용한 테스트 도구
 
 - JUnit

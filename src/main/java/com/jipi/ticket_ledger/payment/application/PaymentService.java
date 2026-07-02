@@ -95,7 +95,7 @@ public class PaymentService {
 
         payment.fail();
 
-        if (!isExpired(payment, reservations, Instant.now())) {
+        if (!payment.getReservationGroup().isExpiredAt(Instant.now())) {
             log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
                     LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_ONLY");
             return;
@@ -202,10 +202,6 @@ public class PaymentService {
 
     private String createCancelIdempotencyKey(Long paymentId) {
         return "cancel:" + paymentId;
-    }
-
-    private boolean isExpired(Payment payment, List<Reservation> reservations, Instant now) {
-        return payment.getReservationGroup().isExpiredAt(now);
     }
 
     private void applyCancellation(Payment payment, List<Reservation> reservations) {

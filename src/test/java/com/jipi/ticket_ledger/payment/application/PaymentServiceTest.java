@@ -320,7 +320,7 @@ class PaymentServiceTest {
 
         when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
-        doReturn(new TossCancelResponse("pay-key-3", "CANCELED", "10000", "KRW"))
+        doReturn(new TossCancelResponse("pay-key-3", "CANCELED", 10000, "KRW"))
                 .when(tossPaymentClient)
                 .cancel("pay-key-3", "사용자 요청", "KRW", "cancel:1");
 

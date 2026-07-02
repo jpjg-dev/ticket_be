@@ -70,8 +70,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
                 .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()
-                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS)
-                .hasRole("USER").anyRequest().denyAll());
+                .requestMatchers(SecurityURLs.AUTHENTICATED_URLS).hasRole("USER")
+                .anyRequest().denyAll());
 
         http.exceptionHandling(exception -> exception.authenticationEntryPoint((request, response, authException) -> {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

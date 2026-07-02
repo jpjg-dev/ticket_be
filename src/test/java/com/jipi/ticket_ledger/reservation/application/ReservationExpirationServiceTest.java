@@ -97,6 +97,25 @@ class ReservationExpirationServiceTest {
     }
 
     @Test
+    @DisplayName("expireAll: Payment, ReservationGroup 순서로 락을 획득한 뒤 예약과 좌석을 조회한다")
+    void expireAllLocksPaymentBeforeReservationGroup() {
+        Fixture fixture = createFixture(13L);
+
+        when(reservationGroupRepository.findExpiredPendingIds(any(java.time.Instant.class), any(Pageable.class)))
+                .thenReturn(List.of(13L));
+        when(paymentRepository.findByReservationGroupIdForUpdate(13L)).thenReturn(Optional.of(fixture.payment()));
+        when(reservationGroupRepository.findByIdForUpdate(13L)).thenReturn(Optional.of(fixture.group()));
+        when(reservationRepository.findByReservationGroupIdWithSeat(13L)).thenReturn(fixture.reservations());
+
+        reservationExpirationService.expireAll();
+
+        var inOrder = inOrder(paymentRepository, reservationGroupRepository, reservationRepository);
+        inOrder.verify(paymentRepository).findByReservationGroupIdForUpdate(13L);
+        inOrder.verify(reservationGroupRepository).findByIdForUpdate(13L);
+        inOrder.verify(reservationRepository).findByReservationGroupIdWithSeat(13L);
+    }
+
+    @Test
     @DisplayName("expireAll: 연결 결제가 READY가 아니면 결제 상태는 변경하지 않는다")
     void expireAllDoesNotChangeAlreadyFailedPayment() {
         Fixture fixture = createFixture(8L);

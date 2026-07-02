@@ -87,9 +87,7 @@ class EventServiceTest {
         assertEquals(1, responses.size());
         assertEquals(1L, responses.get(0).id());
         assertEquals(1, responses.get(0).schedules().size());
-        assertEquals(10L, responses.get(0).schedules().get(0).id());
-        verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
-    }
+        assertEquals(10L, responses.get(0).schedules().get(0).id());    }
 
     @Test
     @DisplayName("getEvents: 예매 가능한 미래 회차가 없는 공연은 메인 목록에서 제외한다")
@@ -110,9 +108,7 @@ class EventServiceTest {
 
         var responses = eventService.getEvents();
 
-        assertTrue(responses.isEmpty());
-        verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
-    }
+        assertTrue(responses.isEmpty());    }
 
     @Test
     @DisplayName("getEvent: 상세 조회는 좌석 전체를 조회하지 않고 상세 기본 데이터와 회차만 조립한다")
@@ -143,9 +139,7 @@ class EventServiceTest {
 
         assertEquals(1L, response.id());
         assertEquals(1, response.schedules().size());
-        assertEquals(10L, response.schedules().get(0).id());
-        verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
-    }
+        assertEquals(10L, response.schedules().get(0).id());    }
 
     @Test
     @DisplayName("getSeats: 해당 회차의 만료 예약을 정리한 뒤 좌석을 조회한다")
@@ -161,9 +155,7 @@ class EventServiceTest {
         var inOrder = inOrder(reservationExpirationService, seatRepository);
         inOrder.verify(reservationExpirationService).expireByScheduleId(10L);
         inOrder.verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        inOrder.verify(seatRepository).findSeatSummariesByScheduleId(10L);
-        verify(seatRepository, never()).findByScheduleId(10L);
-    }
+        inOrder.verify(seatRepository).findSeatSummariesByScheduleId(10L);    }
 
     @Test
     @DisplayName("getSeats: AVAILABLE과 HELD가 없고 BOOKED만 있으면 매진으로 보고 좌석 목록을 조회하지 않는다")
@@ -178,9 +170,7 @@ class EventServiceTest {
         assertEquals(10L, response.scheduleId());
         assertEquals(List.of(), response.seats());
         verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        verify(seatRepository, never()).findSeatSummariesByScheduleId(10L);
-        verify(seatRepository, never()).findByScheduleId(10L);
-    }
+        verify(seatRepository, never()).findSeatSummariesByScheduleId(10L);    }
 
     @Test
     @DisplayName("getSeats: HELD 좌석이 남아 있으면 만료 복구 가능성이 있으므로 매진으로 보지 않고 좌석 목록을 조회한다")
@@ -195,9 +185,7 @@ class EventServiceTest {
 
         assertFalse(response.soldOut());
         verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        verify(seatRepository).findSeatSummariesByScheduleId(10L);
-        verify(seatRepository, never()).findByScheduleId(10L);
-    }
+        verify(seatRepository).findSeatSummariesByScheduleId(10L);    }
 
     @Test
     @DisplayName("getSeats: 좌석 응답은 엔티티 전체 조회 없이 projection 필드만 매핑한다")
@@ -220,9 +208,7 @@ class EventServiceTest {
         assertEquals(1000, response.seats().get(0).price());
         assertEquals("AVAILABLE", response.seats().get(0).status());
         verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        verify(seatRepository).findSeatSummariesByScheduleId(10L);
-        verify(seatRepository, never()).findByScheduleId(10L);
-    }
+        verify(seatRepository).findSeatSummariesByScheduleId(10L);    }
 
     @Test
     @DisplayName("getScheduleAvailability: 회차별 상태 집계로 매진 여부를 계산한다")
@@ -308,9 +294,7 @@ class EventServiceTest {
             cacheEventService.getEvents();
 
             verify(eventRepository, times(1)).findAllByOrderByBookingOpenAtAsc();
-            verify(scheduleRepository, never()).findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class));
-            verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
-        }
+            verify(scheduleRepository, never()).findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class));        }
 
         @Test
         @DisplayName("getEvent: 같은 공연 상세 조회는 캐시되어 DB 조회를 반복하지 않는다")
@@ -332,9 +316,7 @@ class EventServiceTest {
             cacheEventService.getEvent(1L);
 
             verify(eventRepository, times(1)).findById(1L);
-            verify(scheduleRepository, times(1)).findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class));
-            verify(seatRepository, never()).findByScheduleIdIn(anyCollection());
-        }
+            verify(scheduleRepository, times(1)).findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class));        }
     }
 
     private record StatusCount(
