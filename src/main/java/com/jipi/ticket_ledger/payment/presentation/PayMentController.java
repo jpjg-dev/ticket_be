@@ -4,6 +4,7 @@ import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
 import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.domain.PaymentAmount;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentRequest;
@@ -35,9 +36,7 @@ public class PayMentController {
         Payment payment = paymentService.readyPayment(request.reservationGroupId());
         List<Reservation> reservations = paymentService.getReservationsForPayment(payment);
         Reservation firstReservation = reservations.get(0);
-        int seatTotalAmount = payment.getAmount();
-        int vatAmount = (int) Math.round(seatTotalAmount * 0.1d);
-        int totalAmount = seatTotalAmount + vatAmount;
+        PaymentAmount paymentAmount = payment.paymentAmount();
 
         String orderName = firstReservation.getSeat().getSchedule().getEvent().getTitle()
                 + " "
@@ -47,9 +46,9 @@ public class PayMentController {
         return new ReadyPaymentResponse(
                 payment.getId(),
                 payment.getOrderId(),
-                totalAmount,
-                seatTotalAmount,
-                vatAmount,
+                paymentAmount.totalAmount(),
+                paymentAmount.seatTotalAmount(),
+                paymentAmount.vatAmount(),
                 orderName,
                 payment.getCurrency()
         );
