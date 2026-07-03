@@ -9,6 +9,8 @@ import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
 import com.jipi.ticket_ledger.global.exception.AuthUnauthorizedException;
 import com.jipi.ticket_ledger.global.exception.InvalidCredentialsException;
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.global.log.TraceIdFilter;
+import org.slf4j.MDC;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.domain.UserStatus;
@@ -57,6 +59,11 @@ public class AuthService {
                 jwtTokenProvider.getExpirationAsInstant(refreshToken),
                 Instant.now()
         ));
+
+        // 로그인 요청엔 인증 토큰이 없어 JwtAuthenticationFilter가 userId를 못 채운다.
+        // 성공 시점에 직접 MDC에 넣어, 요청 종료 시 찍히는 접근 로그(AccessLogFilter)에도 누가 로그인했는지 남긴다.
+        // (요청 종료 시 TraceIdFilter가 MDC 전체를 정리하므로 누수 없음.)
+        MDC.put(TraceIdFilter.USER_ID, String.valueOf(user.getId()));
 
         log.info("event={} userId={} email={} role={}", LogEvents.AUTH_LOGIN_SUCCESS, user.getId(), request.email(), user.getRole());
         return new AuthResponseLoginDTO(accessToken, refreshToken);
