@@ -26,6 +26,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
 
     public static final String TRACE_ID = "traceId";
     public static final String USER_ID = "userId";
+    public static final String CLIENT_IP = "clientIp";
     // nginx $request_id 등 엣지 식별자와 연결할 수 있도록 표준 헤더명을 사용한다.
     public static final String TRACE_ID_HEADER = "X-Request-Id";
 
@@ -37,6 +38,8 @@ public class TraceIdFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String traceId = resolveTraceId(request);
         MDC.put(TRACE_ID, traceId);
+        // 최우선 필터라 여기서 clientIp를 MDC에 넣으면 인증 실패 로그까지 모든 줄에 IP가 붙는다.
+        MDC.put(CLIENT_IP, ClientIpResolver.resolve(request));
         response.setHeader(TRACE_ID_HEADER, traceId);
         try {
             filterChain.doFilter(request, response);

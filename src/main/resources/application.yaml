@@ -49,5 +49,5 @@ app:
 
 logging:
   pattern:
-    # 모든 로그 줄에 [traceId|userId] 를 찍어 요청 단위로 장애를 추적한다(값 없으면 빈칸).
-    level: "%5p [%X{traceId:-}|%X{userId:-}]"
+    # 모든 로그 줄에 [traceId|userId|clientIp] 를 찍어 요청 단위로 장애를 추적한다(값 없으면 빈칸).
+    level: "%5p [%X{traceId:-}|%X{userId:-}|%X{clientIp:-}]"
