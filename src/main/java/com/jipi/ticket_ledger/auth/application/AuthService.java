@@ -54,7 +54,7 @@ public class AuthService {
                 Instant.now()
         ));
 
-        log.info("event={} userId={} email={}", LogEvents.AUTH_LOGIN_SUCCESS, user.getId(), request.email());
+        log.info("event={} userId={} email={} role={}", LogEvents.AUTH_LOGIN_SUCCESS, user.getId(), request.email(), user.getRole());
         return new AuthResponseLoginDTO(accessToken, refreshToken);
     }
 
