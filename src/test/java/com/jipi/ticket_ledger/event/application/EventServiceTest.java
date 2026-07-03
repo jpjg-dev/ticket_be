@@ -145,7 +145,7 @@ class EventServiceTest {
     @DisplayName("getSeats: 해당 회차의 만료 예약을 정리한 뒤 좌석을 조회한다")
     void getSeatsExpiresRequestedScheduleBeforeReadingSeats() {
         when(seatRepository.countStatusesByScheduleIds(anyCollection())).thenReturn(List.of());
-        when(seatRepository.findSeatSummariesByScheduleId(10L)).thenReturn(List.of());
+        when(seatRepository.findAvailableSeatSummariesByScheduleId(10L)).thenReturn(List.of());
 
         var response = eventService.getSeats(10L);
 
@@ -155,7 +155,7 @@ class EventServiceTest {
         var inOrder = inOrder(reservationExpirationService, seatRepository);
         inOrder.verify(reservationExpirationService).expireByScheduleId(10L);
         inOrder.verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        inOrder.verify(seatRepository).findSeatSummariesByScheduleId(10L);    }
+        inOrder.verify(seatRepository).findAvailableSeatSummariesByScheduleId(10L);    }
 
     @Test
     @DisplayName("getSeats: AVAILABLE과 HELD가 없고 BOOKED만 있으면 매진으로 보고 좌석 목록을 조회하지 않는다")
@@ -170,7 +170,7 @@ class EventServiceTest {
         assertEquals(10L, response.scheduleId());
         assertEquals(List.of(), response.seats());
         verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        verify(seatRepository, never()).findSeatSummariesByScheduleId(10L);    }
+        verify(seatRepository, never()).findAvailableSeatSummariesByScheduleId(10L);    }
 
     @Test
     @DisplayName("getSeats: HELD 좌석이 남아 있으면 만료 복구 가능성이 있으므로 매진으로 보지 않고 좌석 목록을 조회한다")
@@ -179,23 +179,23 @@ class EventServiceTest {
                 new StatusCount(10L, SeatStatus.HELD, 2),
                 new StatusCount(10L, SeatStatus.BOOKED, 998)
         ));
-        when(seatRepository.findSeatSummariesByScheduleId(10L)).thenReturn(List.of());
+        when(seatRepository.findAvailableSeatSummariesByScheduleId(10L)).thenReturn(List.of());
 
         var response = eventService.getSeats(10L);
 
         assertFalse(response.soldOut());
         verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        verify(seatRepository).findSeatSummariesByScheduleId(10L);    }
+        verify(seatRepository).findAvailableSeatSummariesByScheduleId(10L);    }
 
     @Test
-    @DisplayName("getSeats: 좌석 응답은 엔티티 전체 조회 없이 projection 필드만 매핑한다")
+    @DisplayName("getSeats: 좌석 응답은 AVAILABLE projection 필드만 매핑한다")
     void getSeatsMapsSeatSummaryProjection() {
         when(seatRepository.countStatusesByScheduleIds(anyCollection())).thenReturn(List.of(
                 new StatusCount(10L, SeatStatus.AVAILABLE, 2)
         ));
-        when(seatRepository.findSeatSummariesByScheduleId(10L)).thenReturn(List.of(
+        when(seatRepository.findAvailableSeatSummariesByScheduleId(10L)).thenReturn(List.of(
                 new SeatSummary(1L, "A-1", "R", 1000, SeatStatus.AVAILABLE),
-                new SeatSummary(2L, "A-2", "R", 1000, SeatStatus.HELD)
+                new SeatSummary(2L, "A-2", "R", 1000, SeatStatus.AVAILABLE)
         ));
 
         var response = eventService.getSeats(10L);
@@ -208,7 +208,7 @@ class EventServiceTest {
         assertEquals(1000, response.seats().get(0).price());
         assertEquals("AVAILABLE", response.seats().get(0).status());
         verify(seatRepository).countStatusesByScheduleIds(anyCollection());
-        verify(seatRepository).findSeatSummariesByScheduleId(10L);    }
+        verify(seatRepository).findAvailableSeatSummariesByScheduleId(10L);    }
 
     @Test
     @DisplayName("getScheduleAvailability: 회차별 상태 집계로 매진 여부를 계산한다")
