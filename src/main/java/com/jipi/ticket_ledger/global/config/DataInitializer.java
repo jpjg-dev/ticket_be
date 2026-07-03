@@ -58,7 +58,8 @@ public class DataInitializer implements ApplicationRunner {
         }
 
         Instant now = Instant.now();
-        // 데모 시각은 기동 시점 기준 상대 분배(V9 마이그레이션과 동일 규칙). KST 자정 기준 + 자연 시각.
+        // 데모 시각은 기동 시점 기준 상대 분배(R__demo_schedule_times.sql / V9 마이그레이션과 동일 offset). KST 자정 기준 + 자연 시각.
+        // 빈 DB의 데모 시각은 여기서 채우고, 이미 시드된 DB는 R__가 재적용한다. 두 곳 offset은 항상 함께 맞춘다.
         // 회차는 공연별 '연속 런'(인접 날짜/같은 날 다른 시각), 공연들끼리는 시작 시기를 다양하게 둔다.
         LocalDateTime base = LocalDateTime.now(ZoneId.of("Asia/Seoul")).toLocalDate().atStartOfDay();
 
