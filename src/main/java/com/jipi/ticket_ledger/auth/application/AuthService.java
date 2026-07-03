@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.auth.infrastructure.TokenHasher;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthRequestLoginDTO;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
 import com.jipi.ticket_ledger.global.exception.AuthUnauthorizedException;
+import com.jipi.ticket_ledger.global.exception.InvalidCredentialsException;
 import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
@@ -37,7 +38,10 @@ public class AuthService {
     @Transactional
     public AuthResponseLoginDTO login(AuthRequestLoginDTO request) {
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new IllegalStateException("아이디 또는 비밀번호를 확인해주세요."));
+                .orElseThrow(() -> {
+                    log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "USER_NOT_FOUND");
+                    return new InvalidCredentialsException("아이디 또는 비밀번호를 확인해주세요.");
+                });
 
         validateLoginUser(request, user);
 
@@ -155,12 +159,13 @@ public class AuthService {
     private void validateLoginUser(AuthRequestLoginDTO request, User user) {
         if (user.getStatus() != UserStatus.ACTIVE) {
             log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "INACTIVE_USER");
-            throw new IllegalStateException("활성화된 사용자만 로그인할 수 있습니다.");
+            // 응답은 제네릭으로 통일 — 계정 존재(비활성) 사실을 노출하지 않는다. 사유는 위 로그에만 남는다.
+            throw new InvalidCredentialsException("아이디 또는 비밀번호를 확인해주세요.");
         }
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "PASSWORD_MISMATCH");
-            throw new IllegalStateException("아이디 또는 비밀번호를 확인해주세요.");
+            throw new InvalidCredentialsException("아이디 또는 비밀번호를 확인해주세요.");
         }
     }
 }

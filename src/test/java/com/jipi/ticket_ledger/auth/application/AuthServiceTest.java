@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.auth.domain.RefreshTokenRepository;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.auth.infrastructure.TokenHasher;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthRequestLoginDTO;
+import com.jipi.ticket_ledger.global.exception.InvalidCredentialsException;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
@@ -94,7 +95,7 @@ class AuthServiceTest {
         when(user.getPassword()).thenReturn("encoded");
         when(passwordEncoder.matches("password", "encoded")).thenReturn(false);
 
-        IllegalStateException exception = assertThrows(IllegalStateException.class,
+        InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
                 () -> authService.login(new AuthRequestLoginDTO("user@test.com", "password")));
 
         assertEquals("아이디 또는 비밀번호를 확인해주세요.", exception.getMessage());

@@ -32,6 +32,14 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("ILLEGAL_STATE", e.getMessage()));
     }
 
+    // 로그인 인증 실패는 401 + 제네릭 메시지로만 응답한다(계정 존재 여부 비노출).
+    // 거부 사유는 AuthService 가 AUTH_LOGIN_REJECT reason=... 로 이미 남기므로 여기서 중복 로깅하지 않는다.
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse("INVALID_CREDENTIALS", e.getMessage()));
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
         log.warn("event={} code=BAD_REQUEST status=400 message={}", LogEvents.API_ERROR, e.getMessage());
