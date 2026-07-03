@@ -112,7 +112,7 @@ public class EventService {
             return new SeatListResponse(scheduleId, true, List.of());
         }
 
-        List<SeatRepository.SeatSummary> seatSummaries = seatRepository.findSeatSummariesByScheduleId(scheduleId);
+        List<SeatRepository.SeatSummary> seatSummaries = seatRepository.findAvailableSeatSummariesByScheduleId(scheduleId);
         afterRepositoryNanos = System.nanoTime();
 
         List<SeatResponse> seats = seatSummaries.stream()
@@ -126,8 +126,7 @@ public class EventService {
                 .toList();
         afterMappingNanos = System.nanoTime();
 
-        boolean soldOut = !seats.isEmpty() && seats.stream()
-                .allMatch(seat -> SeatStatus.BOOKED.name().equals(seat.status()));
+        boolean soldOut = availability.soldOut();
         afterSoldOutNanos = System.nanoTime();
 
         log.debug("event=SEAT_LOOKUP_PROFILE scheduleId={} expirationMs={} availabilityMs={} repositoryMs={} mappingMs={} soldOutMs={} serviceTotalMs={} seatCount={} soldOut={}",

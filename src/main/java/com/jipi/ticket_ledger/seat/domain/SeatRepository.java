@@ -46,9 +46,10 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
                    s.status as status
             from Seat s
             where s.schedule.id = :scheduleId
+              and s.status = com.jipi.ticket_ledger.seat.domain.SeatStatus.AVAILABLE
             order by s.id asc
             """)
-    List<SeatSummary> findSeatSummariesByScheduleId(@Param("scheduleId") Long scheduleId);
+    List<SeatSummary> findAvailableSeatSummariesByScheduleId(@Param("scheduleId") Long scheduleId);
 
     @Query("""
             select s.schedule.id as scheduleId, s.status as status, count(s) as count
