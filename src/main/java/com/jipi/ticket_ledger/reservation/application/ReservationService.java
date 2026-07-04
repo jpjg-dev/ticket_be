@@ -13,6 +13,7 @@ import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,7 +56,16 @@ public class ReservationService {
                 .sorted()
                 .toList();
 
-        List<Seat> seats = seatRepository.findAllByIdInForUpdate(sortedSeatIds);
+        List<Seat> seats;
+        try {
+            seatRepository.setSeatLockTimeoutForCurrentTransaction();
+            seats = seatRepository.findAllByIdInForUpdate(sortedSeatIds);
+        } catch (PessimisticLockingFailureException lockTimeout) {
+            // 1초 안에 락을 못 얻음 = 다른 요청이 지금 이 좌석(들)을 선점 처리 중.
+            log.warn("event={} userId={} requestedSeatIds={} reason={}",
+                    LogEvents.RESERVATION_CREATE_REJECT, userId, sortedSeatIds, "SEAT_LOCK_TIMEOUT");
+            throw new IllegalStateException("다른 사용자가 선택 중인 좌석입니다. 잠시 후 다시 시도해주세요.");
+        }
         if (seats.size() != sortedSeatIds.size()) {
             log.warn("event={} userId={} requestedSeatIds={} foundSeatCount={} reason={}",
                     LogEvents.RESERVATION_CREATE_REJECT, userId, sortedSeatIds, seats.size(), "SEAT_NOT_FOUND");
