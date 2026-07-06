@@ -10,8 +10,7 @@ public final class SecurityURLs {
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
-            "/api-docs/**",
-            "/actuator/**"
+            "/api-docs/**"
     };
 
     // 유저 허용
@@ -30,6 +29,10 @@ public final class SecurityURLs {
             "/api/v1/event/**",
             "/api/v1/seat/**",
             "/api/v1/schedules/**",
-            "/api/v1/auth/reissue"
+            "/api/v1/auth/reissue",
+            // 컨테이너 헬스체크가 쓰는 liveness 프로브만 연다.
+            // bare /actuator/health, metrics/env 등 나머지 actuator 는 어떤 규칙에도
+            // 안 걸려 anyRequest().denyAll() 로 잠긴다.
+            "/actuator/health/liveness"
     };
 }
