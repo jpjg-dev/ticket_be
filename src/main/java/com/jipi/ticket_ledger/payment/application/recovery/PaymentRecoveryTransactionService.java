@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 
 @Service
@@ -28,6 +28,7 @@ public class PaymentRecoveryTransactionService {
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
     private final TossPaymentClient tossPaymentClient;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public ConfirmingPaymentCandidate loadConfirmingCandidate(Long paymentId) {
@@ -101,8 +102,9 @@ public class PaymentRecoveryTransactionService {
             );
             return true;
         } catch (RestClientException e) {
+            // 취소(환불) 호출 실패 로그는 TossPaymentClient 가 남긴다. 여기선 다음 주기 재시도 결정만 남긴다.
             log.error("Refund failed for CONFIRMING payment, will retry next cycle. paymentId={} orderId={}",
-                    payment.getId(), payment.getOrderId(), e);
+                    payment.getId(), payment.getOrderId());
             return false;
         }
     }
@@ -116,7 +118,7 @@ public class PaymentRecoveryTransactionService {
 
     private boolean isReservationStillHeld(Payment payment, List<Reservation> reservations) {
         return payment.getReservationGroup().getStatus() == ReservationGroupStatus.PENDING
-                && !payment.getReservationGroup().isExpiredAt(Instant.now())
+                && !payment.getReservationGroup().isExpiredAt(clock.instant())
                 && reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.PENDING)
                 && reservations.stream().allMatch(reservation -> reservation.getSeat().getStatus() == SeatStatus.HELD);
     }

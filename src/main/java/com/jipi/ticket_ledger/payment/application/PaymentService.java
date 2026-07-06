@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.infrastructure.PaymentLogFormatter;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
@@ -22,7 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 
 @Service
@@ -35,6 +36,7 @@ public class PaymentService {
     private final ReservationGroupRepository reservationGroupRepository;
     private final TossPaymentClient tossPaymentClient;
     private final PaymentConfirmService paymentConfirmService;
+    private final Clock clock;
 
     //결제 대기
     @Transactional
@@ -43,7 +45,7 @@ public class PaymentService {
                 .orElseThrow(() -> new EntityNotFoundException("예매 묶음을 찾을 수 없습니다."));
         List<Reservation> reservations = getReservationsByGroupId(reservationGroupId);
 
-        reservationGroup.validateReadyPayment(reservations, Instant.now());
+        reservationGroup.validateReadyPayment(reservations, clock.instant());
 
         Payment existingPayment = paymentRepository.findByReservationGroupId(reservationGroupId)
                 .orElse(null);
@@ -57,7 +59,7 @@ public class PaymentService {
                     new Payment(
                             reservationGroup,
                             seatTotalAmount,
-                            Instant.now(),
+                            clock.instant(),
                             createOrderId(reservationGroupId),
                             "KRW"
                     )
@@ -95,7 +97,7 @@ public class PaymentService {
 
         payment.fail();
 
-        if (!payment.getReservationGroup().isExpiredAt(Instant.now())) {
+        if (!payment.getReservationGroup().isExpiredAt(clock.instant())) {
             log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
                     LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_ONLY");
             return;
@@ -144,8 +146,9 @@ public class PaymentService {
                     createCancelIdempotencyKey(payment.getId())
             );
         } catch (RestClientException cancelException) {
-            log.error("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "PG_CANCEL_EXCEPTION", maskPaymentKey(payment.getPaymentKey()), cancelException);
+            // PG 취소 호출 실패 로그는 TossPaymentClient 가 남긴다. 여기선 조회 기반 확인 결정만 남긴다.
+            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "PG_CANCEL_FALLBACK_LOOKUP", maskPaymentKey(payment.getPaymentKey()));
             TossPaymentLookupResponse lookupResponse = tossPaymentClient.getPaymentByPaymentKey(payment.getPaymentKey());
             if (TossPaymentStatus.isCanceled(lookupResponse.status())
                     && payment.getCurrency().equals(lookupResponse.currency())
@@ -205,7 +208,7 @@ public class PaymentService {
     }
 
     private void applyCancellation(Payment payment, List<Reservation> reservations) {
-        payment.cancel(Instant.now());
+        payment.cancel(clock.instant());
         payment.getReservationGroup().cancel();
         reservations.forEach(reservation -> {
             reservation.cancel();

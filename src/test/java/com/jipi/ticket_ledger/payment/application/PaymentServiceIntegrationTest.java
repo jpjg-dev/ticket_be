@@ -456,7 +456,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         "KRW"
                 ));
 
-        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
 
         Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
         Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
@@ -546,7 +546,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         when(tossPaymentClient.cancel("pay-key-refunded", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
                 .thenReturn(new TossCancelResponse("pay-key-refunded", "CANCELED", totalAmountWithVat, "KRW"));
 
-        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
 
         Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
         ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
@@ -596,7 +596,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 .thenThrow(new ResourceAccessException("timeout"))
                 .thenReturn(new TossCancelResponse("pay-key-refund-timeout", "CANCELED", totalAmountWithVat, "KRW"));
 
-        int firstRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+        int firstRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
 
         Payment stillConfirming = paymentRepository.findById(ready.getId()).orElseThrow();
         ReservationGroup stillPendingGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
@@ -609,7 +609,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(ReservationStatus.PENDING, stillPendingReservation.getStatus());
         assertEquals(SeatStatus.HELD, stillHeldSeat.getStatus());
 
-        int secondRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+        int secondRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
 
         Payment failed = paymentRepository.findById(ready.getId()).orElseThrow();
         ReservationGroup expiredGroup = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
@@ -668,7 +668,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 ));
 
         int recoveredCount = assertDoesNotThrow(() ->
-                paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO));
+                paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE));
 
         Payment poisonAfter = paymentRepository.findById(poison.getId()).orElseThrow();
         Payment healthyAfter = paymentRepository.findById(healthy.getId()).orElseThrow();
@@ -705,7 +705,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         when(tossPaymentClient.cancel("pay-key-amount-mismatch", "PG_DATA_MISMATCH", "KRW", "cancel:" + ready.getId()))
                 .thenReturn(new TossCancelResponse("pay-key-amount-mismatch", "CANCELED", totalAmountWithVat + 1, "KRW"));
 
-        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
 
         Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
         ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
@@ -746,7 +746,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         "KRW"
                 ));
 
-        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO);
+        int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
 
         Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
         Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();

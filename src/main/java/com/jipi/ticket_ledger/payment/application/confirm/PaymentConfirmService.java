@@ -1,7 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.confirm;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
-import com.jipi.ticket_ledger.payment.application.PaymentLogFormatter;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
@@ -30,10 +29,10 @@ public class PaymentConfirmService {
         try {
             approval = confirmWithPg(paymentKey, confirmingPayment);
         } catch (RestClientException confirmException) {
-            log.error("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+            // confirm 외부호출 실패 로그는 TossPaymentClient 가 남긴다. 여기선 회색지대 대응(조회 fallback) 결정만 남긴다.
+            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
                     LogEvents.PAYMENT_CONFIRM_REJECT, confirmingPayment.orderId(), confirmingPayment.paymentId(),
-                    confirmingPayment.reservationGroupId(), "PG_CONFIRM_EXCEPTION",
-                    PaymentLogFormatter.maskPaymentKey(paymentKey), confirmException);
+                    confirmingPayment.reservationGroupId(), "PG_CONFIRM_FALLBACK_LOOKUP");
             PaymentPgApproval lookupApproval = PaymentPgApproval.from(confirmPaymentStatus(paymentKey, confirmingPayment.orderId()));
             if (PaymentPgApprovalValidator.isApprovedLookup(confirmingPayment, lookupApproval)) {
                 return paymentConfirmTransactionService.applyApproved(confirmingPayment, lookupApproval);

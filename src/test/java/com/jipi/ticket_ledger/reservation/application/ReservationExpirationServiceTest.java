@@ -21,10 +21,14 @@ import org.springframework.data.domain.Pageable;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,8 +52,26 @@ class ReservationExpirationServiceTest {
     @Mock
     private ReservationGroupRepository reservationGroupRepository;
 
+    // 기본은 시스템 시계라 기존 테스트 동작이 그대로 유지된다. 시간 판정을 고정하려면 테스트별로 Clock.fixed 로 교체한다.
+    @Spy
+    private Clock clock = Clock.systemDefaultZone();
+
     @InjectMocks
     private ReservationExpirationService reservationExpirationService;
+
+    @Test
+    @DisplayName("expireAll: 주입된 Clock의 시각을 만료 기준으로 사용한다(시간 결정성)")
+    void expireAllUsesInjectedClockInstant() {
+        Instant fixedNow = Instant.parse("2026-01-01T00:00:00Z");
+        ReflectionTestUtils.setField(reservationExpirationService, "clock", Clock.fixed(fixedNow, ZoneOffset.UTC));
+        when(reservationGroupRepository.findExpiredPendingIds(eq(fixedNow), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        reservationExpirationService.expireAll();
+
+        // 서비스가 실시간 Instant.now() 가 아니라 주입된 Clock 시각을 만료 컷오프로 넘겼는지 검증한다.
+        verify(reservationGroupRepository).findExpiredPendingIds(eq(fixedNow), any(Pageable.class));
+    }
 
     @Test
     @DisplayName("expireAll: 만료된 group 안의 모든 예약, 좌석, READY 결제를 함께 만료 처리한다")

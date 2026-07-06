@@ -1,7 +1,7 @@
 package com.jipi.ticket_ledger.payment.application.confirm;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
-import com.jipi.ticket_ledger.payment.application.PaymentLogFormatter;
+import com.jipi.ticket_ledger.payment.infrastructure.PaymentLogFormatter;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 
 @Service
@@ -24,6 +24,7 @@ public class PaymentConfirmTransactionService {
 
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public Payment getPayment(String orderId) {
@@ -128,7 +129,7 @@ public class PaymentConfirmTransactionService {
             throw new IllegalStateException("결제 대기 중인 예약만 승인할 수 있습니다.");
         }
 
-        if (payment.getReservationGroup().isExpiredAt(Instant.now())) {
+        if (payment.getReservationGroup().isExpiredAt(clock.instant())) {
             log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
                     LogEvents.PAYMENT_CONFIRM_REJECT, orderId, payment.getId(), reservationGroupId,
                     "RESERVATION_EXPIRED", PaymentLogFormatter.maskPaymentKey(paymentKey));

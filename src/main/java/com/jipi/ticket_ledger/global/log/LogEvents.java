@@ -7,6 +7,9 @@ public final class LogEvents {
     public static final String HTTP_REQUEST = "HTTP_REQUEST";
     public static final String API_ERROR = "API_ERROR";
 
+    // Toss 외부호출 실패(승인/취소/조회)를 호출 단위에서 같은 형식으로 남기는 이벤트
+    public static final String TOSS_CALL_FAIL = "TOSS_CALL_FAIL";
+
     public static final String PAYMENT_CONFIRM_START = "PAYMENT_CONFIRM_START";
     public static final String PAYMENT_CONFIRM_REJECT = "PAYMENT_CONFIRM_REJECT";
     public static final String PAYMENT_CONFIRM_SUCCESS = "PAYMENT_CONFIRM_SUCCESS";

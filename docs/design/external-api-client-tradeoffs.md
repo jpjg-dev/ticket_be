@@ -76,6 +76,34 @@ PaymentService.confirmPayment()
 | OpenFeign 보류 | 단일 PG 연동에 필요한 의존성을 줄였습니다. | 외부 API가 늘어나면 인터페이스 기반 정리가 필요할 수 있습니다. |
 | Retry/Circuit Breaker 보류 | 현재 실패 모드에는 `CONFIRMING` 마커, PG 조회, 보정 스케줄러가 직접 대응합니다. | 외부 장애율·알림 체계·연동 대상 증가 시 별도 도입 검토가 필요합니다. |
 
+## 외부 호출 실패 로그 표준화
+
+Toss 승인/취소/조회 실패 로그가 서비스·보정 계층에 흩어져 필드가 제각각이라, 장애 시 원인 비교가 어려웠습니다. 그래서 외부 호출 실패 로그를 **호출 단위(`TossPaymentClient`)로 단일화**했습니다.
+
+로그 위치 결정:
+
+| 후보 | 판단 |
+| --- | --- |
+| 서비스 계층 공통 helper | `paymentId` 같은 내부 식별자까지 담을 수 있지만, 호출부 다섯 곳이 모두 helper를 거쳐야 해 번잡합니다. |
+| `TossPaymentClient` 단일화 | 모든 Toss 호출이 지나는 유일 지점이라 형식을 한곳에서 강제할 수 있어 선택했습니다. 내부 식별자는 서비스의 비즈니스 결정 로그가 담당합니다. |
+
+표준 필드(실패 시):
+
+```text
+event=TOSS_CALL_FAIL operation=CONFIRM orderId=... paymentKeyMasked=abc123***
+idempotencyKey=confirm:... outcome=... httpStatus=... exceptionClass=... message=...
+```
+
+- `operation`: `CONFIRM`, `CANCEL`, `LOOKUP_BY_PAYMENT_KEY`, `LOOKUP_BY_ORDER_ID` (`TossOperation`).
+- `outcome`: `TIMEOUT`(결과 불명 → `CONFIRMING` 보정 대상), `HTTP_ERROR`(상태코드 있음), `OTHER`(미분류).
+- 호출별로 보유하지 않는 값(`cancel`의 `orderId` 등)은 `N/A`로 남깁니다.
+
+원칙:
+
+- `TossPaymentClient`가 실패를 로깅하고 **원래 예외를 그대로 재전파**합니다. 서비스 계층은 같은 예외를 다시 덤프하지 않고 **비즈니스 결정**(조회 fallback, 보정 위임, 다음 주기 재시도)만 남겨 중복 로그를 없앱니다.
+- `raw secret`, `Authorization` 헤더는 로그에 남기지 않습니다. `paymentKey`는 앞 6자만 노출하고 나머지는 마스킹합니다(`PaymentLogFormatter`, infrastructure 배치로 계층 역참조 방지).
+- `TIMEOUT`은 실패 확정이 아니라 결과 불명이므로 `CONFIRMING` 보정 흐름과 함께 해석합니다.
+
 ## 참고 기준
 
 - Spring Framework REST Clients: https://docs.spring.io/spring-framework/reference/integration/rest-clients.html
