@@ -63,10 +63,6 @@ public class PaymentRecoveryService {
         );
     }
 
-    public int reconcileStaleConfirmingPayments(Duration grace) {
-        return reconcileStaleConfirmingPayments(grace, Integer.MAX_VALUE);
-    }
-
     public int reconcileStaleConfirmingPayments(Duration grace, int batchSize) {
         int recoveredCount = 0;
         List<Long> paymentIds = findStaleConfirmingPaymentIds(grace, batchSize);
