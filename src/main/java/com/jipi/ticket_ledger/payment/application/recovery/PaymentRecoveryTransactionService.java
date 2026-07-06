@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 
 @Service
@@ -28,6 +28,7 @@ public class PaymentRecoveryTransactionService {
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
     private final TossPaymentClient tossPaymentClient;
+    private final Clock clock;
 
     @Transactional(readOnly = true)
     public ConfirmingPaymentCandidate loadConfirmingCandidate(Long paymentId) {
@@ -116,7 +117,7 @@ public class PaymentRecoveryTransactionService {
 
     private boolean isReservationStillHeld(Payment payment, List<Reservation> reservations) {
         return payment.getReservationGroup().getStatus() == ReservationGroupStatus.PENDING
-                && !payment.getReservationGroup().isExpiredAt(Instant.now())
+                && !payment.getReservationGroup().isExpiredAt(clock.instant())
                 && reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.PENDING)
                 && reservations.stream().allMatch(reservation -> reservation.getSeat().getStatus() == SeatStatus.HELD);
     }

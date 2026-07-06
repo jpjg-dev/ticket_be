@@ -11,8 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
+import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -23,6 +23,7 @@ public class PaymentRecoveryService {
     private final PaymentRepository paymentRepository;
     private final TossPaymentClient tossPaymentClient;
     private final PaymentRecoveryTransactionService paymentRecoveryTransactionService;
+    private final Clock clock;
 
     /**
      * 컨트롤러 confirm 실패 시 호출하는 단건 동기 재조회.
@@ -57,7 +58,7 @@ public class PaymentRecoveryService {
     @Transactional(readOnly = true)
     public List<Long> findStaleConfirmingPaymentIds(Duration grace, int batchSize) {
         return paymentRepository.findStaleConfirmingIds(
-                Instant.now().minus(grace),
+                clock.instant().minus(grace),
                 PageRequest.of(0, batchSize)
         );
     }

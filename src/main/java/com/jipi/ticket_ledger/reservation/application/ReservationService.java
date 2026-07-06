@@ -17,6 +17,7 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -34,6 +35,7 @@ public class ReservationService {
     private final UserRepository userRepository;
     private final SeatRepository seatRepository;
     private final ReservationGroupRepository reservationGroupRepository;
+    private final Clock clock;
 
     @Value("${reservation.hold-duration}")
     private Duration holdDuration;
@@ -74,10 +76,10 @@ public class ReservationService {
         validateSameSchedule(seats);
 
         // 2) 좌석 상태를 AVAILABLE -> HELD로 변경해 임시 선점한다.
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         // 예매 오픈은 절대 시점(Instant)으로, 공연 시작은 공연장 로컬(LocalDateTime + 서비스 타임존)으로 검증한다.
         validateBookingOpen(seats, now);
-        validateScheduleNotStarted(seats, LocalDateTime.now(ZoneId.of(serviceZoneId)));
+        validateScheduleNotStarted(seats, LocalDateTime.now(clock.withZone(ZoneId.of(serviceZoneId))));
         Instant expiresAt = now.plus(holdDuration);
         ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
 

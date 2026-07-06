@@ -16,7 +16,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 
 @Service
@@ -28,6 +28,7 @@ public class ReservationExpirationService {
     private final ReservationRepository reservationRepository;
     private final PaymentRepository paymentRepository;
     private final ReservationGroupRepository reservationGroupRepository;
+    private final Clock clock;
 
     @Value("${reservation.expire-scheduler.batch-size:100}")
     private int batchSize = 100;
@@ -36,7 +37,7 @@ public class ReservationExpirationService {
     // batch-size 로 한 트랜잭션 작업량을 제한한다(긴 트랜잭션·락 보유 방지). 못 비운 잔여분은 다음 주기에 이어서 처리한다.
     public int expireAll() {
         return expireGroups(
-                reservationGroupRepository.findExpiredPendingIds(Instant.now(), PageRequest.of(0, batchSize)),
+                reservationGroupRepository.findExpiredPendingIds(clock.instant(), PageRequest.of(0, batchSize)),
                 "SCHEDULER"
         );
     }
@@ -45,7 +46,7 @@ public class ReservationExpirationService {
     // 상한을 두지 않고 그 회차를 즉시 최신 상태로 만든다. (전역 백스톱은 사람이 안 볼 때를 위한 스케줄러가 담당)
     public int expireByScheduleId(Long scheduleId) {
         return expireGroups(
-                reservationGroupRepository.findExpiredPendingIdsByScheduleId(scheduleId, Instant.now()),
+                reservationGroupRepository.findExpiredPendingIdsByScheduleId(scheduleId, clock.instant()),
                 "SEAT_QUERY"
         );
     }
@@ -58,7 +59,7 @@ public class ReservationExpirationService {
             ReservationGroup reservationGroup = reservationGroupRepository.findByIdForUpdate(reservationGroupId).orElse(null);
             if (reservationGroup == null
                     || reservationGroup.getStatus() != ReservationGroupStatus.PENDING
-                    || !reservationGroup.isExpiredAt(Instant.now())) {
+                    || !reservationGroup.isExpiredAt(clock.instant())) {
                 skippedCount++;
                 continue;
             }

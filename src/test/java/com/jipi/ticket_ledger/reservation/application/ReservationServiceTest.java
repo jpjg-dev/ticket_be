@@ -21,9 +21,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -49,6 +51,10 @@ class ReservationServiceTest {
 
     @Mock
     private ReservationGroupRepository reservationGroupRepository;
+
+    // 기본은 시스템 시계라 기존 시간 상대 검증이 그대로 유지된다.
+    @Spy
+    private Clock clock = Clock.systemDefaultZone();
 
     @InjectMocks
     private ReservationService reservationService;

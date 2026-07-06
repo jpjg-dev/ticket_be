@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 
 @Service
@@ -35,6 +35,7 @@ public class PaymentService {
     private final ReservationGroupRepository reservationGroupRepository;
     private final TossPaymentClient tossPaymentClient;
     private final PaymentConfirmService paymentConfirmService;
+    private final Clock clock;
 
     //결제 대기
     @Transactional
@@ -43,7 +44,7 @@ public class PaymentService {
                 .orElseThrow(() -> new EntityNotFoundException("예매 묶음을 찾을 수 없습니다."));
         List<Reservation> reservations = getReservationsByGroupId(reservationGroupId);
 
-        reservationGroup.validateReadyPayment(reservations, Instant.now());
+        reservationGroup.validateReadyPayment(reservations, clock.instant());
 
         Payment existingPayment = paymentRepository.findByReservationGroupId(reservationGroupId)
                 .orElse(null);
@@ -57,7 +58,7 @@ public class PaymentService {
                     new Payment(
                             reservationGroup,
                             seatTotalAmount,
-                            Instant.now(),
+                            clock.instant(),
                             createOrderId(reservationGroupId),
                             "KRW"
                     )
@@ -95,7 +96,7 @@ public class PaymentService {
 
         payment.fail();
 
-        if (!payment.getReservationGroup().isExpiredAt(Instant.now())) {
+        if (!payment.getReservationGroup().isExpiredAt(clock.instant())) {
             log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
                     LogEvents.PAYMENT_FAIL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId, "FAIL_ONLY");
             return;
@@ -205,7 +206,7 @@ public class PaymentService {
     }
 
     private void applyCancellation(Payment payment, List<Reservation> reservations) {
-        payment.cancel(Instant.now());
+        payment.cancel(clock.instant());
         payment.getReservationGroup().cancel();
         reservations.forEach(reservation -> {
             reservation.cancel();

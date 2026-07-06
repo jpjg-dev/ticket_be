@@ -33,6 +33,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.ResourceAccessException;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -62,15 +63,17 @@ class PaymentServiceTest {
 
     @BeforeEach
     void setUpPaymentService() {
+        Clock clock = Clock.systemDefaultZone();
         PaymentConfirmTransactionService transactionService =
-                new PaymentConfirmTransactionService(paymentRepository, reservationRepository);
+                new PaymentConfirmTransactionService(paymentRepository, reservationRepository, clock);
         PaymentConfirmService confirmService = new PaymentConfirmService(tossPaymentClient, transactionService);
         paymentService = new PaymentService(
                 paymentRepository,
                 reservationRepository,
                 reservationGroupRepository,
                 tossPaymentClient,
-                confirmService
+                confirmService,
+                clock
         );
     }
 
