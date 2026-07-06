@@ -25,6 +25,12 @@ import java.io.IOException;
 public class AccessLogFilter extends OncePerRequestFilter {
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // 컨테이너 헬스체크(liveness, 10초 주기)는 접근 로그를 남기지 않는다(노이즈 방지).
+        return request.getRequestURI().startsWith("/actuator/health");
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         long startNanos = System.nanoTime();
