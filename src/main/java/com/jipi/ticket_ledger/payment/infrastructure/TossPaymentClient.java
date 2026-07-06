@@ -1,21 +1,30 @@
 package com.jipi.ticket_ledger.payment.infrastructure;
 
-import lombok.RequiredArgsConstructor;
+import com.jipi.ticket_ledger.global.log.LogEvents;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.function.Supplier;
 
 @Component
+@Slf4j
 public class TossPaymentClient {
     private final RestClient restClient;
     private final String secretKey;
 
+    @Autowired
     public TossPaymentClient(
             RestClient.Builder restClientBuilder,
             @Value("${toss.payments.base-url}") String baseUrl,
@@ -26,53 +35,111 @@ public class TossPaymentClient {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(connectTimeout);
         requestFactory.setReadTimeout(readTimeout);
-        this.restClient = restClientBuilder
+        RestClient built = restClientBuilder
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
                 .build();
+        this.restClient = built;
+        this.secretKey = secretKey;
+    }
+
+    // 테스트에서 MockRestServiceServer 로 바인딩한 RestClient 를 직접 주입하기 위한 생성자.
+    TossPaymentClient(RestClient restClient, String secretKey) {
+        this.restClient = restClient;
         this.secretKey = secretKey;
     }
 
     public TossConfirmResponse confirm(String paymentKey, String orderId, Integer amount, String idempotencyKey) {
         TossConfirmRequest request = new TossConfirmRequest(paymentKey, orderId, amount);
 
-        return restClient.post()
-                .uri("/v1/payments/confirm")
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", createAuthorizationHeader())
-                .header("Idempotency-Key", idempotencyKey)
-                .body(request)
-                .retrieve()
-                .body(TossConfirmResponse.class);
+        return call(TossOperation.CONFIRM, orderId, paymentKey, idempotencyKey, () ->
+                restClient.post()
+                        .uri("/v1/payments/confirm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", createAuthorizationHeader())
+                        .header("Idempotency-Key", idempotencyKey)
+                        .body(request)
+                        .retrieve()
+                        .body(TossConfirmResponse.class));
     }
 
     public TossCancelResponse cancel(String paymentKey, String cancelReason, String currency, String idempotencyKey) {
         TossCancelRequest request = new TossCancelRequest(cancelReason, currency);
 
-        return restClient.post()
-                .uri("/v1/payments/{paymentKey}/cancel", paymentKey)
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", createAuthorizationHeader())
-                .header("Idempotency-Key", idempotencyKey)
-                .body(request)
-                .retrieve()
-                .body(TossCancelResponse.class);
+        return call(TossOperation.CANCEL, null, paymentKey, idempotencyKey, () ->
+                restClient.post()
+                        .uri("/v1/payments/{paymentKey}/cancel", paymentKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", createAuthorizationHeader())
+                        .header("Idempotency-Key", idempotencyKey)
+                        .body(request)
+                        .retrieve()
+                        .body(TossCancelResponse.class));
     }
 
     public TossPaymentLookupResponse getPaymentByPaymentKey(String paymentKey) {
-        return restClient.get()
-                .uri("/v1/payments/{paymentKey}", paymentKey)
-                .header("Authorization", createAuthorizationHeader())
-                .retrieve()
-                .body(TossPaymentLookupResponse.class);
+        return call(TossOperation.LOOKUP_BY_PAYMENT_KEY, null, paymentKey, null, () ->
+                restClient.get()
+                        .uri("/v1/payments/{paymentKey}", paymentKey)
+                        .header("Authorization", createAuthorizationHeader())
+                        .retrieve()
+                        .body(TossPaymentLookupResponse.class));
     }
 
     public TossPaymentLookupResponse getPaymentByOrderId(String orderId) {
-        return restClient.get()
-                .uri("/v1/payments/orders/{orderId}", orderId)
-                .header("Authorization", createAuthorizationHeader())
-                .retrieve()
-                .body(TossPaymentLookupResponse.class);
+        return call(TossOperation.LOOKUP_BY_ORDER_ID, orderId, null, null, () ->
+                restClient.get()
+                        .uri("/v1/payments/orders/{orderId}", orderId)
+                        .header("Authorization", createAuthorizationHeader())
+                        .retrieve()
+                        .body(TossPaymentLookupResponse.class));
+    }
+
+    // 모든 Toss 외부호출을 감싸 실패 시 같은 형식으로 로깅하고 원래 예외를 그대로 재전파한다.
+    // 로그는 호출 단위(여기)에서만 남기고, 서비스 계층은 같은 예외를 다시 덤프하지 않는다.
+    private <T> T call(TossOperation operation, String orderId, String paymentKey, String idempotencyKey, Supplier<T> action) {
+        try {
+            return action.get();
+        } catch (ResourceAccessException timeout) {
+            // 연결/응답 타임아웃 등 I/O 실패 = 성공/실패 미확정(결과 불명) → CONFIRMING 보정 대상.
+            logFailure(operation, orderId, paymentKey, idempotencyKey, "TIMEOUT", "N/A", timeout, false);
+            throw timeout;
+        } catch (RestClientResponseException httpError) {
+            // PG 가 상태코드를 돌려준 실패(4xx/5xx).
+            logFailure(operation, orderId, paymentKey, idempotencyKey, "HTTP_ERROR",
+                    String.valueOf(httpError.getStatusCode().value()), httpError, false);
+            throw httpError;
+        } catch (RestClientException other) {
+            // 분류하지 못한 통신 예외.
+            logFailure(operation, orderId, paymentKey, idempotencyKey, "OTHER", "N/A", other, true);
+            throw other;
+        }
+    }
+
+    private void logFailure(TossOperation operation, String orderId, String paymentKey, String idempotencyKey,
+                            String outcome, String httpStatus, RestClientException exception, boolean withStack) {
+        String format = "event={} operation={} orderId={} paymentKeyMasked={} idempotencyKey={} outcome={} httpStatus={} exceptionClass={} message={}";
+        Object[] args = {
+                LogEvents.TOSS_CALL_FAIL,
+                operation,
+                orderId == null ? "N/A" : orderId,
+                PaymentLogFormatter.maskPaymentKey(paymentKey),
+                idempotencyKey == null ? "N/A" : idempotencyKey,
+                outcome,
+                httpStatus,
+                exception.getClass().getSimpleName(),
+                exception.getMessage()
+        };
+        if (withStack) {
+            // 분류 못 한 예외(OTHER)만 스택까지 남겨 원인 추적을 돕는다.
+            Object[] withException = Arrays.copyOf(args, args.length + 1);
+            withException[args.length] = exception;
+            log.error(format, withException);
+        } else if ("TIMEOUT".equals(outcome)) {
+            log.warn(format, args);
+        } else {
+            log.error(format, args);
+        }
     }
 
     private String createAuthorizationHeader() {

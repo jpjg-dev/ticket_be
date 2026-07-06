@@ -1,5 +1,7 @@
-package com.jipi.ticket_ledger.payment.application;
+package com.jipi.ticket_ledger.payment.infrastructure;
 
+// 결제 로그의 민감값 마스킹을 한곳에 모은다. application/infrastructure 양쪽에서 호출한다.
+// (infrastructure 에 두어 외부호출 클라이언트가 application 을 역참조하지 않게 한다.)
 public final class PaymentLogFormatter {
 
     private PaymentLogFormatter() {

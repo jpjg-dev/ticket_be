@@ -45,7 +45,8 @@ public class PaymentRecoveryService {
                     tossPaymentClient.getPaymentByOrderId(orderId)
             );
         } catch (RestClientException e) {
-            log.warn("Synchronous reconcile lookup failed, leaving CONFIRMING for scheduler. orderId={}", orderId, e);
+            // 조회 실패 로그는 TossPaymentClient 가 남긴다. 여기선 보정 스케줄러 위임 결정만 남긴다.
+            log.warn("Synchronous reconcile lookup failed, leaving CONFIRMING for scheduler. orderId={}", orderId);
         }
 
         Payment resolved = paymentRepository.findByOrderId(orderId).orElse(payment);

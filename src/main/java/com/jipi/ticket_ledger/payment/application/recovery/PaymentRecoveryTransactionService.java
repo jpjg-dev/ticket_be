@@ -102,8 +102,9 @@ public class PaymentRecoveryTransactionService {
             );
             return true;
         } catch (RestClientException e) {
+            // 취소(환불) 호출 실패 로그는 TossPaymentClient 가 남긴다. 여기선 다음 주기 재시도 결정만 남긴다.
             log.error("Refund failed for CONFIRMING payment, will retry next cycle. paymentId={} orderId={}",
-                    payment.getId(), payment.getOrderId(), e);
+                    payment.getId(), payment.getOrderId());
             return false;
         }
     }

@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.infrastructure.PaymentLogFormatter;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
@@ -145,8 +146,9 @@ public class PaymentService {
                     createCancelIdempotencyKey(payment.getId())
             );
         } catch (RestClientException cancelException) {
-            log.error("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
-                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "PG_CANCEL_EXCEPTION", maskPaymentKey(payment.getPaymentKey()), cancelException);
+            // PG 취소 호출 실패 로그는 TossPaymentClient 가 남긴다. 여기선 조회 기반 확인 결정만 남긴다.
+            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={} paymentKeyMasked={}",
+                    LogEvents.PAYMENT_CANCEL_REJECT, payment.getOrderId(), payment.getId(), reservationGroupId, "PG_CANCEL_FALLBACK_LOOKUP", maskPaymentKey(payment.getPaymentKey()));
             TossPaymentLookupResponse lookupResponse = tossPaymentClient.getPaymentByPaymentKey(payment.getPaymentKey());
             if (TossPaymentStatus.isCanceled(lookupResponse.status())
                     && payment.getCurrency().equals(lookupResponse.currency())

@@ -1,7 +1,7 @@
 package com.jipi.ticket_ledger.payment.application.confirm;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
-import com.jipi.ticket_ledger.payment.application.PaymentLogFormatter;
+import com.jipi.ticket_ledger.payment.infrastructure.PaymentLogFormatter;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
