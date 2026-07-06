@@ -24,6 +24,19 @@ jwt:
   access-token-expiration: 300000  # 5 minutes
   refresh-token-expiration: 86400000 # 24 hours
 
+management:
+  endpoints:
+    web:
+      exposure:
+        # health 만 노출한다. metrics/prometheus 등은 필요 시 프로필에서 추가로 연다.
+        include: health
+  endpoint:
+    health:
+      probes:
+        # /actuator/health/liveness(프로세스 생존) 를 컨테이너 헬스체크에 쓴다.
+        # DB 상태를 포함하는 aggregate 대신 liveness 를 써 DB 블립에 컨테이너가 flap 하지 않게 한다.
+        enabled: true
+
 springdoc:
   api-docs:
     path: /api-docs
