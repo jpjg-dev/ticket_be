@@ -46,7 +46,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 - 예매 단위는 개별 좌석이 아니라 `ReservationGroup`으로 묶었습니다.
 - 좌석 선점은 정렬된 좌석 ID와 DB 행 잠금으로 처리했습니다.
 - 결제 승인은 `READY -> CONFIRMING -> APPROVED`로 나누고, PG 호출 전후 트랜잭션을 분리했습니다.
-- Toss Payments 호출에는 connect/read timeout을 두고, 응답 불명 상태는 `CONFIRMING` 보정 흐름으로 수렴시킵니다.
+- 외부 PG 호출에는 connect/read timeout을 두고, 응답 불명 상태는 `CONFIRMING` 보정 흐름으로 수렴시킵니다.
 - 결제되지 않은 선점 좌석은 만료 후 다시 `AVAILABLE`로 복구합니다.
 - 재기동 후 backlog가 한 번에 몰리지 않도록 보정/만료 스케줄러는 한 주기 처리량을 제한합니다.
 - 고부하 전체 여정 테스트에서는 완료 결제 `1,000`건, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 확인했습니다.
@@ -70,7 +70,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 ### 요청 흐름
 
-사용자 요청은 nginx가 받아 대부분 frontend로 전달하고, frontend가 API Route proxy를 통해 Docker 내부 네트워크에서 backend를 호출합니다. 백엔드로 직접 전달되는 외부 경로는 `/swagger-ui`, `/api-docs` 문서 경로로 제한하며, 결제 승인과 조회는 backend가 Toss Payments로 아웃바운드 호출합니다.
+사용자 요청은 nginx가 받아 대부분 frontend로 전달하고, frontend가 API Route proxy를 통해 Docker 내부 네트워크에서 backend를 호출합니다. 백엔드로 직접 전달되는 외부 경로는 `/swagger-ui`, `/api-docs` 문서 경로로 제한하며, 결제 승인과 조회는 backend가 외부 PG로 아웃바운드 호출합니다.
 
 ## 성능 테스트 해석 기준
 
@@ -108,94 +108,21 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 -> Seat BOOKED
 ```
 
-### 결제 데이터 흐름 (정상)
+### 결제 승인과 장애 보정 흐름
 
-결제 승인은 PG 호출 전에 짧은 트랜잭션으로 `Payment`를 `CONFIRMING`으로 남기고, PG 호출 후 다시 짧은 트랜잭션으로 내부 상태를 확정합니다. 외부 PG 호출 동안 DB 락을 오래 잡지 않도록 트랜잭션 경계를 나눴습니다.
+결제 승인은 `READY -> CONFIRMING` 커밋, 외부 PG 승인 요청, 내부 확정 커밋으로 나눕니다. 외부 PG 호출 동안 DB 락을 오래 잡지 않으면서, 승인 요청 후 응답 유실·타임아웃·서버 장애가 발생해도 `CONFIRMING` 상태를 복구 기준으로 남깁니다.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as User Browser
-    participant API as Spring Boot API
-    participant Payment as PaymentService
-    participant Confirm as PaymentConfirmService
-    participant Tx as PaymentConfirmTransactionService
-    participant Toss as Toss Payments
-    participant DB as PostgreSQL
+요청 처리가 살아있으면 컨트롤러가 동기 재조회를 한 번 더 시도합니다. 그래도 확정하지 못하거나 프로세스가 중단되면 보정 스케줄러가 오래된 `CONFIRMING` 결제를 조회하고, 외부 PG 결제 상태를 기준으로 내부 상태를 최종 수렴시킵니다.
 
-    User->>API: POST /payments/ready
-    API->>Payment: 결제 준비 요청
-    Payment->>DB: Payment READY 저장
-    API-->>User: orderId, amount 반환
+![결제 승인 장애 시 CONFIRMING 보정 흐름](docs/assets/images/payment-recovery-sequence-dark.png)
 
-    User->>API: POST /payments/confirm
-    API->>Payment: 결제 승인 요청
-    Payment->>Confirm: confirm 위임
-    Confirm->>Tx: READY 검증 + CONFIRMING 저장
-    Tx->>DB: Tx1 커밋
-    Note over Tx,DB: PG 호출 전 durable 마커
-    Confirm->>Toss: 승인 API 호출(멱등키)
-    Toss-->>Confirm: 승인 결과
-    Confirm->>Tx: 승인 결과 반영
-    Tx->>DB: Tx2 커밋: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
-    API-->>User: 결제 완료 응답
-```
-
-### 결제 장애 대응 1: PG 호출 실패 / 응답 불명
-
-PG 승인 호출에서 타임아웃이나 네트워크 예외가 발생하면 결제 실패로 바로 단정하지 않습니다. 요청 처리가 살아있는 동안에는 PG 상태를 즉시 재조회하고, `DONE`이면 내부 상태를 승인으로 확정합니다.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Confirm as PaymentConfirmService
-    participant Toss as Toss Payments
-    participant DB as PostgreSQL
-
-    Confirm->>DB: READY -> CONFIRMING 커밋
-    Confirm->>Toss: 승인 API 호출
-    Toss--xConfirm: 타임아웃 / 네트워크 예외
-    Confirm->>Toss: 결제 상태 재조회(lookup)
-    Toss-->>Confirm: 실제 상태 응답
-
-    alt 승인 완료(DONE) + 금액/통화/주문 일치
-        Confirm->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
-    else 승인 아님
-        Confirm-->>Confirm: 예외 전파
-    end
-```
-
-요청 처리 계층에도 같은 안전망을 둡니다. 컨트롤러는 confirm이 회색지대로 실패하면 결제가 `CONFIRMING`일 때만 동기 재조회를 한 번 더 시도하고, 그래도 확정되지 않으면 `CONFIRMING` 상태를 응답해 보정 스케줄러에 위임합니다. 만료 같은 정상 거절은 그대로 예외로 전달합니다.
-
-### 결제 장애 대응 2: PG 성공 후 내부 반영 실패
-
-PG 승인은 성공했지만 내부 DB 반영 전에 프로세스가 중단되면 결제가 `CONFIRMING`에 남습니다. 보정 스케줄러는 오래된 `CONFIRMING` 결제를 찾아 PG 상태를 조회하고, 좌석이 아직 유효하면 승인으로 확정합니다. 좌석이 이미 유효하지 않거나 PG 응답 금액·통화가 우리 기대값과 불일치하면, 고객이 낸 금액 그대로 환불한 뒤 실패 상태로 정리합니다. (`orderId` 자체가 불일치하는 경우는 우리 결제건 여부가 의심스러워 자동 처리하지 않고 알림 후 보류합니다.)
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Recovery as PaymentRecoveryService
-    participant Tx as PaymentRecoveryTransactionService
-    participant Toss as Toss Payments
-    participant DB as PostgreSQL
-
-    Recovery->>DB: 오래된 CONFIRMING 결제 조회
-    Recovery->>Toss: orderId로 PG 상태 조회
-    Toss-->>Recovery: 실제 상태 응답
-    Recovery->>Tx: 보정 트랜잭션 요청
-
-    alt DONE + 좌석 HELD + 금액/통화 일치
-        Tx->>DB: Payment APPROVED + 예매 CONFIRMED + Seat BOOKED
-    else DONE + 좌석 유효하지 않음
-        Tx->>Toss: 결제 취소 / 환불
-        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
-    else DONE + 금액/통화 불일치
-        Tx->>Toss: 결제 취소 / 환불
-        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
-    else 미승인
-        Tx->>DB: Payment FAILED + 예매 EXPIRED + Seat AVAILABLE
-    end
-```
+| 외부 PG 조회 결과 | 내부 정보 | 좌석 상태 | 처리 |
+| --- | --- | --- | --- |
+| 승인 | `orderId`·금액·통화 일치 | 유효 | `Payment APPROVED`, 예매 `CONFIRMED`, 좌석 `BOOKED`로 확정 |
+| 승인 | 정보 불일치 | - | 외부 PG 취소 요청 후 `FAILED`로 정리 |
+| 승인 | 정보 일치 | 좌석 상실 | 외부 PG 취소 요청 후 `FAILED`, 좌석 반환으로 정리 |
+| 미승인 | - | - | `FAILED`로 정리 |
+| 결과 불명 | - | - | `CONFIRMING`을 유지하고 다음 보정 주기에 재시도 |
 
 ### 상태 전이 요약
 
@@ -237,8 +164,8 @@ sequenceDiagram
 
 | 항목 | 운영값 | 의도 |
 | --- | ---: | --- |
-| Toss connect timeout | `2s` | 연결 자체가 지연되는 외부 장애에서 요청 thread가 오래 묶이지 않게 합니다. |
-| Toss read timeout | `5s` | 결제 결과 응답 대기가 길어질 때 결과 불명으로 보고 `CONFIRMING` 보정 흐름에 넘깁니다. |
+| 외부 PG connect timeout | `2s` | 연결 자체가 지연되는 외부 장애에서 요청 thread가 오래 묶이지 않게 합니다. |
+| 외부 PG read timeout | `5s` | 결제 결과 응답 대기가 길어질 때 결과 불명으로 보고 `CONFIRMING` 보정 흐름에 넘깁니다. |
 | 결제 보정 batch-size | `20` | PG 조회/취소 외부 호출이 포함되므로 한 주기 처리량을 작게 시작합니다. |
 | 예약 만료 batch-size | `100` | DB 상태 전이가 중심인 전역 스케줄러 backlog를 제한합니다. |
 
@@ -411,11 +338,11 @@ GET  /api/v1/payments/{paymentId}/status
 ├── payment              # 결제 준비 / 승인 / 취소 / 보정
 │   ├── presentation     # PayMentController
 │   │   └── dto          # ReadyPayment*, ConfirmPayment*
-│   ├── application      # PaymentService, PaymentLogFormatter
-│   │   ├── confirm      # ConfirmService, TransactionService, PG 승인 검증
-│   │   └── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService
+│   ├── application      # PaymentService
+│   │   ├── confirm      # PaymentConfirmService, TransactionService, PG 승인 검증
+│   │   └── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService, Candidate
 │   ├── domain           # Payment, PaymentAmount, PaymentStatus, PaymentRepository
-│   └── infrastructure   # TossPaymentClient, Toss 요청/응답 모델, TossPaymentStatus
+│   └── infrastructure   # TossPaymentClient, Toss 요청/응답 모델, PaymentLogFormatter
 ├── auth                 # 로그인 / 토큰 / 쿠키 인증
 │   ├── presentation     # AuthController
 │   │   └── dto          # 로그인 요청/응답 DTO
@@ -437,9 +364,10 @@ GET  /api/v1/payments/{paymentId}/status
 │   ├── application      # UserService
 │   └── domain           # User, UserRole, UserStatus, UserRepository
 └── global               # 전 계층 공통 관심사
-    ├── config           # Cache, Security, Swagger, 초기 데이터
+    ├── config           # Cache, Security, Swagger, Time, 초기 데이터
     ├── security         # CSRF Origin 필터/설정
-    └── exception/log    # 예외, 로그
+    ├── exception        # 공통 예외 응답
+    └── log              # TraceId, AccessLog, LogEvents
 ```
 
 계층별 책임은 다음과 같이 구분했습니다.
@@ -449,7 +377,7 @@ GET  /api/v1/payments/{paymentId}/status
 | `presentation` | API 입출력, Controller, 요청/응답 DTO |
 | `application` | 유스케이스, 트랜잭션 경계, 서비스 조합 |
 | `domain` | 엔티티, 상태, Repository 계약 |
-| `infrastructure` | JWT, Cookie, Toss Payments 같은 외부 연동 |
+| `infrastructure` | JWT, Cookie, 외부 PG 같은 외부 연동 |
 | `global` | 보안, 설정, 예외, 로그 등 공통 관심사 |
 
 ## 기술 스택
