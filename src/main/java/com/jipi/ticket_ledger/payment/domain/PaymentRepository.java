@@ -19,6 +19,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     Optional<Payment> findByOrderId(String orderId);
 
+    long countByStatus(PaymentStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.reservationGroup.id = :reservationGroupId")
     Optional<Payment> findByReservationGroupIdForUpdate(Long reservationGroupId);
