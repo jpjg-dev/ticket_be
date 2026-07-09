@@ -85,7 +85,7 @@ public class UserService {
 
         List<Payment> payments = paymentRepository.findByReservationGroupUserIdAndStatusIn(
                 userId,
-                List.of(PaymentStatus.APPROVED, PaymentStatus.CANCELED),
+                List.of(PaymentStatus.APPROVED, PaymentStatus.CANCELING, PaymentStatus.CANCELED),
                 Sort.by(Sort.Direction.DESC, "requestedAt")
         );
         log.debug("=========================mypage 쿼리 발생 끝======================================");

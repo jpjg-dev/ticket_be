@@ -381,6 +381,7 @@ public class DataInitializer implements ApplicationRunner {
                 reservation.confirm();
             }
 
+            payment.startCanceling(now);
             payment.cancel(now);
             for (Reservation reservation : reservations) {
                 reservation.cancel();

@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.payment.application;
 
 import com.jipi.ticket_ledger.event.domain.Event;
+import com.jipi.ticket_ledger.global.exception.ForbiddenAccessException;
 import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
@@ -1044,7 +1045,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         "KRW"
                 ));
 
-        paymentService.cancelPayment(approved.getId(), "사용자 요청");
+        paymentService.cancelPayment(approved.getId(), "사용자 요청", fixture.userId);
 
         Payment canceled = paymentRepository.findById(approved.getId()).orElseThrow();
         Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
@@ -1056,8 +1057,8 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
-    @DisplayName("cancelPayment: 동일 paymentId 취소 동시 요청은 PG를 한 번만 호출하고 취소 상태를 재사용한다")
-    void cancelPaymentDuplicateRequestCallsPgOnce() throws Exception {
+    @DisplayName("cancelPayment: 동일 paymentId 취소 동시 요청은 같은 멱등키로 PG를 재호출해도 취소 상태로 수렴한다")
+    void cancelPaymentDuplicateRequestConvergesWithSameIdempotencyKey() throws Exception {
         Fixture fixture = createPendingReservationFixture(false, 2);
         Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
         paymentIds.add(ready.getId());
@@ -1095,12 +1096,12 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         try {
             Future<?> first = executor.submit(() -> {
                 startLatch.await();
-                paymentService.cancelPayment(approved.getId(), "사용자 요청");
+                paymentService.cancelPayment(approved.getId(), "사용자 요청", fixture.userId);
                 return null;
             });
             Future<?> second = executor.submit(() -> {
                 startLatch.await();
-                paymentService.cancelPayment(approved.getId(), "사용자 요청");
+                paymentService.cancelPayment(approved.getId(), "사용자 요청", fixture.userId);
                 return null;
             });
 
@@ -1121,7 +1122,9 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
         List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
 
-        verify(tossPaymentClient, times(1))
+        // 락을 PG 호출 밖으로 뺀 durable 마커 설계에선 두 요청이 같은 멱등키로 PG 취소를 재호출할 수 있고
+        // (Toss 가 멱등키로 dedupe), 두 번째 applyDecision 은 CANCELING 이 아니므로 멱등 no-op 으로 수렴한다.
+        verify(tossPaymentClient, times(2))
                 .cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId());
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
@@ -1154,7 +1157,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<?> cancelFuture = executor.submit(() -> {
-                paymentService.cancelPayment(fixture.paymentId, "사용자 요청");
+                paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
                 return null;
             });
             assertTrue(cancelReachedPg.await(10, TimeUnit.SECONDS), "취소 요청이 PG 호출 지점까지 진입해야 합니다.");
@@ -1190,7 +1193,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
 
         assertThrows(IllegalStateException.class,
-                () -> paymentService.cancelPayment(ready.getId(), "사용자 요청"));
+                () -> paymentService.cancelPayment(ready.getId(), "사용자 요청", fixture.userId));
 
         assertEquals(PaymentStatus.READY, paymentRepository.findById(ready.getId()).orElseThrow().getStatus());
         verifyNoInteractions(tossPaymentClient);
@@ -1206,7 +1209,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentRepository.save(approvedWithoutPaymentKey);
 
         assertThrows(IllegalStateException.class,
-                () -> paymentService.cancelPayment(approvedWithoutPaymentKey.getId(), "사용자 요청"));
+                () -> paymentService.cancelPayment(approvedWithoutPaymentKey.getId(), "사용자 요청", fixture.userId));
 
         assertEquals(PaymentStatus.APPROVED,
                 paymentRepository.findById(approvedWithoutPaymentKey.getId()).orElseThrow().getStatus());
@@ -1214,45 +1217,89 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
-    @DisplayName("cancelPayment: PG 취소 응답 결제키가 다르면 예외가 발생하고 APPROVED/CONFIRMED/BOOKED가 유지된다")
-    void cancelPaymentRejectsPgPaymentKeyMismatch() {
+    @DisplayName("cancelPayment: PG 취소 응답 결제키가 다르면(HOLD_MANUAL) 예외 없이 CANCELING durable 로 남는다")
+    void cancelPaymentPgPaymentKeyMismatchHoldsCanceling() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-key-mismatch");
 
         when(tossPaymentClient.cancel("pay-key-cancel-key-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
                 .thenReturn(new TossCancelResponse("different-pay-key", "CANCELED", 110000, "KRW"));
 
-        assertThrows(IllegalStateException.class,
-                () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
 
-        assertPaymentCancellationRejected(fixture);
+        assertPaymentHeldCanceling(fixture);
     }
 
     @Test
-    @DisplayName("cancelPayment: PG 취소 응답 통화가 다르면 예외가 발생하고 APPROVED/CONFIRMED/BOOKED가 유지된다")
-    void cancelPaymentRejectsPgCurrencyMismatch() {
+    @DisplayName("cancelPayment: PG 취소 응답 통화가 다르면(HOLD_MANUAL) 예외 없이 CANCELING durable 로 남는다")
+    void cancelPaymentPgCurrencyMismatchHoldsCanceling() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-currency-mismatch");
 
         when(tossPaymentClient.cancel("pay-key-cancel-currency-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
                 .thenReturn(new TossCancelResponse("pay-key-cancel-currency-mismatch", "CANCELED", 110000, "USD"));
 
-        assertThrows(IllegalStateException.class,
-                () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
 
-        assertPaymentCancellationRejected(fixture);
+        assertPaymentHeldCanceling(fixture);
     }
 
     @Test
-    @DisplayName("cancelPayment: PG 취소 응답 상태가 유효하지 않으면 예외가 발생하고 APPROVED/CONFIRMED/BOOKED가 유지된다")
-    void cancelPaymentRejectsPgStatusMismatch() {
+    @DisplayName("cancelPayment: PG 가 아직 승인(DONE) 상태면(CANCEL_AGAIN) 예외 없이 CANCELING durable 로 남는다")
+    void cancelPaymentPgStillDoneHoldsCanceling() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-status-mismatch");
 
         when(tossPaymentClient.cancel("pay-key-cancel-status-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
                 .thenReturn(new TossCancelResponse("pay-key-cancel-status-mismatch", "DONE", 110000, "KRW"));
 
-        assertThrows(IllegalStateException.class,
-                () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청"));
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
+
+        assertPaymentHeldCanceling(fixture);
+    }
+
+    @Test
+    @DisplayName("cancelPayment: 소유자가 아니면 예외가 발생하고 PG를 호출하지 않으며 APPROVED가 유지된다")
+    void cancelPaymentRejectsNonOwner() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-non-owner");
+
+        assertThrows(ForbiddenAccessException.class,
+                () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId + 999));
 
         assertPaymentCancellationRejected(fixture);
+        verify(tossPaymentClient, never()).cancel(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("cancelPayment: PG 취소·조회가 모두 timeout 이면 예외 없이 CANCELING durable 로 남는다(Phase 3 스케줄러가 수렴)")
+    void cancelPaymentTimeoutLeavesCancelingDurable() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-timeout");
+
+        when(tossPaymentClient.cancel("pay-key-cancel-timeout", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-cancel-timeout"))
+                .thenThrow(new ResourceAccessException("timeout"));
+
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
+
+        assertPaymentHeldCanceling(fixture);
+    }
+
+    @Test
+    @DisplayName("만료 스케줄러: CANCELING(group CONFIRMED) 결제는 만료 후보가 아니므로 건드리지 않는다")
+    void expirationDoesNotTouchCancelingPayment() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-expire-skip");
+
+        when(tossPaymentClient.cancel("pay-key-cancel-expire-skip", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-cancel-expire-skip"))
+                .thenThrow(new ResourceAccessException("timeout"));
+
+        // CANCELING durable 로 만든다(group 은 CONFIRMED 유지).
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
+        assertEquals(PaymentStatus.CANCELING, paymentRepository.findById(fixture.paymentId).orElseThrow().getStatus());
+
+        int expiredCount = reservationExpirationService.expireByScheduleId(fixture.fixture.scheduleId);
+
+        assertEquals(0, expiredCount);
+        assertPaymentHeldCanceling(fixture);
     }
 
     private Fixture createPendingReservationFixture(boolean expiredReservation) {
@@ -1296,7 +1343,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         "KRW"
                 ));
 
-        paymentService.cancelPayment(approved.getId(), "사용자 요청");
+        paymentService.cancelPayment(approved.getId(), "사용자 요청", fixture.userId);
 
         Payment canceled = paymentRepository.findById(approved.getId()).orElseThrow();
         List<Reservation> canceledReservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
@@ -1369,7 +1416,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             }
         }
 
-        return new Fixture(reservationGroup.getId(), schedule.getId(), firstReservationId, firstSeatId, totalPrice, fixturesavedReservationIds, fixtureSeatIds);
+        return new Fixture(reservationGroup.getId(), schedule.getId(), firstReservationId, firstSeatId, totalPrice, fixturesavedReservationIds, fixtureSeatIds, user.getId());
     }
 
     private int amountWithVat(int amount) {
@@ -1415,6 +1462,20 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(SeatStatus.BOOKED, seat.getStatus());
     }
 
+    // 마킹(APPROVED->CANCELING) 이후 PG 취소가 확정되지 않은 경우: CANCELING durable 로 남고
+    // 예매/좌석은 아직 확정 상태를 유지한다(APPROVED 복귀 없음, Phase 3 스케줄러가 이후 수렴).
+    private void assertPaymentHeldCanceling(ApprovedPaymentFixture fixture) {
+        Payment payment = paymentRepository.findById(fixture.paymentId).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.fixture.seatId).orElseThrow();
+
+        assertEquals(PaymentStatus.CANCELING, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CONFIRMED,
+                reservationGroupRepository.findById(fixture.fixture.reservationGroupId).orElseThrow().getStatus());
+        assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
+        assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
     private record ApprovedPaymentFixture(Long paymentId, Fixture fixture) {
     }
 
@@ -1425,7 +1486,8 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             Long seatId,
             Integer price,
             List<Long> savedReservationIds,
-            List<Long> seatIds
+            List<Long> seatIds,
+            Long userId
     ) {
     }
 }

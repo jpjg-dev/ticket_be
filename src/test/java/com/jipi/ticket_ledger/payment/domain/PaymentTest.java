@@ -7,12 +7,71 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PaymentTest {
+
+    private Payment approvedPayment() {
+        User user = new User("user@test.com", "password", "테스터", LocalDateTime.now());
+        ReservationGroup group = new ReservationGroup(
+                user,
+                LocalDateTime.now(),
+                LocalDateTime.now().plusMinutes(5)
+        );
+        Payment payment = new Payment(group, 10000, LocalDateTime.now(), "order-cancel-guard", "KRW");
+        payment.confirming();
+        payment.approve("pay-key", "CARD", "DONE");
+        return payment;
+    }
+
+    @Test
+    @DisplayName("startCanceling: APPROVED 결제를 CANCELING 으로 전이하고 cancelingAt 을 기록한다")
+    void startCancelingFromApproved() {
+        Payment payment = approvedPayment();
+        Instant now = Instant.now();
+
+        payment.startCanceling(now);
+
+        assertEquals(PaymentStatus.CANCELING, payment.getStatus());
+        assertEquals(now, payment.getCancelingAt());
+    }
+
+    @Test
+    @DisplayName("startCanceling: APPROVED 가 아니면 예외가 발생한다")
+    void startCancelingRejectsNonApproved() {
+        User user = new User("user@test.com", "password", "테스터", LocalDateTime.now());
+        ReservationGroup group = new ReservationGroup(user, LocalDateTime.now(), LocalDateTime.now().plusMinutes(5));
+        Payment ready = new Payment(group, 10000, LocalDateTime.now(), "order-ready-guard", "KRW");
+
+        assertThrows(IllegalStateException.class, () -> ready.startCanceling(Instant.now()));
+        assertEquals(PaymentStatus.READY, ready.getStatus());
+    }
+
+    @Test
+    @DisplayName("cancel: CANCELING 결제만 CANCELED 로 완료할 수 있다")
+    void cancelFromCanceling() {
+        Payment payment = approvedPayment();
+        payment.startCanceling(Instant.now());
+
+        payment.cancel(Instant.now());
+
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertNotNull(payment.getCanceledAt());
+    }
+
+    @Test
+    @DisplayName("cancel: APPROVED 에서 직접 취소하면 예외가 발생한다(CANCELING 경유 강제 회귀)")
+    void cancelRejectsApprovedDirectly() {
+        Payment payment = approvedPayment();
+
+        assertThrows(IllegalStateException.class, () -> payment.cancel(Instant.now()));
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+    }
 
     @Test
     @DisplayName("totalAmountWithVat: 결제 공급가에 VAT 10%를 더한 총 결제 금액을 반환한다")
