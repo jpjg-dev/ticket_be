@@ -26,8 +26,10 @@ public class AccessLogFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        // 컨테이너 헬스체크(liveness, 10초 주기)는 접근 로그를 남기지 않는다(노이즈 방지).
-        return request.getRequestURI().startsWith("/actuator/health");
+        // 주기적으로 호출되는 헬스체크와 Prometheus scrape는 접근 로그를 남기지 않는다.
+        String requestUri = request.getRequestURI();
+        return requestUri.startsWith("/actuator/health")
+                || requestUri.equals("/actuator/prometheus");
     }
 
     @Override

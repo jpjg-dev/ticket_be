@@ -18,6 +18,10 @@ spring:
 server:
   port: ${PORT:8080}
   shutdown: graceful
+  tomcat:
+    mbeanregistry:
+      # Tomcat thread pool 사용량을 Micrometer 지표로 수집한다.
+      enabled: true
 
 jwt:
   secret: ${JWT_SECRET}
@@ -25,16 +29,21 @@ jwt:
   refresh-token-expiration: 86400000 # 24 hours
 
 management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true
   endpoints:
     web:
       exposure:
-        # health 만 노출한다. metrics/prometheus 등은 필요 시 프로필에서 추가로 연다.
-        include: health
+        # Prometheus 수집에 필요한 endpoint만 열고 env, metrics, heapdump 등은 노출하지 않는다.
+        include:
+          - health
+          - prometheus
   endpoint:
     health:
       probes:
-        # /actuator/health/liveness(프로세스 생존) 를 컨테이너 헬스체크에 쓴다.
-        # DB 상태를 포함하는 aggregate 대신 liveness 를 써 DB 블립에 컨테이너가 flap 하지 않게 한다.
+        # DB 상태를 포함하는 aggregate 대신 liveness를 컨테이너 헬스체크에 사용한다.
         enabled: true
 
 springdoc:

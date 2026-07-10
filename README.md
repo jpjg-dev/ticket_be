@@ -158,6 +158,19 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 설계 근거와 트레이드오프 상세는 비공개 설계 문서(`docs/private/design/logging-design-decision.md`, `logging-filters-explained.md`)에 정리했습니다.
 
+### Prometheus 메트릭 기준선
+
+`Actuator + Micrometer Prometheus Registry`로 `/actuator/prometheus`를 열고 다음 기본 지표를 수집할 수 있게 구성했습니다.
+
+| 대상 | 주요 지표 |
+| --- | --- |
+| API | 요청 수, 상태 코드, 응답 시간 histogram(p95 계산용) |
+| JVM | heap, GC, thread, CPU |
+| Tomcat | thread pool 사용량 |
+| DB pool | Hikari active, idle, pending, max connection |
+
+메트릭 endpoint는 인증 없이 Prometheus가 scrape할 수 있지만, 운영에서는 backend host port를 publish하거나 nginx로 route하지 않고 내부 monitoring network에서만 접근하도록 구성합니다. `CONFIRMING` 잔존 수, 결제 보정 성공/실패, PG timeout 같은 도메인 지표는 기본 인프라 수집을 확인한 뒤 다음 단계에서 추가합니다.
+
 ### 외부 호출 / backlog 보호 설정
 
 운영 프로필은 외부 PG 지연과 재기동 직후 backlog를 같이 고려해 보수적인 시작값을 사용합니다.

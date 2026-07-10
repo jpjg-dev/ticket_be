@@ -30,9 +30,9 @@ public final class SecurityURLs {
             "/api/v1/seat/**",
             "/api/v1/schedules/**",
             "/api/v1/auth/reissue",
-            // 컨테이너 헬스체크가 쓰는 liveness 프로브만 연다.
-            // bare /actuator/health, metrics/env 등 나머지 actuator 는 어떤 규칙에도
-            // 안 걸려 anyRequest().denyAll() 로 잠긴다.
-            "/actuator/health/liveness"
+            // liveness와 Prometheus scrape endpoint만 연다. 운영에서는 backend host port를
+            // publish하거나 nginx로 route하지 않고 내부 monitoring network에서만 접근한다.
+            "/actuator/health/liveness",
+            "/actuator/prometheus"
     };
 }
