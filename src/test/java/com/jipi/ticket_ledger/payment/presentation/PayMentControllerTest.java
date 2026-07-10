@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.payment.presentation;
 
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
+import com.jipi.ticket_ledger.global.exception.ForbiddenAccessException;
 import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
 import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.event.domain.Event;
@@ -8,6 +9,7 @@ import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
 import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.seat.domain.Seat;
@@ -118,23 +120,54 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 취소 성공 시 200을 반환한다")
     void cancelPaymentSuccess() throws Exception {
+        when(paymentService.cancelPayment(anyLong(), anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(PaymentStatus.CANCELED);
+
         mockMvc.perform(post("/api/v1/payments/1/cancel")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("\"사용자 요청 취소\""))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentId").value(1))
+                .andExpect(jsonPath("$.paymentStatus").value("CANCELED"));
+    }
+
+    @Test
+    @DisplayName("PG 미확정 취소는 200과 CANCELING을 반환한다")
+    void cancelPaymentPending() throws Exception {
+        when(paymentService.cancelPayment(anyLong(), anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(PaymentStatus.CANCELING);
+
+        mockMvc.perform(post("/api/v1/payments/1/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("\"사용자 요청 취소\""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paymentStatus").value("CANCELING"));
     }
 
     @Test
     @DisplayName("잘못된 상태 전이는 409를 반환한다")
     void cancelPaymentConflict() throws Exception {
         doThrow(new IllegalStateException("승인된 결제만 취소할 수 있습니다."))
-                .when(paymentService).cancelPayment(anyLong(), anyString());
+                .when(paymentService).cancelPayment(anyLong(), anyString(), org.mockito.ArgumentMatchers.any());
 
         mockMvc.perform(post("/api/v1/payments/1/cancel")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("\"사용자 요청 취소\""))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ILLEGAL_STATE"));
+    }
+
+    @Test
+    @DisplayName("소유자가 아니면 403을 반환한다")
+    void cancelPaymentForbidden() throws Exception {
+        doThrow(new ForbiddenAccessException("잘못된 접근 입니다."))
+                .when(paymentService).cancelPayment(anyLong(), anyString(), org.mockito.ArgumentMatchers.any());
+
+        mockMvc.perform(post("/api/v1/payments/1/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("\"사용자 요청 취소\""))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test

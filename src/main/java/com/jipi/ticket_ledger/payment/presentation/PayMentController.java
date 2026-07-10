@@ -5,6 +5,8 @@ import com.jipi.ticket_ledger.payment.application.PaymentService;
 import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentAmount;
+import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.presentation.dto.CancelPaymentResponse;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentRequest;
@@ -15,6 +17,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClientException;
 
@@ -98,10 +101,13 @@ public class PayMentController {
                 (message != null && !message.isBlank()) ? message : "N/A");
     }
 
-    @Operation(summary = "결제 취소", description = "결제 식별자로 결제를 취소합니다.")
+    @Operation(summary = "결제 취소", description = "결제 식별자로 결제를 취소합니다. 확정 시 CANCELED, PG 미확정 시 CANCELING 을 반환합니다.")
     @PostMapping("/{paymentId}/cancel")
-    public void cancelPayment(@PathVariable Long paymentId, @RequestBody String cancelReason) {
-        paymentService.cancelPayment(paymentId, cancelReason);
+    public CancelPaymentResponse cancelPayment(@PathVariable Long paymentId,
+                                               @RequestBody String cancelReason,
+                                               @AuthenticationPrincipal Long userId) {
+        PaymentStatus paymentStatus = paymentService.cancelPayment(paymentId, cancelReason, userId);
+        return new CancelPaymentResponse(paymentId, paymentStatus);
     }
 
     private ConfirmPaymentResponse toPaymentStatusResponse(Payment payment) {

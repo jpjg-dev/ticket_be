@@ -95,7 +95,7 @@ class UserServiceTest {
         ));
         when(paymentRepository.findByReservationGroupUserIdAndStatusIn(
                 eq(1L),
-                eq(List.of(com.jipi.ticket_ledger.payment.domain.PaymentStatus.APPROVED, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELED)),
+                eq(List.of(com.jipi.ticket_ledger.payment.domain.PaymentStatus.APPROVED, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELING, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELED)),
                 eq(Sort.by(Sort.Direction.DESC, "requestedAt"))
         )).thenReturn(List.of(approvedFixture.payment(), canceledFixture.payment()));
 
@@ -124,6 +124,31 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("getUserInfo: 취소 진행 중(CANCELING) 결제도 마이페이지에 노출된다")
+    void getUserInfoExposesCancelingPayment() {
+        User user = createUser(1L, "user@test.com", "테스터");
+        ReservationFixture cancelingFixture = createCancelingReservationFixture(user, 30L, 300L, "C-1");
+
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(reservationRepository.findByReservationGroupUserIdAndReservationGroupStatusIn(
+                eq(1L),
+                eq(List.of(ReservationGroupStatus.CONFIRMED, ReservationGroupStatus.CANCELED)),
+                eq(Sort.by(Sort.Direction.DESC, "id"))
+        )).thenReturn(List.of(cancelingFixture.reservations().get(0)));
+        when(paymentRepository.findByReservationGroupUserIdAndStatusIn(
+                eq(1L),
+                eq(List.of(com.jipi.ticket_ledger.payment.domain.PaymentStatus.APPROVED, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELING, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELED)),
+                eq(Sort.by(Sort.Direction.DESC, "requestedAt"))
+        )).thenReturn(List.of(cancelingFixture.payment()));
+
+        ResponseMyPageDTO response = userService.getUserInfo(1L, 1L);
+
+        assertEquals(1, response.payments().size());
+        assertEquals("CANCELING", response.payments().get(0).status());
+        assertEquals(300L, response.payments().get(0).paymentId());
+    }
+
+    @Test
     @DisplayName("getUserInfo: 존재하지 않는 userId면 예외가 발생한다")
     void getUserInfoUserNotFound() {
         when(userRepository.existsById(404L)).thenReturn(false);
@@ -144,7 +169,7 @@ class UserServiceTest {
         assertThrows(IllegalStateException.class, () -> userService.getUserInfo(2L, 1L));
         verify(paymentRepository, never()).findByReservationGroupUserIdAndStatusIn(
                 eq(2L),
-                eq(List.of(com.jipi.ticket_ledger.payment.domain.PaymentStatus.APPROVED, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELED)),
+                eq(List.of(com.jipi.ticket_ledger.payment.domain.PaymentStatus.APPROVED, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELING, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELED)),
                 eq(Sort.by(Sort.Direction.DESC, "requestedAt"))
         );
     }
@@ -167,12 +192,20 @@ class UserServiceTest {
 
     private ReservationFixture createCanceledReservationFixture(User user, Long reservationGroupId, Long paymentId, String... seatNumbers) {
         ReservationFixture fixture = createConfirmedReservationFixture(user, reservationGroupId, paymentId, seatNumbers);
+        fixture.payment().startCanceling(java.time.Instant.now());
         fixture.payment().cancel(LocalDateTime.now());
         fixture.reservations().forEach(reservation -> {
             reservation.cancel();
             reservation.getSeat().releaseBooked();
         });
         fixture.reservations().get(0).getReservationGroup().cancel();
+        return fixture;
+    }
+
+    private ReservationFixture createCancelingReservationFixture(User user, Long reservationGroupId, Long paymentId, String... seatNumbers) {
+        ReservationFixture fixture = createConfirmedReservationFixture(user, reservationGroupId, paymentId, seatNumbers);
+        // startCanceling 은 payment 행만 CANCELING 으로 바꾸고 group/reservation/seat 는 그대로 둔다.
+        fixture.payment().startCanceling(java.time.Instant.now());
         return fixture;
     }
 
