@@ -134,13 +134,27 @@
 
 ### `cancelPayment()`
 
-- [x] `APPROVED` 결제만 취소 가능합니다.
+- [x] `APPROVED` 결제만 `CANCELING`으로 전이할 수 있습니다.
 - [x] PG 취소 성공 후 `Payment CANCELED / ReservationGroup CANCELED / Reservation CANCELED / Seat AVAILABLE`로 전이됩니다.
 - [x] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정합니다.
+- [x] PG cancel 실패 후 조회 결과가 아직 `DONE`이면 `CANCELING`을 유지합니다.
+- [x] PG cancel timeout과 조회 실패가 겹치면 `CANCELING`을 유지하고 보정 대상으로 남깁니다.
 - [x] 동일 `paymentId` 동시 취소 요청은 PG cancel을 1회만 호출하고 취소 상태를 재사용합니다.
-- [x] `APPROVED`가 아니면 `IllegalStateException`을 반환합니다.
+- [x] 이미 `CANCELED`인 결제는 멱등하게 `CANCELED`를 반환합니다.
+- [x] `APPROVED`/`CANCELING`이 아니면 `IllegalStateException`을 반환합니다.
 - [x] `paymentKey`가 없으면 `IllegalStateException`을 반환합니다.
-- [x] PG 취소 응답의 결제키/통화/상태가 불일치하면 `IllegalStateException`을 반환합니다.
+- [x] 결제 소유자가 아니면 `ForbiddenAccessException`(HTTP `403`)을 반환합니다.
+- [x] PG 응답의 결제키/통화가 불일치하면 상태를 바꾸지 않고 `CANCELING` 수동 보류로 남깁니다.
+
+### `recoverCanceling()`
+
+- [x] 조회 결과가 `CANCELED`면 취소를 확정합니다.
+- [x] 조회 결과가 `DONE`이면 같은 idempotency key로 PG 취소를 재요청한 뒤 확정합니다.
+- [x] 재취소 후에도 `DONE`이면 `CANCELING`을 유지합니다.
+- [x] 재취소와 재조회가 모두 실패하면 `CANCELING`을 유지합니다.
+- [x] 결제키 불일치면 상태를 바꾸지 않고 수동 보류로 남깁니다.
+- [x] 대상이 이미 `CANCELING`이 아니면 아무것도 하지 않습니다.
+- [x] 어떤 경로에서도 `CANCELING -> APPROVED` 되돌림은 발생하지 않습니다.
 
 ### `getPaymentStatus()`
 
