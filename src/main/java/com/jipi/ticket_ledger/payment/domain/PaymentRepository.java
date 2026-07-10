@@ -19,6 +19,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     Optional<Payment> findByOrderId(String orderId);
 
+    long countByStatus(PaymentStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Payment p where p.reservationGroup.id = :reservationGroupId")
     Optional<Payment> findByReservationGroupIdForUpdate(Long reservationGroupId);
@@ -39,6 +41,15 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             order by p.id asc
             """)
     List<Long> findStaleConfirmingIds(@Param("threshold") Instant threshold, Pageable pageable);
+
+    @Query("""
+            select p.id
+            from Payment p
+            where p.status = com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELING
+              and p.cancelingAt <= :threshold
+            order by p.id asc
+            """)
+    List<Long> findStaleCancelingIds(@Param("threshold") Instant threshold, Pageable pageable);
 
     @Query("""
             select p

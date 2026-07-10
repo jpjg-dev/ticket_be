@@ -81,4 +81,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(new ErrorResponse("AUTH_REQUIRED", "인증이 필요합니다."));
     }
+
+    // 인가(BOLA) 실패: 인증은 됐으나 본인 소유가 아닌 리소스 접근. 거부 사유는 호출부가 이미 warn 로그로 남긴다.
+    @ExceptionHandler(ForbiddenAccessException.class)
+    public ResponseEntity<ErrorResponse> handleForbiddenAccess(ForbiddenAccessException e) {
+        log.warn("event={} code=FORBIDDEN status=403 message={}", LogEvents.API_ERROR, e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse("FORBIDDEN", e.getMessage()));
+    }
 }

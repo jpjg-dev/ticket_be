@@ -2,9 +2,13 @@ package com.jipi.ticket_ledger.payment.application;
 
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
+import com.jipi.ticket_ledger.global.exception.ForbiddenAccessException;
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
+import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelTransactionService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmTransactionService;
+import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -61,18 +65,26 @@ class PaymentServiceTest {
 
     private PaymentService paymentService;
 
+    private static final Long OWNER_ID = 100L;
+
     @BeforeEach
     void setUpPaymentService() {
         Clock clock = Clock.systemDefaultZone();
         PaymentConfirmTransactionService transactionService =
                 new PaymentConfirmTransactionService(paymentRepository, reservationRepository, clock);
         PaymentConfirmService confirmService = new PaymentConfirmService(tossPaymentClient, transactionService);
+        PaymentCancelTransactionService cancelTransactionService =
+                new PaymentCancelTransactionService(paymentRepository, reservationRepository, clock);
+        PaymentRecoveryMetrics recoveryMetrics =
+                new PaymentRecoveryMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        PaymentCancelService cancelService =
+                new PaymentCancelService(tossPaymentClient, cancelTransactionService, recoveryMetrics);
         paymentService = new PaymentService(
                 paymentRepository,
                 reservationRepository,
                 reservationGroupRepository,
-                tossPaymentClient,
                 confirmService,
+                cancelService,
                 clock
         );
     }
@@ -327,7 +339,7 @@ class PaymentServiceTest {
                 .when(tossPaymentClient)
                 .cancel("pay-key-3", "사용자 요청", "KRW", "cancel:1");
 
-        paymentService.cancelPayment(1L, "사용자 요청");
+        paymentService.cancelPayment(1L, "사용자 요청", OWNER_ID);
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CANCELED, reservation.getReservationGroup().getStatus());
@@ -338,6 +350,27 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("cancelPayment: 소유자가 아니면 예외가 발생하고 PG를 호출하지 않는다")
+    void cancelPaymentRejectsNonOwner() {
+        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-owner");
+        ReflectionTestUtils.setField(payment, "id", 1L);
+        payment.confirming();
+        payment.approve("pay-key-owner", "CARD", "DONE");
+        reservation.getReservationGroup().confirm();
+        reservation.confirm();
+        reservation.getSeat().book();
+
+        when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
+
+        assertThrows(ForbiddenAccessException.class,
+                () -> paymentService.cancelPayment(1L, "사용자 요청", 999L));
+
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        verify(tossPaymentClient, never()).cancel(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
     @DisplayName("cancelPayment: APPROVED 상태가 아니면 예외가 발생한다")
     void cancelPaymentWhenNotApproved() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
@@ -345,9 +378,8 @@ class PaymentServiceTest {
         ReflectionTestUtils.setField(payment, "id", 1L);
 
         when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
-        stubReservationsForPayment(payment, reservation);
 
-        assertThrows(IllegalStateException.class, () -> paymentService.cancelPayment(1L, "사용자 요청"));
+        assertThrows(IllegalStateException.class, () -> paymentService.cancelPayment(1L, "사용자 요청", OWNER_ID));
     }
 
     @Test
@@ -361,14 +393,14 @@ class PaymentServiceTest {
         reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
+        payment.startCanceling(java.time.Instant.now());
         payment.cancel(LocalDateTime.now());
         reservation.cancel();
         reservation.getSeat().releaseBooked();
 
         when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
-        stubReservationsForPayment(payment, reservation);
 
-        paymentService.cancelPayment(1L, "사용자 요청");
+        paymentService.cancelPayment(1L, "사용자 요청", OWNER_ID);
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         verify(tossPaymentClient, never()).cancel(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
@@ -400,7 +432,7 @@ class PaymentServiceTest {
                         "KRW"
                 ));
 
-        paymentService.cancelPayment(1L, "사용자 요청");
+        paymentService.cancelPayment(1L, "사용자 요청", OWNER_ID);
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CANCELED, reservation.getReservationGroup().getStatus());
@@ -446,7 +478,9 @@ class PaymentServiceTest {
     }
 
     private ReservationGroup createReservationGroup(LocalDateTime expiresAt) {
-        ReservationGroup reservationGroup = new ReservationGroup(createUser(), LocalDateTime.now(), expiresAt);
+        User owner = createUser();
+        ReflectionTestUtils.setField(owner, "id", OWNER_ID);
+        ReservationGroup reservationGroup = new ReservationGroup(owner, LocalDateTime.now(), expiresAt);
         ReflectionTestUtils.setField(reservationGroup, "id", 1L);
         return reservationGroup;
     }

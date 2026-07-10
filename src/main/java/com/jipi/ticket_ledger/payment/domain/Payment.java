@@ -37,6 +37,8 @@ public class Payment {
 
     private Instant approvedAt;
 
+    private Instant cancelingAt;
+
     private Instant canceledAt;
 
     @Column(nullable = false, unique = true, length = 100)
@@ -109,9 +111,17 @@ public class Payment {
         this.status = PaymentStatus.FAILED;
     }
 
-    public void cancel(Instant canceledAt) {
+    public void startCanceling(Instant now) {
         if (this.status != PaymentStatus.APPROVED) {
-            throw new IllegalStateException("승인된 결제만 취소할 수 있습니다.");
+            throw new IllegalStateException("승인된 결제만 취소를 시작할 수 있습니다.");
+        }
+        this.status = PaymentStatus.CANCELING;
+        this.cancelingAt = now;
+    }
+
+    public void cancel(Instant canceledAt) {
+        if (this.status != PaymentStatus.CANCELING) {
+            throw new IllegalStateException("취소 진행 중인 결제만 취소 완료할 수 있습니다.");
         }
         this.status = PaymentStatus.CANCELED;
         this.canceledAt = canceledAt;
