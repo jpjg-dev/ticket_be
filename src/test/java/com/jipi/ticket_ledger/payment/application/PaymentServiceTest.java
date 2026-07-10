@@ -8,6 +8,7 @@ import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
 import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelTransactionService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmTransactionService;
+import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -74,7 +75,10 @@ class PaymentServiceTest {
         PaymentConfirmService confirmService = new PaymentConfirmService(tossPaymentClient, transactionService);
         PaymentCancelTransactionService cancelTransactionService =
                 new PaymentCancelTransactionService(paymentRepository, reservationRepository, clock);
-        PaymentCancelService cancelService = new PaymentCancelService(tossPaymentClient, cancelTransactionService);
+        PaymentRecoveryMetrics recoveryMetrics =
+                new PaymentRecoveryMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        PaymentCancelService cancelService =
+                new PaymentCancelService(tossPaymentClient, cancelTransactionService, recoveryMetrics);
         paymentService = new PaymentService(
                 paymentRepository,
                 reservationRepository,

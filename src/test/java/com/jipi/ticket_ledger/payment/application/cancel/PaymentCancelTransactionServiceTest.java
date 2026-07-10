@@ -29,6 +29,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
@@ -141,6 +142,37 @@ class PaymentCancelTransactionServiceTest {
 
         assertThrows(ForbiddenAccessException.class, () -> transactionService.markCanceling(PAYMENT_ID, 999L));
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+    }
+
+    @Test
+    @DisplayName("loadCancelingSnapshot: CANCELING 결제면 primitive 스냅샷을 정확히 반환한다")
+    void loadCancelingSnapshotFromCanceling() {
+        Reservation reservation = approvedReservation();
+        Payment payment = approvedPayment(reservation);
+        payment.startCanceling(java.time.Instant.now());
+
+        when(paymentRepository.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        CancelingPaymentSnapshot snapshot = transactionService.loadCancelingSnapshot(PAYMENT_ID);
+
+        assertEquals(PAYMENT_ID, snapshot.paymentId());
+        assertEquals("order-1", snapshot.orderId());
+        assertEquals(reservation.getReservationGroup().getId(), snapshot.reservationGroupId());
+        assertEquals("pay-key-1", snapshot.paymentKey());
+        assertEquals("KRW", snapshot.currency());
+        assertEquals(OWNER_ID, snapshot.ownerUserId());
+        assertFalse(snapshot.alreadyCanceled());
+    }
+
+    @Test
+    @DisplayName("loadCancelingSnapshot: CANCELING 이 아니면(APPROVED 등) null 을 반환한다")
+    void loadCancelingSnapshotReturnsNullWhenNotCanceling() {
+        Reservation reservation = approvedReservation();
+        Payment payment = approvedPayment(reservation); // APPROVED, CANCELING 아님
+
+        when(paymentRepository.findById(PAYMENT_ID)).thenReturn(Optional.of(payment));
+
+        assertNull(transactionService.loadCancelingSnapshot(PAYMENT_ID));
     }
 
     @Test

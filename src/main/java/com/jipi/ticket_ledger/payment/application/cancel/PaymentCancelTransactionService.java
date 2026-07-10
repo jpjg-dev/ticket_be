@@ -89,6 +89,24 @@ public class PaymentCancelTransactionService {
     }
 
     /**
+     * readonly 트랜잭션에서 CANCELING 결제의 원시 스냅샷을 만든다(Phase 3 보정 진입점).
+     * CANCELING 이 아니면 null(이미 해소됐거나 애초에 취소 진행 중이 아님).
+     * group/reservation lazy 를 트랜잭션 안에서 materialize 해 primitive 스냅샷만 밖으로 내보낸다
+     * (엔티티 escape 시 LazyInitializationException 방지). {@code alreadyCanceled=false}.
+     */
+    @Transactional(readOnly = true)
+    public CancelingPaymentSnapshot loadCancelingSnapshot(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId).orElse(null);
+        if (payment == null || payment.getStatus() != PaymentStatus.CANCELING) {
+            return null;
+        }
+
+        Long reservationGroupId = payment.getReservationGroup().getId();
+        Long ownerUserId = payment.getReservationGroup().getUser().getId();
+        return toSnapshot(payment, reservationGroupId, ownerUserId);
+    }
+
+    /**
      * (2) write 트랜잭션에서 행 락을 다시 잡고 CANCELING 을 재확인한 뒤 결정을 적용한다.
      * <ul>
      *   <li>CANCELING 이 아니면 no-op(멱등) — 이미 취소 완료됐거나 상태가 바뀐 경우</li>

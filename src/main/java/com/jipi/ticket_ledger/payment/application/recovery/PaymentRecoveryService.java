@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
+import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -15,6 +16,7 @@ import org.springframework.web.client.RestClientException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Predicate;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +26,7 @@ public class PaymentRecoveryService {
     private final PaymentRepository paymentRepository;
     private final TossPaymentClient tossPaymentClient;
     private final PaymentRecoveryTransactionService paymentRecoveryTransactionService;
+    private final PaymentCancelService paymentCancelService;
     private final PaymentRecoveryMetrics paymentRecoveryMetrics;
     private final Clock clock;
 
@@ -116,26 +119,56 @@ public class PaymentRecoveryService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public List<Long> findStaleCancelingPaymentIds(Duration grace, int batchSize) {
+        return paymentRepository.findStaleCancelingIds(
+                clock.instant().minus(grace),
+                PageRequest.of(0, batchSize)
+        );
+    }
+
     public int reconcileStaleConfirmingPayments(Duration grace, int batchSize) {
+        return runRecoveryBatch("confirm", findStaleConfirmingPaymentIds(grace, batchSize),
+                paymentId -> recover(paymentId).isRecovered());
+    }
+
+    public int reconcileStaleCancelingPayments(Duration grace, int batchSize) {
+        return runRecoveryBatch("cancel", findStaleCancelingPaymentIds(grace, batchSize),
+                paymentId -> paymentCancelService.recoverCanceling(paymentId).isRecovered());
+    }
+
+    /** 스케줄러 주기마다 CONFIRMING/CANCELING 잔량을 세어 backlog gauge 를 갱신한다(스크레이프마다 DB 조회 회피). */
+    public void updateBacklogGauges() {
+        long confirming = paymentRepository.countByStatus(PaymentStatus.CONFIRMING);
+        long canceling = paymentRepository.countByStatus(PaymentStatus.CANCELING);
+        paymentRecoveryMetrics.updateBacklog(confirming, canceling);
+    }
+
+    /**
+     * 회색지대 보정 배치 공용 루프. (id 리스트, per-item 보정 함수) → per-item 예외격리 + recovered 집계.
+     * 한 건의 실패(예상 못 한 오류 등)가 배치 전체를 멈추지 않도록 건별로 감싸고, 실패 건은 다음 주기에 재시도된다.
+     * confirm/cancel 두 배치가 공유한다(제네릭 프레임워크가 아니라 private 메서드 하나).
+     *
+     * @param recoverFn per-item 보정 함수, 반환값은 터미널 수렴 여부(recoveredCount 집계용)
+     */
+    private int runRecoveryBatch(String operation, List<Long> paymentIds, Predicate<Long> recoverFn) {
         int recoveredCount = 0;
-        List<Long> paymentIds = findStaleConfirmingPaymentIds(grace, batchSize);
         int failedCount = 0;
         for (Long paymentId : paymentIds) {
             try {
-                if (recover(paymentId).isRecovered()) {
+                if (recoverFn.test(paymentId)) {
                     recoveredCount++;
                 }
             } catch (Exception e) {
                 failedCount++;
-                paymentRecoveryMetrics.recordBatchException();
-                // 한 건의 실패(예상 못 한 오류 등)가 배치 전체를 멈추지 않도록 격리한다.
-                // 실패 건은 CONFIRMING으로 남아 다음 주기에 재시도되며, 매번 노출되도록 크게 로깅한다.
-                log.error("Failed to reconcile CONFIRMING payment, skipping to next. paymentId={}", paymentId, e);
+                paymentRecoveryMetrics.recordBatchException(operation);
+                // 실패 건은 회색지대로 남아 다음 주기에 재시도되며, 매번 노출되도록 크게 로깅한다.
+                log.error("Failed to reconcile {} gray-zone payment, skipping to next. paymentId={}", operation, paymentId, e);
             }
         }
         if (!paymentIds.isEmpty()) {
-            log.info("Reconcile CONFIRMING payment batch finished. candidateCount={} recoveredCount={} failedCount={}",
-                    paymentIds.size(), recoveredCount, failedCount);
+            log.info("Reconcile {} gray-zone payment batch finished. candidateCount={} recoveredCount={} failedCount={}",
+                    operation, paymentIds.size(), recoveredCount, failedCount);
         }
         return recoveredCount;
     }

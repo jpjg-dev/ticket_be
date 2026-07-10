@@ -1,5 +1,7 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
+import com.jipi.ticket_ledger.payment.application.cancel.CancelOutcome;
+import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
@@ -38,9 +40,11 @@ class PaymentRecoveryServiceTest {
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final TossPaymentClient tossPaymentClient = mock(TossPaymentClient.class);
     private final PaymentRecoveryTransactionService transactionService = mock(PaymentRecoveryTransactionService.class);
+    private final PaymentCancelService paymentCancelService = mock(PaymentCancelService.class);
     private final PaymentRecoveryMetrics metrics = mock(PaymentRecoveryMetrics.class);
     private final PaymentRecoveryService service = new PaymentRecoveryService(
-            paymentRepository, tossPaymentClient, transactionService, metrics, Clock.fixed(NOW, ZoneOffset.UTC));
+            paymentRepository, tossPaymentClient, transactionService, paymentCancelService, metrics,
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
     private RecoverySnapshot snapshot(boolean held) {
         return new RecoverySnapshot(PAYMENT_ID, "order-1", 11000, "KRW", held);
@@ -151,7 +155,33 @@ class PaymentRecoveryServiceTest {
         int recovered = service.reconcileStaleConfirmingPayments(Duration.ZERO, 20);
 
         assertEquals(0, recovered);
-        verify(metrics).recordBatchException();
+        verify(metrics).recordBatchException("confirm");
+    }
+
+    @Test
+    @DisplayName("cancel 배치: recoverCanceling 위임 + per-item 예외격리(한 건 throw 해도 나머지 진행 + failed 카운터)")
+    void cancelBatchDelegatesAndIsolatesFailure() {
+        when(paymentRepository.findStaleCancelingIds(any(), any())).thenReturn(List.of(1L, 2L));
+        when(paymentCancelService.recoverCanceling(1L)).thenThrow(new RuntimeException("boom"));
+        when(paymentCancelService.recoverCanceling(2L)).thenReturn(CancelOutcome.CANCELED);
+
+        int recovered = service.reconcileStaleCancelingPayments(Duration.ZERO, 20);
+
+        assertEquals(1, recovered);
+        verify(paymentCancelService).recoverCanceling(1L);
+        verify(paymentCancelService).recoverCanceling(2L);
+        verify(metrics).recordBatchException("cancel");
+    }
+
+    @Test
+    @DisplayName("updateBacklogGauges: CONFIRMING/CANCELING countByStatus 를 metric 에 반영한다")
+    void updateBacklogGaugesReflectsCounts() {
+        when(paymentRepository.countByStatus(com.jipi.ticket_ledger.payment.domain.PaymentStatus.CONFIRMING)).thenReturn(3L);
+        when(paymentRepository.countByStatus(com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELING)).thenReturn(5L);
+
+        service.updateBacklogGauges();
+
+        verify(metrics).updateBacklog(3L, 5L);
     }
 
     @Test

@@ -1302,6 +1302,87 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertPaymentHeldCanceling(fixture);
     }
 
+    @Test
+    @DisplayName("recoverCanceling 자가치유: cancel timeout 으로 CANCELING durable 잔존 → 보정 조회 CANCELED 면 CANCELED 로 수렴한다")
+    void recoverCancelingSelfHealsToCanceled() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-recover-canceled");
+
+        // 동기 취소: PG 취소 timeout + 1차 조회도 timeout → CANCELING durable 로 남긴다.
+        when(tossPaymentClient.cancel("pay-key-recover-canceled", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-recover-canceled"))
+                .thenThrow(new ResourceAccessException("timeout"))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-recover-canceled", "order-recover", "CANCELED", "CARD", 110000, "KRW"));
+
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
+        assertEquals(PaymentStatus.CANCELING, paymentRepository.findById(fixture.paymentId).orElseThrow().getStatus());
+
+        backdateCancelingAt(fixture.paymentId);
+
+        int recovered = paymentRecoveryService.reconcileStaleCancelingPayments(Duration.ZERO, Integer.MAX_VALUE);
+
+        Payment payment = paymentRepository.findById(fixture.paymentId).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.fixture.reservationGroupId).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.fixture.seatId).orElseThrow();
+
+        assertEquals(1, recovered);
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
+        assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+        // 보정은 재취소 없이 조회만으로 확정한다(이미 CANCELED).
+        verify(tossPaymentClient, never())
+                .cancel("pay-key-recover-canceled", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId);
+    }
+
+    @Test
+    @DisplayName("recoverCanceling 자가치유: stuck CANCELING + PG 가 아직 DONE → 같은 멱등키로 재취소해 CANCELED 로 수렴한다")
+    void recoverCancelingReCancelsWhenPgStillDone() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-recover-recancel");
+
+        // 동기 취소: PG 취소 timeout + 1차 조회도 timeout → CANCELING durable. 이후 조회는 아직 DONE(취소가 안 먹은 상태).
+        when(tossPaymentClient.cancel("pay-key-recover-recancel", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new ResourceAccessException("timeout"));
+        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-recover-recancel"))
+                .thenThrow(new ResourceAccessException("timeout"))
+                .thenReturn(new TossPaymentLookupResponse(
+                        "pay-key-recover-recancel", "order-recover", "DONE", "CARD", 110000, "KRW"));
+
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
+        assertEquals(PaymentStatus.CANCELING, paymentRepository.findById(fixture.paymentId).orElseThrow().getStatus());
+
+        backdateCancelingAt(fixture.paymentId);
+
+        // 보정 재취소: 같은 멱등키(cancel:{id}) + 보정 사유(CANCEL_RECOVERY) → CANCELED 응답 → FINALIZE.
+        when(tossPaymentClient.cancel("pay-key-recover-recancel", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId))
+                .thenReturn(new TossCancelResponse("pay-key-recover-recancel", "CANCELED", 110000, "KRW"));
+
+        int recovered = paymentRecoveryService.reconcileStaleCancelingPayments(Duration.ZERO, Integer.MAX_VALUE);
+
+        Payment payment = paymentRepository.findById(fixture.paymentId).orElseThrow();
+        ReservationGroup group = reservationGroupRepository.findById(fixture.fixture.reservationGroupId).orElseThrow();
+        Reservation reservation = reservationRepository.findById(fixture.fixture.firstReservationId).orElseThrow();
+        Seat seat = seatRepository.findById(fixture.fixture.seatId).orElseThrow();
+
+        assertEquals(1, recovered);
+        assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
+        assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
+        assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+        verify(tossPaymentClient)
+                .cancel("pay-key-recover-recancel", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId);
+    }
+
+    private void backdateCancelingAt(Long paymentId) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(paymentId).orElseThrow();
+            ReflectionTestUtils.setField(payment, "cancelingAt", Instant.now().minus(Duration.ofMinutes(10)));
+        });
+    }
+
     private Fixture createPendingReservationFixture(boolean expiredReservation) {
         return createPendingReservationFixture(expiredReservation, 1);
     }

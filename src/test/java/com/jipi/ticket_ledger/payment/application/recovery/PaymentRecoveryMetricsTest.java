@@ -1,75 +1,104 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
-import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
-import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.application.cancel.CancelOutcome;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class PaymentRecoveryMetricsTest {
 
+    private static final String RECOVERY_TOTAL = "payment_gray_zone_recovery_total";
+    private static final String PG_FAILURE = "payment_gray_zone_pg_failure_total";
+    private static final String BACKLOG = "payment_gray_zone_backlog";
+
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
-    private final PaymentRecoveryMetrics metrics = new PaymentRecoveryMetrics(registry, paymentRepository);
+    private final PaymentRecoveryMetrics metrics = new PaymentRecoveryMetrics(registry);
 
     @Test
-    @DisplayName("APPROVED/FAILED_RELEASED/REFUNDED_FAILED → payment_recovery_total{result} 증가")
-    void totalCounters() {
+    @DisplayName("confirm 보정 결과 → recovery_total{operation=confirm, outcome} 증가(outcome 은 소문자)")
+    void confirmRecoveryTotal() {
         metrics.record(RecoveryOutcome.APPROVED);
         metrics.record(RecoveryOutcome.FAILED_RELEASED);
         metrics.record(RecoveryOutcome.REFUNDED_FAILED);
-
-        assertEquals(1.0, registry.get("payment_recovery_total").tag("result", "APPROVED").counter().count());
-        assertEquals(1.0, registry.get("payment_recovery_total").tag("result", "FAILED_RELEASED").counter().count());
-        assertEquals(1.0, registry.get("payment_recovery_total").tag("result", "REFUNDED_FAILED").counter().count());
-    }
-
-    @Test
-    @DisplayName("SEAT_LOST_DEFERRED/HELD_MANUAL/LOOKUP_UNRESOLVED → payment_recovery_failed_total{reason} 증가")
-    void failedCounters() {
-        metrics.record(RecoveryOutcome.SEAT_LOST_DEFERRED);
         metrics.record(RecoveryOutcome.HELD_MANUAL);
+        metrics.record(RecoveryOutcome.SEAT_LOST_DEFERRED);
+
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "approved"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "failed_released"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "refunded_failed"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "held_manual"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "seat_lost_deferred"));
+    }
+
+    @Test
+    @DisplayName("confirm 외부호출 실패 → pg_failure{operation=confirm, call}(lookup=조회, cancel=환불)")
+    void confirmPgFailure() {
         metrics.record(RecoveryOutcome.LOOKUP_UNRESOLVED);
-
-        assertEquals(1.0, registry.get("payment_recovery_failed_total").tag("reason", "SEAT_LOST_DEFERRED").counter().count());
-        assertEquals(1.0, registry.get("payment_recovery_failed_total").tag("reason", "HELD_MANUAL").counter().count());
-        assertEquals(1.0, registry.get("payment_recovery_failed_total").tag("reason", "LOOKUP_UNRESOLVED").counter().count());
-    }
-
-    @Test
-    @DisplayName("배치 예외 → payment_recovery_failed_total{reason=BATCH_EXCEPTION} 증가")
-    void batchExceptionCounter() {
-        metrics.recordBatchException();
-
-        assertEquals(1.0, registry.get("payment_recovery_failed_total").tag("reason", "BATCH_EXCEPTION").counter().count());
-    }
-
-    @Test
-    @DisplayName("REFUND_PENDING → payment_recovery_refund_failed_total 증가")
-    void refundFailedCounter() {
         metrics.record(RecoveryOutcome.REFUND_PENDING);
 
-        assertEquals(1.0, registry.get("payment_recovery_refund_failed_total").counter().count());
+        assertEquals(1.0, counter(PG_FAILURE, "operation", "confirm", "call", "lookup"));
+        assertEquals(1.0, counter(PG_FAILURE, "operation", "confirm", "call", "cancel"));
     }
 
     @Test
-    @DisplayName("NOOP_NOT_CONFIRMING → 어떤 카운터도 증가하지 않음")
+    @DisplayName("cancel 보정 결과 → recovery_total{operation=cancel, outcome} 증가")
+    void cancelRecoveryTotal() {
+        metrics.record(CancelOutcome.CANCELED);
+        metrics.record(CancelOutcome.HELD_MANUAL);
+        metrics.record(CancelOutcome.KEEP_CANCELING);
+
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "cancel", "outcome", "canceled"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "cancel", "outcome", "held_manual"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "cancel", "outcome", "keep_canceling"));
+    }
+
+    @Test
+    @DisplayName("cancel 외부호출 실패 → pg_failure{operation=cancel, call}(lookup=조회, cancel=취소호출)")
+    void cancelPgFailure() {
+        metrics.record(CancelOutcome.LOOKUP_UNRESOLVED);
+        metrics.record(CancelOutcome.CANCEL_UNRESOLVED);
+
+        assertEquals(1.0, counter(PG_FAILURE, "operation", "cancel", "call", "lookup"));
+        assertEquals(1.0, counter(PG_FAILURE, "operation", "cancel", "call", "cancel"));
+    }
+
+    @Test
+    @DisplayName("배치 예외 → recovery_total{operation, outcome=batch_exception} 증가")
+    void batchExceptionCounter() {
+        metrics.recordBatchException("confirm");
+        metrics.recordBatchException("cancel");
+
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "batch_exception"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "cancel", "outcome", "batch_exception"));
+    }
+
+    @Test
+    @DisplayName("NOOP 결과 → 어떤 카운터도 증가하지 않는다")
     void noopRecordsNothing() {
         metrics.record(RecoveryOutcome.NOOP_NOT_CONFIRMING);
+        metrics.record(CancelOutcome.NOOP_NOT_CANCELING);
 
-        assertEquals(0, registry.find("payment_recovery_total").counters().size());
-        assertEquals(0, registry.find("payment_recovery_failed_total").counters().size());
+        assertEquals(0, registry.find(RECOVERY_TOTAL).counters().size());
+        assertEquals(0, registry.find(PG_FAILURE).counters().size());
     }
 
     @Test
-    @DisplayName("gauge payment_confirming_backlog 는 countByStatus(CONFIRMING) 을 반영한다")
-    void backlogGauge() {
-        when(paymentRepository.countByStatus(PaymentStatus.CONFIRMING)).thenReturn(7L);
+    @DisplayName("backlog gauge 는 updateBacklog 로 갱신한 AtomicLong 값을 반영한다")
+    void backlogGaugeReflectsAtomicLong() {
+        metrics.updateBacklog(7L, 4L);
 
-        assertEquals(7.0, registry.get("payment_confirming_backlog").gauge().value());
+        assertEquals(7.0, registry.get(BACKLOG).tag("status", "confirming").gauge().value());
+        assertEquals(4.0, registry.get(BACKLOG).tag("status", "canceling").gauge().value());
+
+        // 다음 주기 갱신이 반영되는지 확인.
+        metrics.updateBacklog(0L, 2L);
+        assertEquals(0.0, registry.get(BACKLOG).tag("status", "confirming").gauge().value());
+        assertEquals(2.0, registry.get(BACKLOG).tag("status", "canceling").gauge().value());
+    }
+
+    private double counter(String name, String... tags) {
+        return registry.get(name).tags(tags).counter().count();
     }
 }
