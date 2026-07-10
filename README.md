@@ -183,8 +183,9 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 | JVM | heap, GC, thread, CPU |
 | Tomcat | thread pool 사용량 |
 | DB pool | Hikari active, idle, pending, max connection |
+| 결제 도메인 | 회색지대 backlog, 보정 결과 분포, PG 호출 실패(아래 회색지대 지표) |
 
-메트릭 endpoint는 인증 없이 Prometheus가 scrape할 수 있지만, 운영에서는 backend host port를 publish하거나 nginx로 route하지 않고 내부 monitoring network에서만 접근하도록 구성합니다. `CONFIRMING` 잔존 수, 결제 보정 성공/실패, PG timeout 같은 도메인 지표는 기본 인프라 수집을 확인한 뒤 다음 단계에서 추가합니다.
+메트릭 endpoint는 인증 없이 Prometheus가 scrape할 수 있습니다. 운영에서는 backend host port를 publish하지 않고 `expose`만 사용하며, nginx가 `/actuator` 경로를 차단하므로 외부에서는 접근할 수 없습니다. scrape는 내부 network에서만 수행합니다.
 
 ### 외부 호출 / backlog 보호 설정
 
