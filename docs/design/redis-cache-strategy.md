@@ -91,6 +91,10 @@ Redis 적용 후 다음 항목을 확인했습니다.
 | Grafana | `cache_gets_total` 기반 hit ratio, hit/miss rate 패널 추가 |
 | k6 조회 테스트 | `20 VU / 30s`, 요청 `137,170`, 실패율 `0%`, 목록 p95 `6.76ms`, 상세 p95 `6.48ms` |
 
+## CI 통합
+
+테스트 프로필도 Redis 캐시를 사용하므로 GitHub Actions build 단계에서 Redis service container를 함께 띄웁니다. workflow job은 runner에서 직접 실행되기 때문에 Redis는 `localhost:6379`로 매핑하고, Gradle build 단계에 `REDIS_HOST=localhost`, `REDIS_PORT=6379`를 주입합니다.
+
 ## 후속 과제
 
 - Redis 장애 시 제한적 DB fallback 정책
