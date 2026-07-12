@@ -5,6 +5,6 @@ public final class CacheNames {
     private CacheNames() {
     }
 
-    public static final String EVENT_LIST = "eventList";
-    public static final String EVENT_DETAIL = "eventDetail";
+    public static final String EVENT_LIST = "event:list";
+    public static final String EVENT_DETAIL = "event:detail";
 }

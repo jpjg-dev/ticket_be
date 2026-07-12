@@ -82,7 +82,7 @@ class EventServiceTest {
         when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
                 .thenReturn(List.of(schedule));
 
-        var responses = eventService.getEvents();
+        var responses = eventService.getEvents().events();
 
         assertEquals(1, responses.size());
         assertEquals(1L, responses.get(0).id());
@@ -106,7 +106,7 @@ class EventServiceTest {
         when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
-        var responses = eventService.getEvents();
+        var responses = eventService.getEvents().events();
 
         assertTrue(responses.isEmpty());    }
 
@@ -250,11 +250,9 @@ class EventServiceTest {
 
     @Nested
     @SpringBootTest(properties = {
-            "spring.cache.type=caffeine",
+            "spring.cache.type=redis",
             "cache.event.list.ttl=60s",
-            "cache.event.list.max-size=1",
-            "cache.event.detail.ttl=5m",
-            "cache.event.detail.max-size=100"
+            "cache.event.detail.ttl=5m"
     })
     class EventCacheTest extends PostgresTestContainerSupport {
 

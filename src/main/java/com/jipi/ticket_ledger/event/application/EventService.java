@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.event.presentation.dto.EventDetailResponse;
+import com.jipi.ticket_ledger.event.presentation.dto.EventListCacheResponse;
 import com.jipi.ticket_ledger.event.presentation.dto.EventListResponse;
 import com.jipi.ticket_ledger.event.presentation.dto.ScheduleResponse;
 import com.jipi.ticket_ledger.global.config.CacheNames;
@@ -47,11 +48,11 @@ public class EventService {
     private String serviceZoneId = "Asia/Seoul";
 
     @Transactional(readOnly = true)
-    @Cacheable(CacheNames.EVENT_LIST)
-    public List<EventListResponse> getEvents() {
+    @Cacheable(value = CacheNames.EVENT_LIST, key = "'all'")
+    public EventListCacheResponse getEvents() {
         List<Event> events = eventRepository.findAllByOrderByBookingOpenAtAsc();
         if (events.isEmpty()) {
-            return Collections.emptyList();
+            return new EventListCacheResponse(Collections.emptyList());
         }
 
         LocalDateTime now = LocalDateTime.now(ZoneId.of(serviceZoneId));
@@ -62,10 +63,11 @@ public class EventService {
                 )
         );
 
-        return events.stream()
+        List<EventListResponse> eventResponses = events.stream()
                 .map(event -> toEventListResponse(event, schedulesByEventId.getOrDefault(event.getId(), List.of())))
                 .filter(event -> !event.schedules().isEmpty())
                 .toList();
+        return new EventListCacheResponse(eventResponses);
     }
 
     @Transactional(readOnly = true)

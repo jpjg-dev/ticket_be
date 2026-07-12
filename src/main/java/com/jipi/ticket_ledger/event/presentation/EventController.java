@@ -23,7 +23,9 @@ public class EventController {
 
     @Operation(summary = "공연 목록 조회", description = "공연 목록과 회차 요약 정보를 조회합니다.")
     @GetMapping
-    public List<EventListResponse> getEvents() { return eventService.getEvents(); }
+    public List<EventListResponse> getEvents() {
+        return eventService.getEvents().events();
+    }
 
     @Operation(summary = "공연 상세 조회", description = "공연 상세와 회차 정보를 조회합니다.")
     @GetMapping("/{eventId}")
