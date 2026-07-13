@@ -12,9 +12,9 @@ import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
-import com.jipi.ticket_ledger.payment.presentation.PayMentController;
+import com.jipi.ticket_ledger.payment.presentation.PaymentApiController;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
@@ -40,7 +40,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.ResourceAccessException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -72,7 +72,7 @@ import static org.mockito.Mockito.when;
 class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
     @MockitoBean
-    private TossPaymentClient tossPaymentClient;
+    private PaymentGateway paymentGateway;
 
     @Autowired
     private PaymentService paymentService;
@@ -81,7 +81,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     private PaymentRecoveryService paymentRecoveryService;
 
     @Autowired
-    private PayMentController payMentController;
+    private PaymentApiController payMentController;
 
     @Autowired
     private ReservationExpirationService reservationExpirationService;
@@ -185,7 +185,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-success",
                         ready.getOrderId(),
@@ -220,7 +220,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         CountDownLatch confirmReachedPg = new CountDownLatch(1);
         CountDownLatch releasePg = new CountDownLatch(1);
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenAnswer(invocation -> {
                     confirmReachedPg.countDown();
                     if (!releasePg.await(10, TimeUnit.SECONDS)) {
@@ -271,7 +271,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 .filter(candidate -> candidate.getStatus() == PaymentStatus.APPROVED)
                 .count();
 
-        verify(tossPaymentClient, times(2))
+        verify(paymentGateway, times(2))
                 .confirm("pay-key-duplicate-confirm", ready.getOrderId(), totalAmountWithVat, "confirm:" + ready.getOrderId());
         assertEquals(1L, paymentCount);
         assertEquals(1L, approvedPaymentCount);
@@ -296,7 +296,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         CountDownLatch confirmReachedPg = new CountDownLatch(1);
         CountDownLatch releasePg = new CountDownLatch(1);
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenAnswer(invocation -> {
                     confirmReachedPg.countDown();
                     if (!releasePg.await(10, TimeUnit.SECONDS)) {
@@ -396,7 +396,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(ReservationGroupStatus.EXPIRED, group.getStatus());
         assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.EXPIRED));
         assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
-        verifyNoInteractions(tossPaymentClient);
+        verifyNoInteractions(paymentGateway);
     }
 
     @Test
@@ -407,9 +407,9 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-reconcile"))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-reconcile"))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-reconcile",
                         ready.getOrderId(),
@@ -447,7 +447,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
-        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-recovered",
                         ready.getOrderId(),
@@ -493,7 +493,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             ReflectionTestUtils.setField(secondPayment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
-        when(tossPaymentClient.getPaymentByOrderId(firstReady.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(firstReady.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-batch-first",
                         firstReady.getOrderId(),
@@ -511,8 +511,8 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(1, recoveredCount);
         assertEquals(PaymentStatus.APPROVED, firstPayment.getStatus());
         assertEquals(PaymentStatus.CONFIRMING, secondPayment.getStatus());
-        verify(tossPaymentClient, times(1)).getPaymentByOrderId(firstReady.getOrderId());
-        verify(tossPaymentClient, never()).getPaymentByOrderId(secondReady.getOrderId());
+        verify(paymentGateway, times(1)).getPaymentByOrderId(firstReady.getOrderId());
+        verify(paymentGateway, never()).getPaymentByOrderId(secondReady.getOrderId());
     }
 
     @Test
@@ -535,7 +535,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
-        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-refunded",
                         ready.getOrderId(),
@@ -544,7 +544,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         totalAmountWithVat,
                         "KRW"
                 ));
-        when(tossPaymentClient.cancel("pay-key-refunded", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
+        when(paymentGateway.cancel("pay-key-refunded", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
                 .thenReturn(new TossCancelResponse("pay-key-refunded", "CANCELED", totalAmountWithVat, "KRW"));
 
         int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
@@ -559,7 +559,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(ReservationGroupStatus.EXPIRED, group.getStatus());
         assertEquals(ReservationStatus.EXPIRED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
-        verify(tossPaymentClient, times(1))
+        verify(paymentGateway, times(1))
                 .cancel("pay-key-refunded", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId());
     }
 
@@ -591,10 +591,10 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 totalAmountWithVat,
                 "KRW"
         );
-        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
                 .thenReturn(lookupResponse, lookupResponse);
-        when(tossPaymentClient.cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
-                .thenThrow(new ResourceAccessException("timeout"))
+        when(paymentGateway.cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId()))
+                .thenThrow(new PaymentGatewayException("timeout"))
                 .thenReturn(new TossCancelResponse("pay-key-refund-timeout", "CANCELED", totalAmountWithVat, "KRW"));
 
         int firstRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
@@ -622,7 +622,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(ReservationGroupStatus.EXPIRED, expiredGroup.getStatus());
         assertEquals(ReservationStatus.EXPIRED, expiredReservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, releasedSeat.getStatus());
-        verify(tossPaymentClient, times(2))
+        verify(paymentGateway, times(2))
                 .cancel("pay-key-refund-timeout", "SEAT_UNAVAILABLE", "KRW", "cancel:" + ready.getId());
     }
 
@@ -645,7 +645,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             payment.confirming();
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
-        when(tossPaymentClient.getPaymentByOrderId(poison.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(poison.getOrderId()))
                 .thenThrow(new RuntimeException("simulated NPE during reconcile"));
 
         // 정상 결제(B): DONE + 좌석 유효 → 정상적으로 보정되어야 한다
@@ -658,7 +658,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             payment.confirming();
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
-        when(tossPaymentClient.getPaymentByOrderId(healthy.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(healthy.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-healthy",
                         healthy.getOrderId(),
@@ -694,7 +694,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
-        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-amount-mismatch",
                         ready.getOrderId(),
@@ -703,7 +703,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                         totalAmountWithVat + 1, // 우리 기대 금액과 불일치
                         "KRW"
                 ));
-        when(tossPaymentClient.cancel("pay-key-amount-mismatch", "PG_DATA_MISMATCH", "KRW", "cancel:" + ready.getId()))
+        when(paymentGateway.cancel("pay-key-amount-mismatch", "PG_DATA_MISMATCH", "KRW", "cancel:" + ready.getId()))
                 .thenReturn(new TossCancelResponse("pay-key-amount-mismatch", "CANCELED", totalAmountWithVat + 1, "KRW"));
 
         int recoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(java.time.Duration.ZERO, Integer.MAX_VALUE);
@@ -718,7 +718,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(ReservationGroupStatus.EXPIRED, group.getStatus());
         assertEquals(ReservationStatus.EXPIRED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
-        verify(tossPaymentClient, times(1))
+        verify(paymentGateway, times(1))
                 .cancel("pay-key-amount-mismatch", "PG_DATA_MISMATCH", "KRW", "cancel:" + ready.getId());
     }
 
@@ -737,7 +737,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
-        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-order-mismatch",
                         "different-order-id", // 우리 orderId와 불일치 → 우리 결제건 여부 의심
@@ -757,7 +757,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, seat.getStatus());
-        verify(tossPaymentClient, never()).cancel(anyString(), anyString(), anyString(), anyString());
+        verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -768,11 +768,11 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-ctrl-reconcile"))
-                .thenThrow(new ResourceAccessException("timeout")); // 서비스 1차 재조회도 실패 → CONFIRMING 잔존
-        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-ctrl-reconcile"))
+                .thenThrow(new PaymentGatewayException("timeout")); // 서비스 1차 재조회도 실패 → CONFIRMING 잔존
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-ctrl-reconcile",
                         ready.getOrderId(),
@@ -803,12 +803,12 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-ctrl-down"))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByOrderId(ready.getOrderId()))
-                .thenThrow(new ResourceAccessException("timeout")); // 컨트롤러 동기 재조회도 실패
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-ctrl-down"))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
+                .thenThrow(new PaymentGatewayException("timeout")); // 컨트롤러 동기 재조회도 실패
 
         ConfirmPaymentResponse response = new TransactionTemplate(transactionManager).execute(status ->
                 payMentController.confirmPayment(
@@ -839,7 +839,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
         Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
         assertEquals(PaymentStatus.READY, payment.getStatus());
-        verifyNoInteractions(tossPaymentClient);
+        verifyNoInteractions(paymentGateway);
     }
 
     @Test
@@ -894,7 +894,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-pg-amount-mismatch",
                         ready.getOrderId(),
@@ -918,7 +918,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-pg-currency-mismatch",
                         ready.getOrderId(),
@@ -942,7 +942,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "different-pay-key",
                         ready.getOrderId(),
@@ -966,7 +966,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-pg-order-mismatch",
                         "different-order-id",
@@ -990,7 +990,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-pg-status-mismatch",
                         ready.getOrderId(),
@@ -1021,7 +1021,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-cancel-ready",
                         ready.getOrderId(),
@@ -1033,9 +1033,9 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
         Payment approved = paymentService.confirmPayment("pay-key-cancel-ready", ready.getOrderId(), totalAmountWithVat);
 
-        when(tossPaymentClient.cancel("pay-key-cancel-ready", "사용자 요청", "KRW", "cancel:" + approved.getId()))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-cancel-ready"))
+        when(paymentGateway.cancel("pay-key-cancel-ready", "사용자 요청", "KRW", "cancel:" + approved.getId()))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-cancel-ready"))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-cancel-ready",
                         approved.getOrderId(),
@@ -1064,7 +1064,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-duplicate-cancel",
                         ready.getOrderId(),
@@ -1078,7 +1078,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         CountDownLatch startLatch = new CountDownLatch(1);
         CountDownLatch cancelReachedPg = new CountDownLatch(1);
         CountDownLatch releasePg = new CountDownLatch(1);
-        when(tossPaymentClient.cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId()))
+        when(paymentGateway.cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId()))
                 .thenAnswer(invocation -> {
                     cancelReachedPg.countDown();
                     if (!releasePg.await(10, TimeUnit.SECONDS)) {
@@ -1124,7 +1124,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
         // 락을 PG 호출 밖으로 뺀 durable 마커 설계에선 두 요청이 같은 멱등키로 PG 취소를 재호출할 수 있고
         // (Toss 가 멱등키로 dedupe), 두 번째 applyDecision 은 CANCELING 이 아니므로 멱등 no-op 으로 수렴한다.
-        verify(tossPaymentClient, times(2))
+        verify(paymentGateway, times(2))
                 .cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId());
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
@@ -1140,7 +1140,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         CountDownLatch cancelReachedPg = new CountDownLatch(1);
         CountDownLatch releasePg = new CountDownLatch(1);
 
-        when(tossPaymentClient.cancel("pay-key-cancel-expire", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+        when(paymentGateway.cancel("pay-key-cancel-expire", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
                 .thenAnswer(invocation -> {
                     cancelReachedPg.countDown();
                     if (!releasePg.await(10, TimeUnit.SECONDS)) {
@@ -1196,7 +1196,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 () -> paymentService.cancelPayment(ready.getId(), "사용자 요청", fixture.userId));
 
         assertEquals(PaymentStatus.READY, paymentRepository.findById(ready.getId()).orElseThrow().getStatus());
-        verifyNoInteractions(tossPaymentClient);
+        verifyNoInteractions(paymentGateway);
     }
 
     @Test
@@ -1213,7 +1213,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
         assertEquals(PaymentStatus.APPROVED,
                 paymentRepository.findById(approvedWithoutPaymentKey.getId()).orElseThrow().getStatus());
-        verifyNoInteractions(tossPaymentClient);
+        verifyNoInteractions(paymentGateway);
     }
 
     @Test
@@ -1221,7 +1221,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     void cancelPaymentPgPaymentKeyMismatchHoldsCanceling() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-key-mismatch");
 
-        when(tossPaymentClient.cancel("pay-key-cancel-key-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+        when(paymentGateway.cancel("pay-key-cancel-key-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
                 .thenReturn(new TossCancelResponse("different-pay-key", "CANCELED", 110000, "KRW"));
 
         paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
@@ -1234,7 +1234,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     void cancelPaymentPgCurrencyMismatchHoldsCanceling() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-currency-mismatch");
 
-        when(tossPaymentClient.cancel("pay-key-cancel-currency-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+        when(paymentGateway.cancel("pay-key-cancel-currency-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
                 .thenReturn(new TossCancelResponse("pay-key-cancel-currency-mismatch", "CANCELED", 110000, "USD"));
 
         paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
@@ -1247,7 +1247,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     void cancelPaymentPgStillDoneHoldsCanceling() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-status-mismatch");
 
-        when(tossPaymentClient.cancel("pay-key-cancel-status-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+        when(paymentGateway.cancel("pay-key-cancel-status-mismatch", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
                 .thenReturn(new TossCancelResponse("pay-key-cancel-status-mismatch", "DONE", 110000, "KRW"));
 
         paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
@@ -1264,7 +1264,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 () -> paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId + 999));
 
         assertPaymentCancellationRejected(fixture);
-        verify(tossPaymentClient, never()).cancel(anyString(), anyString(), anyString(), anyString());
+        verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -1272,10 +1272,10 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     void cancelPaymentTimeoutLeavesCancelingDurable() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-timeout");
 
-        when(tossPaymentClient.cancel("pay-key-cancel-timeout", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-cancel-timeout"))
-                .thenThrow(new ResourceAccessException("timeout"));
+        when(paymentGateway.cancel("pay-key-cancel-timeout", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-cancel-timeout"))
+                .thenThrow(new PaymentGatewayException("timeout"));
 
         paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
 
@@ -1287,10 +1287,10 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     void expirationDoesNotTouchCancelingPayment() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-expire-skip");
 
-        when(tossPaymentClient.cancel("pay-key-cancel-expire-skip", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-cancel-expire-skip"))
-                .thenThrow(new ResourceAccessException("timeout"));
+        when(paymentGateway.cancel("pay-key-cancel-expire-skip", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-cancel-expire-skip"))
+                .thenThrow(new PaymentGatewayException("timeout"));
 
         // CANCELING durable 로 만든다(group 은 CONFIRMED 유지).
         paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
@@ -1308,10 +1308,10 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-recover-canceled");
 
         // 동기 취소: PG 취소 timeout + 1차 조회도 timeout → CANCELING durable 로 남긴다.
-        when(tossPaymentClient.cancel("pay-key-recover-canceled", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-recover-canceled"))
-                .thenThrow(new ResourceAccessException("timeout"))
+        when(paymentGateway.cancel("pay-key-recover-canceled", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-recover-canceled"))
+                .thenThrow(new PaymentGatewayException("timeout"))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-recover-canceled", "order-recover", "CANCELED", "CARD", 110000, "KRW"));
 
@@ -1333,7 +1333,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
         // 보정은 재취소 없이 조회만으로 확정한다(이미 CANCELED).
-        verify(tossPaymentClient, never())
+        verify(paymentGateway, never())
                 .cancel("pay-key-recover-canceled", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId);
     }
 
@@ -1343,10 +1343,10 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-recover-recancel");
 
         // 동기 취소: PG 취소 timeout + 1차 조회도 timeout → CANCELING durable. 이후 조회는 아직 DONE(취소가 안 먹은 상태).
-        when(tossPaymentClient.cancel("pay-key-recover-recancel", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-recover-recancel"))
-                .thenThrow(new ResourceAccessException("timeout"))
+        when(paymentGateway.cancel("pay-key-recover-recancel", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-recover-recancel"))
+                .thenThrow(new PaymentGatewayException("timeout"))
                 .thenReturn(new TossPaymentLookupResponse(
                         "pay-key-recover-recancel", "order-recover", "DONE", "CARD", 110000, "KRW"));
 
@@ -1356,7 +1356,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         backdateCancelingAt(fixture.paymentId);
 
         // 보정 재취소: 같은 멱등키(cancel:{id}) + 보정 사유(CANCEL_RECOVERY) → CANCELED 응답 → FINALIZE.
-        when(tossPaymentClient.cancel("pay-key-recover-recancel", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId))
+        when(paymentGateway.cancel("pay-key-recover-recancel", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId))
                 .thenReturn(new TossCancelResponse("pay-key-recover-recancel", "CANCELED", 110000, "KRW"));
 
         int recovered = paymentRecoveryService.reconcileStaleCancelingPayments(Duration.ZERO, Integer.MAX_VALUE);
@@ -1371,7 +1371,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
-        verify(tossPaymentClient)
+        verify(paymentGateway)
                 .cancel("pay-key-recover-recancel", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId);
     }
 
@@ -1395,7 +1395,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         "pay-key-group",
                         ready.getOrderId(),
@@ -1416,7 +1416,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         assertTrue(confirmedReservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CONFIRMED));
         assertTrue(bookedSeats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.BOOKED));
 
-        when(tossPaymentClient.cancel("pay-key-group", "사용자 요청", "KRW", "cancel:" + approved.getId()))
+        when(paymentGateway.cancel("pay-key-group", "사용자 요청", "KRW", "cancel:" + approved.getId()))
                 .thenReturn(new com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse(
                         "pay-key-group",
                         "CANCELED",
@@ -1510,7 +1510,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         paymentIds.add(ready.getId());
         int totalAmountWithVat = amountWithVat(ready.getAmount());
 
-        when(tossPaymentClient.confirm(anyString(), anyString(), anyInt(), anyString()))
+        when(paymentGateway.confirm(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new TossConfirmResponse(
                         paymentKey,
                         ready.getOrderId(),

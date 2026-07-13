@@ -1,6 +1,7 @@
-package com.jipi.ticket_ledger.payment.application.recovery;
+package com.jipi.ticket_ledger.payment.application.observability;
 
 import com.jipi.ticket_ledger.payment.application.cancel.CancelOutcome;
+import com.jipi.ticket_ledger.payment.application.recovery.RecoveryOutcome;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
@@ -45,7 +46,7 @@ public class PaymentRecoveryMetrics {
     }
 
     /** confirm 보정 결과를 기록한다. 외부 호출 실패는 pg_failure 로, 나머지는 recovery_total 로 라우팅한다. */
-    void record(RecoveryOutcome outcome) {
+    public void record(RecoveryOutcome outcome) {
         switch (outcome) {
             case APPROVED, FAILED_RELEASED, REFUNDED_FAILED, HELD_MANUAL, SEAT_LOST_DEFERRED ->
                     recoveryTotal(CONFIRM, outcome.name());
@@ -70,7 +71,7 @@ public class PaymentRecoveryMetrics {
     }
 
     /** 배치 per-item 이 예상 못 한 예외로 실패한 경우. operation 별로 recovery_total{outcome=batch_exception}. */
-    void recordBatchException(String operation) {
+    public void recordBatchException(String operation) {
         recoveryTotal(operation, "batch_exception");
     }
 

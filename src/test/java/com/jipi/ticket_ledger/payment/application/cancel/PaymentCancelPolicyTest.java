@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.cancel;
 
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayState;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -12,7 +13,12 @@ class PaymentCancelPolicyTest {
     }
 
     private PgCancelState pg(String paymentKey, String status, String currency) {
-        return new PgCancelState(paymentKey, status, currency);
+        PaymentGatewayState state = switch (status) {
+            case "DONE" -> PaymentGatewayState.APPROVED;
+            case "CANCELED", "PARTIAL_CANCELED" -> PaymentGatewayState.CANCELED;
+            default -> PaymentGatewayState.OTHER;
+        };
+        return new PgCancelState(paymentKey, status, currency, state);
     }
 
     @Test

@@ -1,6 +1,10 @@
 package com.jipi.ticket_ledger.payment.infrastructure;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.global.log.PaymentLogFormatter;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,7 +24,7 @@ import java.util.function.Supplier;
 
 @Component
 @Slf4j
-public class TossPaymentClient {
+public class TossPaymentClient implements PaymentGateway {
     private final RestClient restClient;
     private final String secretKey;
 
@@ -49,6 +53,7 @@ public class TossPaymentClient {
         this.secretKey = secretKey;
     }
 
+    @Override
     public TossConfirmResponse confirm(String paymentKey, String orderId, Integer amount, String idempotencyKey) {
         TossConfirmRequest request = new TossConfirmRequest(paymentKey, orderId, amount);
 
@@ -63,6 +68,7 @@ public class TossPaymentClient {
                         .body(TossConfirmResponse.class));
     }
 
+    @Override
     public TossCancelResponse cancel(String paymentKey, String cancelReason, String currency, String idempotencyKey) {
         TossCancelRequest request = new TossCancelRequest(cancelReason, currency);
 
@@ -77,6 +83,7 @@ public class TossPaymentClient {
                         .body(TossCancelResponse.class));
     }
 
+    @Override
     public TossPaymentLookupResponse getPaymentByPaymentKey(String paymentKey) {
         return call(TossOperation.LOOKUP_BY_PAYMENT_KEY, null, paymentKey, null, () ->
                 restClient.get()
@@ -86,6 +93,7 @@ public class TossPaymentClient {
                         .body(TossPaymentLookupResponse.class));
     }
 
+    @Override
     public TossPaymentLookupResponse getPaymentByOrderId(String orderId) {
         return call(TossOperation.LOOKUP_BY_ORDER_ID, orderId, null, null, () ->
                 restClient.get()
@@ -103,16 +111,16 @@ public class TossPaymentClient {
         } catch (ResourceAccessException timeout) {
             // 연결/응답 타임아웃 등 I/O 실패 = 성공/실패 미확정(결과 불명) → CONFIRMING 보정 대상.
             logFailure(operation, orderId, paymentKey, idempotencyKey, "TIMEOUT", "N/A", timeout, false);
-            throw timeout;
+            throw new PaymentGatewayException("PG 호출 결과를 확인할 수 없습니다.", timeout);
         } catch (RestClientResponseException httpError) {
             // PG 가 상태코드를 돌려준 실패(4xx/5xx).
             logFailure(operation, orderId, paymentKey, idempotencyKey, "HTTP_ERROR",
                     String.valueOf(httpError.getStatusCode().value()), httpError, false);
-            throw httpError;
+            throw new PaymentGatewayException("PG가 요청을 거절했습니다.", httpError);
         } catch (RestClientException other) {
             // 분류하지 못한 통신 예외.
             logFailure(operation, orderId, paymentKey, idempotencyKey, "OTHER", "N/A", other, true);
-            throw other;
+            throw new PaymentGatewayException("PG 호출에 실패했습니다.", other);
         }
     }
 

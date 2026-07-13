@@ -2,16 +2,16 @@ package com.jipi.ticket_ledger.payment.presentation;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
+import com.jipi.ticket_ledger.payment.application.model.PaymentStatusResult;
+import com.jipi.ticket_ledger.payment.application.model.ReadyPaymentResult;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
-import com.jipi.ticket_ledger.payment.domain.Payment;
-import com.jipi.ticket_ledger.payment.domain.PaymentAmount;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.presentation.dto.CancelPaymentResponse;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentResponse;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentRequest;
 import com.jipi.ticket_ledger.payment.presentation.dto.ReadyPaymentResponse;
-import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -19,55 +19,36 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestClientException;
 
 import java.util.Map;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/payments")
 @RequiredArgsConstructor
 @Tag(name = "Payment API", description = "결제 관련 API")
 @Slf4j
-public class PayMentController {
+public class PaymentApiController {
     private final PaymentService paymentService;
     private final PaymentRecoveryService paymentRecoveryService;
 
     @Operation(summary = "결제 준비", description = "예약 식별자로 결제 요청 정보를 생성합니다.")
     @PostMapping("/ready")
     public ReadyPaymentResponse readyPayment(@RequestBody @Valid ReadyPaymentRequest request) {
-        Payment payment = paymentService.readyPayment(request.reservationGroupId());
-        List<Reservation> reservations = paymentService.getReservationsForPayment(payment);
-        Reservation firstReservation = reservations.get(0);
-        PaymentAmount paymentAmount = payment.paymentAmount();
-
-        String orderName = firstReservation.getSeat().getSchedule().getEvent().getTitle()
-                + " "
-                + firstReservation.getSeat().getSeatNumber()
-                + (reservations.size() > 1 ? " 외 " + (reservations.size() - 1) + "석" : "");
-
-        return new ReadyPaymentResponse(
-                payment.getId(),
-                payment.getOrderId(),
-                paymentAmount.totalAmount(),
-                paymentAmount.seatTotalAmount(),
-                paymentAmount.vatAmount(),
-                orderName,
-                payment.getCurrency()
-        );
+        ReadyPaymentResult result = paymentService.readyPaymentResult(request.reservationGroupId());
+        return ReadyPaymentResponse.from(result);
     }
 
     @Operation(summary = "결제 승인 확인", description = "토스 결제 성공 후 paymentKey, orderId, amount로 결제를 승인합니다.")
     @PostMapping("/confirm")
     public ConfirmPaymentResponse confirmPayment(@RequestBody @Valid ConfirmPaymentRequest request) {
         try {
-            Payment payment = paymentService.confirmPayment(
+            PaymentStatusResult result = paymentService.confirmPaymentResult(
                     request.paymentKey(),
                     request.orderId(),
                     request.amount()
             );
-            return toPaymentStatusResponse(payment);
-        } catch (RestClientException | IllegalStateException e) {
+            return ConfirmPaymentResponse.from(result);
+        } catch (PaymentGatewayException | IllegalStateException e) {
             // confirm 도중 회색지대(통신 끊김/검증 실패 등)로 결제가 CONFIRMING에 남았을 수 있으므로 동기 재조회로 최종 확인을 시도한다.
             PaymentRecoveryService.SyncReconcileResult result =
                     paymentRecoveryService.reconcileConfirmingPaymentByOrderId(request.orderId());
@@ -76,15 +57,14 @@ public class PayMentController {
                 throw e;
             }
             // 동기 재조회로 해소됐으면 그 상태를, 아직 PG가 응답 못 하면 CONFIRMING을 반환하고 보정 스케줄러에 위임한다.
-            return toPaymentStatusResponse(result.payment());
+            return ConfirmPaymentResponse.from(paymentService.paymentStatusResult(result.paymentId()));
         }
     }
 
     @Operation(summary = "결제 상태 조회", description = "결제 식별자로 현재 결제/예약/좌석 상태를 조회합니다.")
     @GetMapping("/{paymentId}/status")
     public ConfirmPaymentResponse getPaymentStatus(@PathVariable Long paymentId) {
-        Payment payment = paymentService.getPaymentStatus(paymentId);
-        return toPaymentStatusResponse(payment);
+        return ConfirmPaymentResponse.from(paymentService.getPaymentStatusResult(paymentId));
     }
 
     @Operation(summary = "결제 실패 리다이렉트 기록", description = "failUrl로 전달된 code, message, orderId를 백엔드 로그에 기록합니다.")
@@ -108,19 +88,6 @@ public class PayMentController {
                                                @AuthenticationPrincipal Long userId) {
         PaymentStatus paymentStatus = paymentService.cancelPayment(paymentId, cancelReason, userId);
         return new CancelPaymentResponse(paymentId, paymentStatus);
-    }
-
-    private ConfirmPaymentResponse toPaymentStatusResponse(Payment payment) {
-        List<Reservation> reservations = paymentService.getReservationsForPayment(payment);
-        Reservation reservation = reservations.get(0);
-
-        return new ConfirmPaymentResponse(
-                payment.getId(),
-                payment.getOrderId(),
-                payment.getStatus(),
-                reservation.getStatus(),
-                reservation.getSeat().getStatus()
-        );
     }
 
 }

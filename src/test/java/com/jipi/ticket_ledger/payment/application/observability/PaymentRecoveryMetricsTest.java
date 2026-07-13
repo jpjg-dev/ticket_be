@@ -1,5 +1,6 @@
-package com.jipi.ticket_ledger.payment.application.recovery;
+package com.jipi.ticket_ledger.payment.application.observability;
 
+import com.jipi.ticket_ledger.payment.application.recovery.RecoveryOutcome;
 import com.jipi.ticket_ledger.payment.application.cancel.CancelOutcome;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;

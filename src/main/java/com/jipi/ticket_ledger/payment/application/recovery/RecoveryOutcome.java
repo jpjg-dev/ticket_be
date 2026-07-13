@@ -4,7 +4,7 @@ package com.jipi.ticket_ledger.payment.application.recovery;
  * 보정 1회의 최종 결과. metric 라벨 겸 반환값으로 쓰인다.
  * recovered=true 인 것만 배치 recoveredCount 에 집계한다(터미널 상태로 수렴).
  */
-enum RecoveryOutcome {
+public enum RecoveryOutcome {
     APPROVED(true),            // 승인으로 수렴
     FAILED_RELEASED(true),     // 실패 처리 + 좌석 해제로 수렴
     REFUNDED_FAILED(true),     // 환불 후 실패 처리로 수렴
@@ -20,7 +20,7 @@ enum RecoveryOutcome {
         this.recovered = recovered;
     }
 
-    boolean isRecovered() {
+    public boolean isRecovered() {
         return recovered;
     }
 }

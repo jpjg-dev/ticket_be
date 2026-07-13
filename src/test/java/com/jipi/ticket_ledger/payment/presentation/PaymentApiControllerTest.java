@@ -7,12 +7,16 @@ import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.application.PaymentService;
+import com.jipi.ticket_ledger.payment.application.model.PaymentStatusResult;
+import com.jipi.ticket_ledger.payment.application.model.ReadyPaymentResult;
 import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
+import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.seat.domain.Seat;
+import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -38,10 +42,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = PayMentController.class)
+@WebMvcTest(controllers = PaymentApiController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler.class)
-class PayMentControllerTest {
+class PaymentApiControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -64,10 +68,8 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 준비 성공 시 200과 결제 응답을 반환한다")
     void readyPaymentSuccess() throws Exception {
-        PaymentFixture fixture = createReadyPayment();
-        Payment payment = fixture.payment();
-        when(paymentService.readyPayment(1L)).thenReturn(payment);
-        when(paymentService.getReservationsForPayment(payment)).thenReturn(fixture.reservations());
+        when(paymentService.readyPaymentResult(1L)).thenReturn(new ReadyPaymentResult(
+                1L, "order-1", 110000, 100000, 10000, "테스트 공연 A-1", "KRW"));
 
         mockMvc.perform(post("/api/v1/payments/ready")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -82,10 +84,9 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 승인 확인 성공 시 200을 반환한다")
     void confirmPaymentSuccess() throws Exception {
-        PaymentFixture fixture = createApprovedPayment();
-        Payment approvedPayment = fixture.payment();
-        when(paymentService.confirmPayment(anyString(), anyString(), anyInt())).thenReturn(approvedPayment);
-        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(fixture.reservations());
+        when(paymentService.confirmPaymentResult(anyString(), anyString(), anyInt())).thenReturn(
+                new PaymentStatusResult(1L, "order-1", PaymentStatus.APPROVED,
+                        ReservationStatus.CONFIRMED, SeatStatus.BOOKED));
 
         mockMvc.perform(post("/api/v1/payments/confirm")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -105,10 +106,9 @@ class PayMentControllerTest {
     @Test
     @DisplayName("결제 상태 조회 성공 시 200과 현재 상태를 반환한다")
     void getPaymentStatusSuccess() throws Exception {
-        PaymentFixture fixture = createApprovedPayment();
-        Payment approvedPayment = fixture.payment();
-        when(paymentService.getPaymentStatus(1L)).thenReturn(approvedPayment);
-        when(paymentService.getReservationsForPayment(approvedPayment)).thenReturn(fixture.reservations());
+        when(paymentService.getPaymentStatusResult(1L)).thenReturn(
+                new PaymentStatusResult(1L, "order-1", PaymentStatus.APPROVED,
+                        ReservationStatus.CONFIRMED, SeatStatus.BOOKED));
 
         mockMvc.perform(get("/api/v1/payments/1/status"))
                 .andExpect(status().isOk())

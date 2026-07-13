@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.infrastructure;
 
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -7,7 +8,6 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -32,7 +32,7 @@ class TossPaymentClientTest {
         TossPaymentClient client = clientBoundTo(serverHolder);
         serverHolder[0].expect(requestTo("/v1/payments/confirm")).andRespond(withServerError());
 
-        assertThrows(RestClientException.class,
+        assertThrows(PaymentGatewayException.class,
                 () -> client.confirm("test_pk_123456789", "order-1", 1000, "confirm:order-1"));
 
         serverHolder[0].verify();
@@ -56,7 +56,7 @@ class TossPaymentClientTest {
         TossPaymentClient client = clientBoundTo(serverHolder);
         serverHolder[0].expect(requestTo("/v1/payments/test_pk_9999/cancel")).andRespond(withServerError());
 
-        assertThrows(RestClientException.class,
+        assertThrows(PaymentGatewayException.class,
                 () -> client.cancel("test_pk_9999", "reason", "KRW", "cancel:1"));
 
         serverHolder[0].verify();

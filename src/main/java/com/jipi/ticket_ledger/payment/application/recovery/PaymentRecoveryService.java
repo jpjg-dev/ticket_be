@@ -1,17 +1,18 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
 import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
+import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClientException;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -24,7 +25,7 @@ import java.util.function.Predicate;
 public class PaymentRecoveryService {
 
     private final PaymentRepository paymentRepository;
-    private final TossPaymentClient tossPaymentClient;
+    private final PaymentGateway paymentGateway;
     private final PaymentRecoveryTransactionService paymentRecoveryTransactionService;
     private final PaymentCancelService paymentCancelService;
     private final PaymentRecoveryMetrics paymentRecoveryMetrics;
@@ -43,11 +44,11 @@ public class PaymentRecoveryService {
             return record(RecoveryOutcome.NOOP_NOT_CONFIRMING);
         }
 
-        TossPaymentLookupResponse lookup;
+        PaymentGatewayPayment lookup;
         try {
-            lookup = tossPaymentClient.getPaymentByOrderId(snapshot.orderId());
-        } catch (RestClientException e) {
-            // 조회 실패 로그는 TossPaymentClient 가 남긴다. 여기선 다음 주기 위임 결정만 남긴다.
+            lookup = paymentGateway.getPaymentByOrderId(snapshot.orderId());
+        } catch (PaymentGatewayException e) {
+            // 조회 실패 로그는 PG 어댑터가 남긴다. 여기선 다음 주기 위임 결정만 남긴다.
             log.warn("Recovery lookup failed, leaving CONFIRMING for next cycle. paymentId={} orderId={}",
                     paymentId, snapshot.orderId());
             return record(RecoveryOutcome.LOOKUP_UNRESOLVED);
@@ -64,14 +65,14 @@ public class PaymentRecoveryService {
 
         if (decision.action() == RecoveryAction.REFUND_THEN_FAIL) {
             try {
-                tossPaymentClient.cancel(
+                paymentGateway.cancel(
                         lookup.paymentKey(),
                         decision.refundReason(),
                         snapshot.currency(),
                         "cancel:" + paymentId
                 );
-            } catch (RestClientException e) {
-                // 취소(환불) 호출 실패 로그는 TossPaymentClient 가 남긴다. CONFIRMING 유지 → 다음 주기 재시도.
+            } catch (PaymentGatewayException e) {
+                // 취소(환불) 호출 실패 로그는 PG 어댑터가 남긴다. CONFIRMING 유지 → 다음 주기 재시도.
                 log.error("Refund failed for CONFIRMING payment, will retry next cycle. paymentId={} orderId={}",
                         paymentId, snapshot.orderId());
                 return record(RecoveryOutcome.REFUND_PENDING);
@@ -97,7 +98,7 @@ public class PaymentRecoveryService {
     public SyncReconcileResult reconcileConfirmingPaymentByOrderId(String orderId) {
         Payment payment = paymentRepository.findByOrderId(orderId).orElse(null);
         if (payment == null || payment.getStatus() != PaymentStatus.CONFIRMING) {
-            return new SyncReconcileResult(payment, false);
+            return new SyncReconcileResult(payment == null ? null : payment.getId(), false);
         }
 
         // 조회/환불 RestClientException 은 recover 내부에서 흡수(CONFIRMING 유지)하므로 여기서 잡을 필요가 없다.
@@ -105,10 +106,10 @@ public class PaymentRecoveryService {
         recover(payment.getId());
 
         Payment resolved = paymentRepository.findByOrderId(orderId).orElse(payment);
-        return new SyncReconcileResult(resolved, true);
+        return new SyncReconcileResult(resolved.getId(), true);
     }
 
-    public record SyncReconcileResult(Payment payment, boolean handled) {
+    public record SyncReconcileResult(Long paymentId, boolean handled) {
     }
 
     @Transactional(readOnly = true)

@@ -1,7 +1,7 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentStatus;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayState;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
@@ -29,8 +29,8 @@ final class RecoveryPolicy {
      *   <li>DONE + 전 필드 일치 + 좌석 유실 → REFUND_THEN_FAIL(SEAT_UNAVAILABLE)</li>
      * </ul>
      */
-    static RecoveryDecision decide(RecoverySnapshot snapshot, TossPaymentLookupResponse lookup) {
-        if (!TossPaymentStatus.isApproved(lookup.status())) {
+    static RecoveryDecision decide(RecoverySnapshot snapshot, PaymentGatewayPayment lookup) {
+        if (lookup.state() != PaymentGatewayState.APPROVED) {
             return RecoveryDecision.fail();
         }
 

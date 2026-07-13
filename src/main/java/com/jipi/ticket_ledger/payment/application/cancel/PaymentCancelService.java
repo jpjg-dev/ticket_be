@@ -1,16 +1,15 @@
 package com.jipi.ticket_ledger.payment.application.cancel;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
-import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryMetrics;
+import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
-import com.jipi.ticket_ledger.payment.infrastructure.PaymentLogFormatter;
-import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
+import com.jipi.ticket_ledger.global.log.PaymentLogFormatter;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientException;
 
 /**
  * 취소 오케스트레이션(트랜잭션 없음). confirm 과 동일한 3단계:
@@ -31,7 +30,7 @@ public class PaymentCancelService {
     // 보정 경로에서 재취소를 발행할 때 쓰는 사유(동기 경로의 사용자 사유가 없을 때). 멱등키가 같아 Toss 가 원취소로 dedupe 한다.
     private static final String RECOVERY_CANCEL_REASON = "CANCEL_RECOVERY";
 
-    private final TossPaymentClient tossPaymentClient;
+    private final PaymentGateway paymentGateway;
     private final PaymentCancelTransactionService paymentCancelTransactionService;
     private final PaymentRecoveryMetrics paymentRecoveryMetrics;
 
@@ -67,11 +66,11 @@ public class PaymentCancelService {
             return record(CancelOutcome.NOOP_NOT_CANCELING);
         }
 
-        TossPaymentLookupResponse lookup;
+        PaymentGatewayPayment lookup;
         try {
-            lookup = tossPaymentClient.getPaymentByPaymentKey(snapshot.paymentKey());
-        } catch (RestClientException lookupException) {
-            // 조회 실패 로그는 TossPaymentClient 가 남긴다. CANCELING 유지 → 다음 주기 재시도.
+            lookup = paymentGateway.getPaymentByPaymentKey(snapshot.paymentKey());
+        } catch (PaymentGatewayException lookupException) {
+            // 조회 실패 로그는 PG 어댑터가 남긴다. CANCELING 유지 → 다음 주기 재시도.
             logCancelReject(snapshot, "PG_CANCEL_RECOVERY_LOOKUP_UNRESOLVED_KEEP_CANCELING");
             return record(CancelOutcome.LOOKUP_UNRESOLVED);
         }
@@ -123,20 +122,20 @@ public class PaymentCancelService {
      */
     private PgCancelState requestCancelOrLookup(CancelingPaymentSnapshot snapshot, String cancelReason) {
         try {
-            TossCancelResponse response = tossPaymentClient.cancel(
+            PaymentGatewayPayment response = paymentGateway.cancel(
                     snapshot.paymentKey(),
                     cancelReason,
                     snapshot.currency(),
                     createCancelIdempotencyKey(snapshot.paymentId())
             );
             return PgCancelState.from(response);
-        } catch (RestClientException cancelException) {
-            // PG 취소 호출 실패 로그는 TossPaymentClient 가 남긴다. 여기선 조회 fallback 결정만 남긴다.
+        } catch (PaymentGatewayException cancelException) {
+            // PG 취소 호출 실패 로그는 PG 어댑터가 남긴다. 여기선 조회 fallback 결정만 남긴다.
             logCancelReject(snapshot, "PG_CANCEL_FALLBACK_LOOKUP");
             try {
-                TossPaymentLookupResponse lookup = tossPaymentClient.getPaymentByPaymentKey(snapshot.paymentKey());
+                PaymentGatewayPayment lookup = paymentGateway.getPaymentByPaymentKey(snapshot.paymentKey());
                 return PgCancelState.from(lookup);
-            } catch (RestClientException lookupException) {
+            } catch (PaymentGatewayException lookupException) {
                 // 조회까지 실패(timeout 등) → CANCELING 유지, 예외 삼킴(스케줄러가 수렴).
                 logCancelReject(snapshot, "PG_CANCEL_LOOKUP_UNRESOLVED_KEEP_CANCELING");
                 return null;

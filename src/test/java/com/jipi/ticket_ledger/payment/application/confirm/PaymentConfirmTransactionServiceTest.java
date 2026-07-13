@@ -30,7 +30,8 @@ class PaymentConfirmTransactionServiceTest {
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
     private final PaymentConfirmTransactionService transactionService =
-            new PaymentConfirmTransactionService(paymentRepository, reservationRepository, Clock.systemDefaultZone());
+            new PaymentConfirmTransactionService(
+                    paymentRepository, reservationRepository, new PaymentConfirmValidator(), Clock.systemDefaultZone());
 
     @Test
     @DisplayName("markConfirming: READY 결제를 CONFIRMING으로 바꾸고 PG 호출에 필요한 값만 반환한다")

@@ -5,7 +5,7 @@ import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
-import com.jipi.ticket_ledger.payment.infrastructure.PaymentLogFormatter;
+import com.jipi.ticket_ledger.global.log.PaymentLogFormatter;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import jakarta.persistence.EntityNotFoundException;

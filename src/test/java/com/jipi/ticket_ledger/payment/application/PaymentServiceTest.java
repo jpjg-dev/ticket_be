@@ -8,13 +8,14 @@ import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
 import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelTransactionService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmTransactionService;
-import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryMetrics;
+import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmValidator;
+import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
@@ -35,7 +36,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.ResourceAccessException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -55,7 +56,7 @@ class PaymentServiceTest {
     private PaymentRepository paymentRepository;
 
     @Mock
-    private TossPaymentClient tossPaymentClient;
+    private PaymentGateway paymentGateway;
 
     @Mock
     private ReservationRepository reservationRepository;
@@ -71,21 +72,32 @@ class PaymentServiceTest {
     void setUpPaymentService() {
         Clock clock = Clock.systemDefaultZone();
         PaymentConfirmTransactionService transactionService =
-                new PaymentConfirmTransactionService(paymentRepository, reservationRepository, clock);
-        PaymentConfirmService confirmService = new PaymentConfirmService(tossPaymentClient, transactionService);
+                new PaymentConfirmTransactionService(
+                        paymentRepository, reservationRepository, new PaymentConfirmValidator(), clock);
+        PaymentConfirmService confirmService = new PaymentConfirmService(paymentGateway, transactionService);
         PaymentCancelTransactionService cancelTransactionService =
                 new PaymentCancelTransactionService(paymentRepository, reservationRepository, clock);
         PaymentRecoveryMetrics recoveryMetrics =
                 new PaymentRecoveryMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         PaymentCancelService cancelService =
-                new PaymentCancelService(tossPaymentClient, cancelTransactionService, recoveryMetrics);
-        paymentService = new PaymentService(
+                new PaymentCancelService(paymentGateway, cancelTransactionService, recoveryMetrics);
+        PaymentQueryService queryService = new PaymentQueryService(paymentRepository, reservationRepository);
+        PaymentPreparationService preparationService = new PaymentPreparationService(
                 paymentRepository,
-                reservationRepository,
                 reservationGroupRepository,
-                confirmService,
-                cancelService,
+                queryService,
+                reservationGroupId -> "reservation-group-" + reservationGroupId + "-test",
                 clock
+        );
+        PaymentFailureService failureService = new PaymentFailureService(queryService, clock);
+        PaymentViewQueryService viewQueryService = new PaymentViewQueryService(queryService);
+        paymentService = new PaymentService(
+                preparationService,
+                queryService,
+                failureService,
+                viewQueryService,
+                confirmService,
+                cancelService
         );
     }
 
@@ -134,7 +146,7 @@ class PaymentServiceTest {
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-1")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
-        when(tossPaymentClient.confirm("pay-key-1", "order-confirm-1", 11000, "confirm:order-confirm-1"))
+        when(paymentGateway.confirm("pay-key-1", "order-confirm-1", 11000, "confirm:order-confirm-1"))
                 .thenReturn(new TossConfirmResponse("pay-key-1", "order-confirm-1", "DONE", "CARD", 11000, "KRW"));
 
         Payment confirmed = paymentService.confirmPayment("pay-key-1", "order-confirm-1", 11000);
@@ -205,7 +217,7 @@ class PaymentServiceTest {
         Payment confirmed = paymentService.confirmPayment("pay-key-3", "order-confirm-3", 11000);
 
         assertSame(payment, confirmed);
-        verify(tossPaymentClient, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
+        verify(paymentGateway, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -222,7 +234,7 @@ class PaymentServiceTest {
                 () -> paymentService.confirmPayment("pay-key-failed", "order-confirm-failed", 11000));
 
         assertEquals(PaymentStatus.FAILED, payment.getStatus());
-        verify(tossPaymentClient, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
+        verify(paymentGateway, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -240,7 +252,7 @@ class PaymentServiceTest {
 
         assertEquals(PaymentStatus.READY, payment.getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
-        verify(tossPaymentClient, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
+        verify(paymentGateway, never()).confirm(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -251,9 +263,9 @@ class PaymentServiceTest {
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-4")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
-        when(tossPaymentClient.confirm("pay-key-4", "order-confirm-4", 11000, "confirm:order-confirm-4"))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-4"))
+        when(paymentGateway.confirm("pay-key-4", "order-confirm-4", 11000, "confirm:order-confirm-4"))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-4"))
                 .thenReturn(new com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse(
                         "pay-key-4",
                         "order-confirm-4",
@@ -336,7 +348,7 @@ class PaymentServiceTest {
         when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
         doReturn(new TossCancelResponse("pay-key-3", "CANCELED", 10000, "KRW"))
-                .when(tossPaymentClient)
+                .when(paymentGateway)
                 .cancel("pay-key-3", "사용자 요청", "KRW", "cancel:1");
 
         paymentService.cancelPayment(1L, "사용자 요청", OWNER_ID);
@@ -367,7 +379,7 @@ class PaymentServiceTest {
                 () -> paymentService.cancelPayment(1L, "사용자 요청", 999L));
 
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
-        verify(tossPaymentClient, never()).cancel(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(paymentGateway, never()).cancel(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -403,7 +415,7 @@ class PaymentServiceTest {
         paymentService.cancelPayment(1L, "사용자 요청", OWNER_ID);
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
-        verify(tossPaymentClient, never()).cancel(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(paymentGateway, never()).cancel(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -420,9 +432,9 @@ class PaymentServiceTest {
 
         when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
-        when(tossPaymentClient.cancel("pay-key-10", "사용자 요청", "KRW", "cancel:1"))
-                .thenThrow(new ResourceAccessException("timeout"));
-        when(tossPaymentClient.getPaymentByPaymentKey("pay-key-10"))
+        when(paymentGateway.cancel("pay-key-10", "사용자 요청", "KRW", "cancel:1"))
+                .thenThrow(new PaymentGatewayException("timeout"));
+        when(paymentGateway.getPaymentByPaymentKey("pay-key-10"))
                 .thenReturn(new com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse(
                         "pay-key-10",
                         "order-10",

@@ -5,7 +5,7 @@ import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -57,7 +57,7 @@ public class PaymentRecoveryTransactionService {
      * 환불 호출은 이미 외부에서 끝난 상태로 진입한다(REFUND_THEN_FAIL 은 여기서 실패 처리만).
      */
     @Transactional
-    public RecoveryOutcome applyDecision(Long paymentId, RecoveryDecision decision, TossPaymentLookupResponse lookup) {
+    public RecoveryOutcome applyDecision(Long paymentId, RecoveryDecision decision, PaymentGatewayPayment lookup) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId).orElse(null);
         if (payment == null || payment.getStatus() != PaymentStatus.CONFIRMING) {
             return RecoveryOutcome.NOOP_NOT_CONFIRMING;

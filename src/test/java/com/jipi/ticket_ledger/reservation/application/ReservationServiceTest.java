@@ -56,6 +56,9 @@ class ReservationServiceTest {
     @Spy
     private Clock clock = Clock.systemDefaultZone();
 
+    @Spy
+    private ReservationCreationPolicy reservationCreationPolicy = new ReservationCreationPolicy();
+
     @InjectMocks
     private ReservationService reservationService;
 
@@ -248,4 +251,3 @@ class ReservationServiceTest {
         return new User("user@test.com", "password", "테스터", LocalDateTime.now());
     }
 }
-

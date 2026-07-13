@@ -1,6 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.cancel;
 
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentStatus;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayState;
 
 /**
  * CANCELING 회색지대의 결정 로직. 순수 함수만 담아 트랜잭션/외부호출과 분리한다.
@@ -27,14 +27,14 @@ final class PaymentCancelPolicy {
         boolean paymentKeyMatch = snapshot.paymentKey().equals(pgState.paymentKey());
         boolean currencyMatch = snapshot.currency().equals(pgState.currency());
 
-        if (TossPaymentStatus.isCanceled(pgState.status())) {
+        if (pgState.state() == PaymentGatewayState.CANCELED) {
             if (!paymentKeyMatch || !currencyMatch) {
                 return CancelDecision.holdManual();
             }
             return CancelDecision.finalizeCancel();
         }
 
-        if (TossPaymentStatus.isApproved(pgState.status())) {
+        if (pgState.state() == PaymentGatewayState.APPROVED) {
             if (!paymentKeyMatch) {
                 return CancelDecision.holdManual();
             }

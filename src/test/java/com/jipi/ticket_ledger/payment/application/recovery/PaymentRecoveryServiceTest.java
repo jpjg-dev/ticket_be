@@ -1,17 +1,18 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
+import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.application.cancel.CancelOutcome;
 import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.ResourceAccessException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -38,12 +39,12 @@ class PaymentRecoveryServiceTest {
     private static final Long PAYMENT_ID = 10L;
 
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
-    private final TossPaymentClient tossPaymentClient = mock(TossPaymentClient.class);
+    private final PaymentGateway paymentGateway = mock(PaymentGateway.class);
     private final PaymentRecoveryTransactionService transactionService = mock(PaymentRecoveryTransactionService.class);
     private final PaymentCancelService paymentCancelService = mock(PaymentCancelService.class);
     private final PaymentRecoveryMetrics metrics = mock(PaymentRecoveryMetrics.class);
     private final PaymentRecoveryService service = new PaymentRecoveryService(
-            paymentRepository, tossPaymentClient, transactionService, paymentCancelService, metrics,
+            paymentRepository, paymentGateway, transactionService, paymentCancelService, metrics,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     private RecoverySnapshot snapshot(boolean held) {
@@ -59,14 +60,14 @@ class PaymentRecoveryServiceTest {
     void recoverRefundThenApply() {
         TossPaymentLookupResponse lookup = lookup("DONE", "order-1");
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(false));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenReturn(lookup);
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenReturn(lookup);
         when(transactionService.applyDecision(eq(PAYMENT_ID), any(), eq(lookup)))
                 .thenReturn(RecoveryOutcome.REFUNDED_FAILED);
 
         RecoveryOutcome outcome = service.recover(PAYMENT_ID);
 
         assertEquals(RecoveryOutcome.REFUNDED_FAILED, outcome);
-        verify(tossPaymentClient).cancel("pay-key-1", "SEAT_UNAVAILABLE", "KRW", "cancel:10");
+        verify(paymentGateway).cancel("pay-key-1", "SEAT_UNAVAILABLE", "KRW", "cancel:10");
         verify(transactionService).applyDecision(
                 eq(PAYMENT_ID), eq(RecoveryDecision.refundThenFail("SEAT_UNAVAILABLE")), eq(lookup));
         verify(metrics).record(RecoveryOutcome.REFUNDED_FAILED);
@@ -76,9 +77,9 @@ class PaymentRecoveryServiceTest {
     @DisplayName("recover REFUND_THEN_FAIL: cancel 실패 시 applyDecision 미호출 + REFUND_PENDING + 환불실패 기록")
     void recoverRefundFailsKeepsConfirming() {
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(false));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenReturn(lookup("DONE", "order-1"));
-        when(tossPaymentClient.cancel(anyString(), anyString(), anyString(), anyString()))
-                .thenThrow(new ResourceAccessException("timeout"));
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenReturn(lookup("DONE", "order-1"));
+        when(paymentGateway.cancel(anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new PaymentGatewayException("timeout"));
 
         RecoveryOutcome outcome = service.recover(PAYMENT_ID);
 
@@ -92,14 +93,14 @@ class PaymentRecoveryServiceTest {
     void recoverApproveNoCancel() {
         TossPaymentLookupResponse lookup = lookup("DONE", "order-1");
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(true));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenReturn(lookup);
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenReturn(lookup);
         when(transactionService.applyDecision(eq(PAYMENT_ID), any(), eq(lookup)))
                 .thenReturn(RecoveryOutcome.APPROVED);
 
         RecoveryOutcome outcome = service.recover(PAYMENT_ID);
 
         assertEquals(RecoveryOutcome.APPROVED, outcome);
-        verify(tossPaymentClient, never()).cancel(anyString(), anyString(), anyString(), anyString());
+        verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
         verify(transactionService).applyDecision(eq(PAYMENT_ID), eq(RecoveryDecision.approve()), eq(lookup));
     }
 
@@ -107,12 +108,12 @@ class PaymentRecoveryServiceTest {
     @DisplayName("recover HOLD_MANUAL: cancel/applyDecision 미호출, 로그와 메트릭만 남긴다")
     void recoverHoldManual() {
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(true));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenReturn(lookup("DONE", "other-order"));
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenReturn(lookup("DONE", "other-order"));
 
         RecoveryOutcome outcome = service.recover(PAYMENT_ID);
 
         assertEquals(RecoveryOutcome.HELD_MANUAL, outcome);
-        verify(tossPaymentClient, never()).cancel(anyString(), anyString(), anyString(), anyString());
+        verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
         verify(transactionService, never()).applyDecision(any(), any(), any());
         verify(metrics).record(RecoveryOutcome.HELD_MANUAL);
     }
@@ -122,14 +123,14 @@ class PaymentRecoveryServiceTest {
     void recoverSelfHealsAfterRefundCrash() {
         TossPaymentLookupResponse canceledLookup = lookup("CANCELED", "order-1");
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(false));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenReturn(canceledLookup);
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenReturn(canceledLookup);
         when(transactionService.applyDecision(eq(PAYMENT_ID), any(), eq(canceledLookup)))
                 .thenReturn(RecoveryOutcome.FAILED_RELEASED);
 
         RecoveryOutcome outcome = service.recover(PAYMENT_ID);
 
         assertEquals(RecoveryOutcome.FAILED_RELEASED, outcome);
-        verify(tossPaymentClient, never()).cancel(anyString(), anyString(), anyString(), anyString());
+        verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
         verify(transactionService).applyDecision(eq(PAYMENT_ID), eq(RecoveryDecision.fail()), eq(canceledLookup));
     }
 
@@ -138,7 +139,7 @@ class PaymentRecoveryServiceTest {
     void batchLookupFailsCountsFailed() {
         when(paymentRepository.findStaleConfirmingIds(any(), any())).thenReturn(List.of(PAYMENT_ID));
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(true));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenThrow(new ResourceAccessException("timeout"));
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenThrow(new PaymentGatewayException("timeout"));
 
         int recovered = service.reconcileStaleConfirmingPayments(Duration.ZERO, 20);
 
@@ -190,7 +191,7 @@ class PaymentRecoveryServiceTest {
         Payment payment = confirmingPayment("order-1");
         when(paymentRepository.findByOrderId("order-1")).thenReturn(Optional.of(payment));
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(true));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenThrow(new ResourceAccessException("timeout"));
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenThrow(new PaymentGatewayException("timeout"));
 
         PaymentRecoveryService.SyncReconcileResult result =
                 service.reconcileConfirmingPaymentByOrderId("order-1");
@@ -204,9 +205,9 @@ class PaymentRecoveryServiceTest {
         Payment payment = confirmingPayment("order-1");
         when(paymentRepository.findByOrderId("order-1")).thenReturn(Optional.of(payment));
         when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(false));
-        when(tossPaymentClient.getPaymentByOrderId("order-1")).thenReturn(lookup("DONE", "order-1"));
-        when(tossPaymentClient.cancel(anyString(), anyString(), anyString(), anyString()))
-                .thenThrow(new ResourceAccessException("timeout"));
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenReturn(lookup("DONE", "order-1"));
+        when(paymentGateway.cancel(anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new PaymentGatewayException("timeout"));
 
         PaymentRecoveryService.SyncReconcileResult result =
                 service.reconcileConfirmingPaymentByOrderId("order-1");
@@ -225,7 +226,7 @@ class PaymentRecoveryServiceTest {
 
         assertFalse(result.handled());
         verify(transactionService, never()).loadRecoverySnapshot(any());
-        verify(tossPaymentClient, never()).getPaymentByOrderId(anyString());
+        verify(paymentGateway, never()).getPaymentByOrderId(anyString());
     }
 
     private Payment confirmingPayment(String orderId) {
