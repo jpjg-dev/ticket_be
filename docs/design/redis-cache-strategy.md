@@ -93,7 +93,7 @@ Redis 적용 후 다음 항목을 확인했습니다.
 
 ## CI 통합
 
-테스트 프로필도 Redis 캐시를 사용하므로 GitHub Actions build 단계에서 Redis service container를 함께 띄웁니다. workflow job은 runner에서 직접 실행되기 때문에 Redis는 `localhost:6379`로 매핑하고, Gradle build 단계에 `REDIS_HOST=localhost`, `REDIS_PORT=6379`를 주입합니다.
+Redis 캐시 통합 테스트는 Testcontainers로 일회용 Redis를 실행합니다. Spring Boot의 `@ServiceConnection(name = "redis")`이 컨테이너의 동적 host와 port를 자동 주입하므로, 로컬 Redis 실행이나 CI의 고정 `localhost:6379` service container에 의존하지 않습니다.
 
 ## 후속 과제
 

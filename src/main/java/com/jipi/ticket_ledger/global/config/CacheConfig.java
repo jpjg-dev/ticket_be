@@ -1,8 +1,8 @@
 package com.jipi.ticket_ledger.global.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jipi.ticket_ledger.event.presentation.dto.EventDetailResponse;
-import com.jipi.ticket_ledger.event.presentation.dto.EventListCacheResponse;
+import com.jipi.ticket_ledger.event.application.model.EventDetailResponse;
+import com.jipi.ticket_ledger.event.application.model.EventListCacheResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.CacheManager;
