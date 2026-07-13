@@ -1,18 +1,25 @@
 package com.jipi.ticket_ledger.payment.infrastructure;
 
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 @ExtendWith(OutputCaptureExtension.class)
 class TossPaymentClientTest {
@@ -20,9 +27,14 @@ class TossPaymentClientTest {
     private static final String SECRET_KEY = "super-secret-toss-key";
 
     private TossPaymentClient clientBoundTo(MockRestServiceServer[] serverHolder) {
+        return clientBoundTo(serverHolder, CircuitBreakerRegistry.ofDefaults());
+    }
+
+    private TossPaymentClient clientBoundTo(MockRestServiceServer[] serverHolder,
+                                             CircuitBreakerRegistry circuitBreakerRegistry) {
         RestClient.Builder builder = RestClient.builder();
         serverHolder[0] = MockRestServiceServer.bindTo(builder).build();
-        return new TossPaymentClient(builder.build(), SECRET_KEY);
+        return new TossPaymentClient(builder.build(), SECRET_KEY, circuitBreakerRegistry);
     }
 
     @Test
@@ -66,5 +78,44 @@ class TossPaymentClientTest {
         assertThat(logs).contains("orderId=N/A");
         assertThat(logs).contains("idempotencyKey=cancel:1");
         assertThat(logs).doesNotContain(SECRET_KEY);
+    }
+
+    @Test
+    @DisplayName("confirm/lookup/cancel breaker는 서로 열림 상태를 공유하지 않는다")
+    void circuitBreakersAreIsolatedByOperation() {
+        CircuitBreakerRegistry registry = CircuitBreakerRegistry.ofDefaults();
+        MockRestServiceServer[] serverHolder = new MockRestServiceServer[1];
+        TossPaymentClient client = clientBoundTo(serverHolder, registry);
+
+        serverHolder[0].expect(requestTo("/v1/payments/pay-key"))
+                .andRespond(withSuccess(
+                        "{\"paymentKey\":\"pay-key\",\"orderId\":\"order-1\",\"status\":\"DONE\",\"method\":\"CARD\",\"totalAmount\":11000,\"currency\":\"KRW\"}",
+                        MediaType.APPLICATION_JSON));
+        serverHolder[0].expect(requestTo("/v1/payments/pay-key/cancel"))
+                .andRespond(withSuccess(
+                        "{\"paymentKey\":\"pay-key\",\"status\":\"CANCELED\",\"totalAmount\":11000,\"currency\":\"KRW\"}",
+                        MediaType.APPLICATION_JSON));
+        serverHolder[0].expect(requestTo("/v1/payments/pay-key/cancel"))
+                .andRespond(withSuccess(
+                        "{\"paymentKey\":\"pay-key\",\"status\":\"CANCELED\",\"totalAmount\":11000,\"currency\":\"KRW\"}",
+                        MediaType.APPLICATION_JSON));
+
+        registry.circuitBreaker(PaymentGatewayCircuitBreakers.CONFIRM).transitionToForcedOpenState();
+        PaymentGatewayException confirmBlocked = assertThrows(PaymentGatewayException.class,
+                () -> client.confirm("pay-key", "order-1", 11000, "confirm:order-1"));
+        assertInstanceOf(CallNotPermittedException.class, confirmBlocked.getCause());
+        assertEquals("DONE", client.getPaymentByPaymentKey("pay-key").status());
+        assertEquals("CANCELED", client.cancel("pay-key", "reason", "KRW", "cancel:1").status());
+
+        registry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP).transitionToForcedOpenState();
+        assertEquals("CANCELED", client.cancel("pay-key", "reason", "KRW", "cancel:1").status());
+
+        assertEquals(CircuitBreaker.State.FORCED_OPEN,
+                registry.circuitBreaker(PaymentGatewayCircuitBreakers.CONFIRM).getState());
+        assertEquals(CircuitBreaker.State.FORCED_OPEN,
+                registry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP).getState());
+        assertEquals(CircuitBreaker.State.CLOSED,
+                registry.circuitBreaker(PaymentGatewayCircuitBreakers.CANCEL).getState());
+        serverHolder[0].verify();
     }
 }
