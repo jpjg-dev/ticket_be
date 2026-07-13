@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.payment.application.confirm;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
@@ -29,9 +30,11 @@ class PaymentConfirmTransactionServiceTest {
 
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
+    private final PaymentGatewayCircuitState paymentGatewayCircuitState = mock(PaymentGatewayCircuitState.class);
     private final PaymentConfirmTransactionService transactionService =
             new PaymentConfirmTransactionService(
-                    paymentRepository, reservationRepository, new PaymentConfirmValidator(), Clock.systemDefaultZone());
+                    paymentRepository, reservationRepository, new PaymentConfirmValidator(),
+                    paymentGatewayCircuitState, Clock.systemDefaultZone());
 
     @Test
     @DisplayName("markConfirming: READY 결제를 CONFIRMING으로 바꾸고 PG 호출에 필요한 값만 반환한다")

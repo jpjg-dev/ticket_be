@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,7 @@ public class PaymentRecoveryService {
 
     private final PaymentRepository paymentRepository;
     private final PaymentGateway paymentGateway;
+    private final PaymentGatewayCircuitState paymentGatewayCircuitState;
     private final PaymentRecoveryTransactionService paymentRecoveryTransactionService;
     private final PaymentCancelService paymentCancelService;
     private final PaymentRecoveryMetrics paymentRecoveryMetrics;
@@ -155,7 +157,14 @@ public class PaymentRecoveryService {
     private int runRecoveryBatch(String operation, List<Long> paymentIds, Predicate<Long> recoverFn) {
         int recoveredCount = 0;
         int failedCount = 0;
+        int processedCount = 0;
         for (Long paymentId : paymentIds) {
+            if (paymentGatewayCircuitState.isLookupCircuitOpen()) {
+                log.debug("Stopping {} gray-zone recovery batch because PG lookup circuit opened. remainingCount={}",
+                        operation, paymentIds.size() - processedCount);
+                break;
+            }
+            processedCount++;
             try {
                 if (recoverFn.test(paymentId)) {
                     recoveredCount++;

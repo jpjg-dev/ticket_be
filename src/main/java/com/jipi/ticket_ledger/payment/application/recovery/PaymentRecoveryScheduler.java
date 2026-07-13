@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,6 +16,7 @@ import java.util.function.IntSupplier;
 public class PaymentRecoveryScheduler {
 
     private final PaymentRecoveryService paymentRecoveryService;
+    private final PaymentGatewayCircuitState paymentGatewayCircuitState;
 
     @Value("${payment.recovery-scheduler.grace-ms}")
     private long graceMs;
@@ -29,8 +31,18 @@ public class PaymentRecoveryScheduler {
         Duration grace = Duration.ofMillis(graceMs);
         // 배치·게이지를 서로 독립 실행한다. per-item 격리는 배치 내부에 있지만, 후보 조회 같은 루프 밖 실패가
         // 다른 배치와 게이지 갱신까지 건너뛰지 않게 각각 격리한다(다음 주기 자동 재시도).
-        int confirmingRecovered = runBatch("confirming", () -> paymentRecoveryService.reconcileStaleConfirmingPayments(grace, batchSize));
-        int cancelingRecovered = runBatch("canceling", () -> paymentRecoveryService.reconcileStaleCancelingPayments(grace, batchSize));
+        int confirmingRecovered = 0;
+        int cancelingRecovered = 0;
+        if (paymentGatewayCircuitState.isLookupCircuitOpen()) {
+            log.debug("Skipping gray-zone recovery batches while PG lookup circuit is open.");
+        } else {
+            confirmingRecovered = runBatch("confirming",
+                    () -> paymentRecoveryService.reconcileStaleConfirmingPayments(grace, batchSize));
+            if (!paymentGatewayCircuitState.isLookupCircuitOpen()) {
+                cancelingRecovered = runBatch("canceling",
+                        () -> paymentRecoveryService.reconcileStaleCancelingPayments(grace, batchSize));
+            }
+        }
         updateBacklogGauges();
 
         // 처리할 게 없는 빈 주기는 로그를 더럽히므로 debug 로만 남기고, 실제 보정이 있을 때만 info 로 남긴다.

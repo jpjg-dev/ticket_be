@@ -13,6 +13,8 @@ import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import com.jipi.ticket_ledger.payment.application.recovery.PaymentRecoveryService;
 import com.jipi.ticket_ledger.payment.presentation.PaymentApiController;
 import com.jipi.ticket_ledger.payment.presentation.dto.ConfirmPaymentRequest;
@@ -109,6 +111,9 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     private final Set<Long> paymentIds = new LinkedHashSet<>();
     private final Set<Long> savedReservationIds = new LinkedHashSet<>();
@@ -207,6 +212,31 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, seat.getStatus());
+    }
+
+    @Test
+    @DisplayName("confirmPayment: confirm breaker OPEN admission은 실제 DB의 READY 상태를 보존한다")
+    void confirmPaymentOpenCircuitAdmissionKeepsReadyInDatabase() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        CircuitBreaker confirmCircuit = circuitBreakerRegistry.circuitBreaker("paymentConfirm");
+        confirmCircuit.transitionToForcedOpenState();
+
+        try {
+            assertThrows(PaymentGatewayException.class,
+                    () -> paymentService.confirmPayment(
+                            "pay-key-open-admission",
+                            ready.getOrderId(),
+                            amountWithVat(ready.getAmount())
+                    ));
+
+            Payment persisted = paymentRepository.findById(ready.getId()).orElseThrow();
+            assertEquals(PaymentStatus.READY, persisted.getStatus());
+            verify(paymentGateway, never()).confirm(anyString(), anyString(), anyInt(), anyString());
+        } finally {
+            confirmCircuit.reset();
+        }
     }
 
     @Test

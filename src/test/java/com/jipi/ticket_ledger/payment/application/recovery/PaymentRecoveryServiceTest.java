@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.user.domain.User;
@@ -40,11 +41,12 @@ class PaymentRecoveryServiceTest {
 
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final PaymentGateway paymentGateway = mock(PaymentGateway.class);
+    private final PaymentGatewayCircuitState paymentGatewayCircuitState = mock(PaymentGatewayCircuitState.class);
     private final PaymentRecoveryTransactionService transactionService = mock(PaymentRecoveryTransactionService.class);
     private final PaymentCancelService paymentCancelService = mock(PaymentCancelService.class);
     private final PaymentRecoveryMetrics metrics = mock(PaymentRecoveryMetrics.class);
     private final PaymentRecoveryService service = new PaymentRecoveryService(
-            paymentRepository, paymentGateway, transactionService, paymentCancelService, metrics,
+            paymentRepository, paymentGateway, paymentGatewayCircuitState, transactionService, paymentCancelService, metrics,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     private RecoverySnapshot snapshot(boolean held) {
@@ -172,6 +174,21 @@ class PaymentRecoveryServiceTest {
         verify(paymentCancelService).recoverCanceling(1L);
         verify(paymentCancelService).recoverCanceling(2L);
         verify(metrics).recordBatchException("cancel");
+    }
+
+    @Test
+    @DisplayName("배치 중 lookup breaker가 OPEN으로 바뀌면 남은 결제는 호출하지 않는다")
+    void batchStopsRemainingPaymentsWhenLookupCircuitOpens() {
+        when(paymentRepository.findStaleConfirmingIds(any(), any())).thenReturn(List.of(1L, 2L, 3L));
+        when(paymentGatewayCircuitState.isLookupCircuitOpen()).thenReturn(false, true);
+        when(transactionService.loadRecoverySnapshot(1L)).thenThrow(new RuntimeException("opens circuit"));
+
+        int recovered = service.reconcileStaleConfirmingPayments(Duration.ZERO, 20);
+
+        assertEquals(0, recovered);
+        verify(transactionService).loadRecoverySnapshot(1L);
+        verify(transactionService, never()).loadRecoverySnapshot(2L);
+        verify(transactionService, never()).loadRecoverySnapshot(3L);
     }
 
     @Test

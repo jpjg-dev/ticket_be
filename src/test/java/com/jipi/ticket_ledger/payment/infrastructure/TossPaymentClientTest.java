@@ -108,13 +108,21 @@ class TossPaymentClientTest {
         assertEquals("CANCELED", client.cancel("pay-key", "reason", "KRW", "cancel:1").status());
 
         registry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP).transitionToForcedOpenState();
+        PaymentGatewayException lookupBlocked = assertThrows(PaymentGatewayException.class,
+                () -> client.getPaymentByPaymentKey("pay-key"));
+        assertInstanceOf(CallNotPermittedException.class, lookupBlocked.getCause());
         assertEquals("CANCELED", client.cancel("pay-key", "reason", "KRW", "cancel:1").status());
+
+        registry.circuitBreaker(PaymentGatewayCircuitBreakers.CANCEL).transitionToForcedOpenState();
+        PaymentGatewayException cancelBlocked = assertThrows(PaymentGatewayException.class,
+                () -> client.cancel("pay-key", "reason", "KRW", "cancel:1"));
+        assertInstanceOf(CallNotPermittedException.class, cancelBlocked.getCause());
 
         assertEquals(CircuitBreaker.State.FORCED_OPEN,
                 registry.circuitBreaker(PaymentGatewayCircuitBreakers.CONFIRM).getState());
         assertEquals(CircuitBreaker.State.FORCED_OPEN,
                 registry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP).getState());
-        assertEquals(CircuitBreaker.State.CLOSED,
+        assertEquals(CircuitBreaker.State.FORCED_OPEN,
                 registry.circuitBreaker(PaymentGatewayCircuitBreakers.CANCEL).getState());
         serverHolder[0].verify();
     }
