@@ -30,8 +30,8 @@ public class ReservationExpirationService {
     private final ReservationGroupRepository reservationGroupRepository;
     private final Clock clock;
 
-    @Value("${reservation.expire-scheduler.batch-size:100}")
-    private int batchSize = 100;
+    @Value("${reservation.expire-scheduler.batch-size}")
+    private int batchSize;
 
     // 스케줄러 만료는 저빈도(1분 주기)·전역(모든 회차) 일괄 처리라 한 주기에 후보가 크게 쌓일 수 있으므로
     // batch-size 로 한 트랜잭션 작업량을 제한한다(긴 트랜잭션·락 보유 방지). 못 비운 잔여분은 다음 주기에 이어서 처리한다.

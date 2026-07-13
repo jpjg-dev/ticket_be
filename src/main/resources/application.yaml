@@ -17,12 +17,12 @@ spring:
 
   data:
     redis:
-      host: ${CACHE_REDIS_HOST:localhost}
-      port: ${CACHE_REDIS_PORT:6379}
-      timeout: ${CACHE_REDIS_TIMEOUT:2s}
+      host: ${CACHE_REDIS_HOST}
+      port: ${CACHE_REDIS_PORT}
+      timeout: ${CACHE_REDIS_TIMEOUT}
 
 server:
-  port: ${PORT:8080}
+  port: ${PORT}
   shutdown: graceful
   tomcat:
     mbeanregistry:

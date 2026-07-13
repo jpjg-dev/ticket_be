@@ -16,15 +16,15 @@ public class PaymentRecoveryScheduler {
 
     private final PaymentRecoveryService paymentRecoveryService;
 
-    @Value("${payment.recovery-scheduler.grace-ms:60000}")
-    private long graceMs = 60000;
+    @Value("${payment.recovery-scheduler.grace-ms}")
+    private long graceMs;
 
-    @Value("${payment.recovery-scheduler.batch-size:20}")
-    private int batchSize = 20;
+    @Value("${payment.recovery-scheduler.batch-size}")
+    private int batchSize;
 
     // Spring 기본 TaskScheduler 는 1스레드라 @Scheduled 를 쪼개도 직렬이므로, 한 주기에서 confirm → cancel 배치를
     // 순차 실행하고 backlog gauge 를 갱신한다. 설정 노브(payment.recovery-scheduler.*)는 두 배치가 공유한다.
-    @Scheduled(fixedDelayString = "${payment.recovery-scheduler.fixed-delay-ms:60000}")
+    @Scheduled(fixedDelayString = "${payment.recovery-scheduler.fixed-delay-ms}")
     public void recoverGrayZonePayments() {
         Duration grace = Duration.ofMillis(graceMs);
         // 배치·게이지를 서로 독립 실행한다. per-item 격리는 배치 내부에 있지만, 후보 조회 같은 루프 밖 실패가

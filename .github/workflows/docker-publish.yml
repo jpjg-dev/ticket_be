@@ -33,6 +33,13 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
 
       - name: Build with Gradle
+        env:
+          PORT: "8080"
+          JWT_SECRET: ci-test-jwt-secret-abcdefghijklmnopqrstuvwxyz-123456
+          TOSS_SECRET_KEY: ci-test-toss-secret
+          CACHE_REDIS_HOST: localhost
+          CACHE_REDIS_PORT: "6379"
+          CACHE_REDIS_TIMEOUT: 2s
         run: |
           chmod +x ./gradlew
           ./gradlew build

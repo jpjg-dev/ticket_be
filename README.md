@@ -444,6 +444,8 @@ GET  /api/v1/payments/{paymentId}/status
 <details>
 <summary>실행 방법</summary>
 
+로컬 실행값은 `.env.example`의 카테고리 구조를 기준으로 `.env.dev`, `.env.test` 등에 설정합니다. 애플리케이션 YAML에는 환경변수 기본값을 두지 않으므로 필수값이 없으면 시작 단계에서 실패합니다.
+
 ### 로컬 테스트
 
 ```powershell

@@ -40,7 +40,7 @@ public class ReservationService {
 
     // 공연 시작 시간(공연장 로컬 LocalDateTime)을 "지금 몇 시인가"로 비교할 때 쓰는 서비스 타임존.
     // 컨테이너 타임존에 의존하지 않도록 코드에서 명시적으로 사용한다(향후 venue별 존으로 확장).
-    @Value("${app.time.service-zone:Asia/Seoul}")
+    @Value("${app.time.service-zone}")
     private String serviceZoneId;
 
     @Transactional

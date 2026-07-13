@@ -27,25 +27,27 @@ logging:
     org.hibernate.orm.jdbc.bind: off
 
 server:
-  port: ${PORT:8080}
+  port: ${PORT}
 
 jwt:
-  secret: ${JWT_SECRET:q4mzk1bpyxvcr6atn2swe5ldjhfig3uo}
+  secret: ${JWT_SECRET}
 
 toss:
   payments:
     base-url: http://127.0.0.1:18080
-    secret-key: ${TOSS_SECRET_KEY:test_secret_key}
+    secret-key: ${TOSS_SECRET_KEY}
 
 reservation:
   hold-duration: 30s
   expire-scheduler:
     fixed-delay-ms: 60000
+    batch-size: 100
 
 payment:
   recovery-scheduler:
     grace-ms: 60000
     fixed-delay-ms: 60000
+    batch-size: 20
 
 security:
   csrf-origin:

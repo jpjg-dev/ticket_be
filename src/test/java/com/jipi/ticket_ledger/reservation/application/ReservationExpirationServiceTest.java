@@ -15,6 +15,7 @@ import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.data.domain.Pageable;
@@ -58,6 +59,11 @@ class ReservationExpirationServiceTest {
 
     @InjectMocks
     private ReservationExpirationService reservationExpirationService;
+
+    @BeforeEach
+    void setUpBatchSize() {
+        ReflectionTestUtils.setField(reservationExpirationService, "batchSize", 100);
+    }
 
     @Test
     @DisplayName("expireAll: 주입된 Clock의 시각을 만료 기준으로 사용한다(시간 결정성)")
