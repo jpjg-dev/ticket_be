@@ -4,6 +4,8 @@ import com.jipi.ticket_ledger.event.application.cache.EventCache;
 import com.jipi.ticket_ledger.event.application.cache.EventCacheAccessException;
 import com.jipi.ticket_ledger.event.application.model.EventDetailResponse;
 import com.jipi.ticket_ledger.event.application.model.EventListCacheResponse;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 @Component
 @RequiredArgsConstructor
@@ -29,6 +32,7 @@ public class EventRedisCacheAdapter implements EventCache {
 
     private final CacheManager cacheManager;
     private final StringRedisTemplate redisTemplate;
+    private final CircuitBreaker eventRedisCacheCircuitBreaker;
 
     @Override
     public Optional<EventListCacheResponse> findEventList() {
@@ -52,33 +56,34 @@ public class EventRedisCacheAdapter implements EventCache {
 
     @Override
     public boolean tryAcquireRefreshLock(String key, String token, Duration ttl) {
-        try {
-            return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(lockKey(key), token, ttl));
-        } catch (RuntimeException exception) {
-            throw new EventCacheAccessException(exception);
-        }
+        return executeRedisOperation(() -> Boolean.TRUE.equals(
+                redisTemplate.opsForValue().setIfAbsent(lockKey(key), token, ttl)));
     }
 
     @Override
     public void releaseRefreshLock(String key, String token) {
-        try {
+        executeRedisOperation(() -> {
             redisTemplate.execute(RELEASE_LOCK, List.of(lockKey(key)), token);
-        } catch (RuntimeException exception) {
-            throw new EventCacheAccessException(exception);
-        }
+            return null;
+        });
     }
 
     private <T> Optional<T> get(String cacheName, Object key, Class<T> type) {
-        try {
-            return Optional.ofNullable(cache(cacheName).get(key, type));
-        } catch (RuntimeException exception) {
-            throw new EventCacheAccessException(exception);
-        }
+        return executeRedisOperation(() -> Optional.ofNullable(cache(cacheName).get(key, type)));
     }
 
     private void put(String cacheName, Object key, Object value) {
-        try {
+        executeRedisOperation(() -> {
             cache(cacheName).put(key, value);
+            return null;
+        });
+    }
+
+    private <T> T executeRedisOperation(Supplier<T> operation) {
+        try {
+            return eventRedisCacheCircuitBreaker.executeSupplier(operation);
+        } catch (CallNotPermittedException exception) {
+            throw new EventCacheAccessException(exception);
         } catch (RuntimeException exception) {
             throw new EventCacheAccessException(exception);
         }

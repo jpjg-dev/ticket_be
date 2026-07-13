@@ -61,6 +61,17 @@ springdoc:
     operations-sorter: method
     tags-sorter: alpha
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      eventRedisCache:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+
 toss:
   payments:
     base-url: https://api.tosspayments.com
