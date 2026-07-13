@@ -47,7 +47,7 @@ confirm 진입 시 `READY -> CONFIRMING`을, 취소 진입 시 `APPROVED -> CANC
 | --- | --- | --- | --- |
 | 동기 — confirm 서비스 | 코드 살아있음 | confirm PG 호출이 `RestClientException`이면 `paymentKey`로 PG 최종 조회 → `DONE`이면 내부 상태 확정 | `PaymentConfirmService`에서 처리 |
 | 동기 — confirm 재진입 | 코드 살아있음 | `CONFIRMING`이면 같은 멱등키로 confirm 재호출, `APPROVED`면 기존 결과 재사용 | 중복 완료 요청 방어 |
-| 동기 — 컨트롤러 최종 조회 | 코드 살아있음 | confirm이 `RestClientException`/`IllegalStateException`으로 빠져나오면, 결제가 `CONFIRMING`일 때만 보정 로직을 즉시 1회 적용. 해소되면 그 상태, 아니면 `CONFIRMING` 응답 후 스케줄러 위임 | `PayMentController` try-catch → `PaymentRecoveryService.reconcileConfirmingPaymentByOrderId`. `CONFIRMING`이 아니면(정상 비즈니스 거절) 원래 예외 전파 |
+| 동기 — 컨트롤러 최종 조회 | 코드 살아있음 | confirm이 `PaymentGatewayException`/`IllegalStateException`으로 빠져나오면, 결제가 `CONFIRMING`일 때만 보정 로직을 즉시 1회 적용. 해소되면 그 상태, 아니면 `CONFIRMING` 응답 후 스케줄러 위임 | `PaymentApiController` try-catch → `PaymentRecoveryService.reconcileConfirmingPaymentByOrderId`. `CONFIRMING`이 아니면(정상 비즈니스 거절) 원래 예외 전파 |
 | 동기 — cancel 서비스 | 코드 살아있음 | 취소 PG 호출이 `RestClientException`이면 `paymentKey`로 조회 폴백. 취소·조회 모두 미확정이면 `CANCELING` 유지 후 `200`(예외 아님) | `PaymentCancelService`에서 처리 |
 | 동기 — cancel 재진입 | 코드 살아있음 | 이미 `CANCELING`이면 추가 마킹 없이 같은 멱등키로 재취소, 이미 `CANCELED`면 즉시 멱등 종료(외부 호출 없음) | 중복 취소 요청 방어 |
 | 비동기 — 보정 스케줄러 | 크래시 등으로 동기 복구 불가 | 나중에 DB 스캔 → PG 재조회 → 수렴. 한 주기에서 confirm 배치 → cancel 배치 → backlog gauge 순차 처리 | 최종 일관성 보장 |

@@ -100,7 +100,7 @@ idempotencyKey=confirm:... outcome=... httpStatus=... exceptionClass=... message
 
 원칙:
 
-- `TossPaymentClient`가 실패를 로깅하고 **원래 예외를 그대로 재전파**합니다. 서비스 계층은 같은 예외를 다시 덤프하지 않고 **비즈니스 결정**(조회 fallback, 보정 위임, 다음 주기 재시도)만 남겨 중복 로그를 없앱니다.
+- `TossPaymentClient`가 실패를 로깅하고 Spring HTTP 예외를 `PaymentGatewayException`으로 변환합니다. 서비스 계층은 HTTP 구현 예외를 알지 않고 **비즈니스 결정**(조회 fallback, 보정 위임, 다음 주기 재시도)만 남겨 중복 로그를 없앱니다.
 - `raw secret`, `Authorization` 헤더는 로그에 남기지 않습니다. `paymentKey`는 앞 6자만 노출하고 나머지는 마스킹합니다(`PaymentLogFormatter`, infrastructure 배치로 계층 역참조 방지).
 - `TIMEOUT`은 실패 확정이 아니라 결과 불명이므로 `CONFIRMING` 보정 흐름과 함께 해석합니다.
 

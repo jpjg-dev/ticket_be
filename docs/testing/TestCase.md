@@ -64,7 +64,7 @@
 </details>
 
 <details>
-<summary>EventService</summary>
+<summary>EventQueryService / SeatQueryService</summary>
 
 ### `getEvents()`
 

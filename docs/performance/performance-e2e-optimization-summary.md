@@ -64,7 +64,7 @@
 
 그래서 정책은 유지하고 트랜잭션 범위만 줄였습니다.
 
-- `EventService.getSeats()`는 직접 write transaction을 감싸지 않습니다.
+- `SeatQueryService.getSeats()`는 직접 write transaction을 감싸지 않습니다.
 - 만료 상태 전이는 `ReservationExpirationService.expireByScheduleId()`의 write transaction에서만 처리합니다.
 - 좌석 응답 매핑은 path variable의 `scheduleId`를 직접 사용해 `Seat -> Schedule` 접근을 줄였습니다.
 

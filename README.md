@@ -375,49 +375,55 @@ GET  /api/v1/payments/{paymentId}/status
 │   ├── application      # ReservationService, ReservationExpirationService, Scheduler
 │   └── domain           # Reservation, ReservationGroup, Status, Repository
 ├── payment              # 결제 준비 / 승인 / 취소 / 보정
-│   ├── presentation     # PayMentController
+│   ├── presentation     # PaymentApiController, HTTP 요청/응답 DTO
 │   │   └── dto          # ReadyPayment*, ConfirmPayment*
 │   ├── application      # PaymentService
 │   │   ├── confirm      # PaymentConfirmService, TransactionService, PG 승인 검증
-│   │   └── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService, Candidate
+│   │   ├── cancel       # PaymentCancelService, TransactionService, 취소 정책
+│   │   ├── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService
+│   │   ├── observability# 회색지대 보정 메트릭
+│   │   └── port/out     # PaymentGateway 계약과 PG 중립 응답 상태
 │   ├── domain           # Payment, PaymentAmount, PaymentStatus, PaymentRepository
-│   └── infrastructure   # TossPaymentClient, Toss 요청/응답 모델, PaymentLogFormatter
+│   └── infrastructure   # TossPaymentClient, Toss 요청/응답 모델
 ├── auth                 # 로그인 / 토큰 / 쿠키 인증
 │   ├── presentation     # AuthController
 │   │   └── dto          # 로그인 요청/응답 DTO
-│   ├── application      # AuthService
+│   ├── application      # AuthService, AuthTokens
+│   │   └── port/out     # TokenProvider, TokenHashEncoder
 │   ├── domain           # RefreshToken, RefreshTokenRepository
 │   └── infrastructure   # JwtTokenProvider, JwtAuthenticationFilter, CookieProvider, TokenHasher
 ├── event                # 공연 / 회차 / 좌석 조회
 │   ├── presentation     # EventController
-│   │   └── dto          # EventListResponse, EventDetailResponse, ScheduleResponse
-│   ├── application      # EventService
+│   ├── application      # EventQueryService
+│   │   └── model        # EventListResponse, EventDetailResponse, ScheduleResponse
 │   └── domain           # Event, Schedule, Repository
 ├── seat                 # 좌석 상태
-│   ├── presentation
-│   │   └── dto          # SeatResponse, SeatListResponse, SeatAvailabilityResponse
+│   ├── application      # SeatQueryService
+│   │   └── model        # SeatResponse, SeatListResponse, SeatAvailabilityResponse
 │   └── domain           # Seat, SeatStatus, SeatRepository
 ├── user                 # 사용자 / 마이페이지
-│   ├── presentation     # UserController
-│   │   └── dto          # 회원/마이페이지 응답 DTO
+│   ├── presentation     # UserController, 회원가입 요청 DTO
 │   ├── application      # UserService
+│   │   └── model        # 사용자/마이페이지 조회 결과
 │   └── domain           # User, UserRole, UserStatus, UserRepository
 └── global               # 전 계층 공통 관심사
     ├── config           # Cache, Security, Swagger, Time, 초기 데이터
     ├── security         # CSRF Origin 필터/설정
     ├── exception        # 공통 예외 응답
-    └── log              # TraceId, AccessLog, LogEvents
+    └── log              # TraceId, AccessLog, LogEvents, 민감값 마스킹
 ```
 
 계층별 책임은 다음과 같이 구분했습니다.
 
 | 계층 | 책임 |
 | --- | --- |
-| `presentation` | API 입출력, Controller, 요청/응답 DTO |
-| `application` | 유스케이스, 트랜잭션 경계, 서비스 조합 |
+| `presentation` | HTTP 요청 검증, Controller, 웹 요청/응답 변환 |
+| `application` | 유스케이스, 트랜잭션 경계, 출력 모델, 외부 시스템 포트 |
 | `domain` | 엔티티, 상태, Repository 계약 |
 | `infrastructure` | JWT, Cookie, 외부 PG 같은 외부 연동 |
 | `global` | 보안, 설정, 예외, 로그 등 공통 관심사 |
+
+애플리케이션 계층이 `infrastructure`와 `presentation`을 직접 참조하지 않도록 출력 포트로 의존성을 역전했습니다. 이 규칙은 ArchUnit 테스트로 검증합니다. 상세 기준은 [코드 아키텍처](docs/architecture/code-architecture.md)에 정리했습니다.
 
 ## 기술 스택
 
@@ -445,7 +451,7 @@ GET  /api/v1/payments/{paymentId}/status
 특정 테스트만 실행할 때:
 
 ```powershell
-.\gradlew.bat test --tests "com.jipi.ticket_ledger.event.application.EventServiceTest"
+.\gradlew.bat test --tests "com.jipi.ticket_ledger.event.application.EventQueryServiceTest"
 ```
 
 ### 성능 테스트 전제
