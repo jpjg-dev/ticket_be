@@ -1,4 +1,4 @@
-package com.jipi.ticket_ledger.event.presentation.dto;
+package com.jipi.ticket_ledger.event.application.model;
 
 import java.time.LocalDateTime;
 

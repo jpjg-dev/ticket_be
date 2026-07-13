@@ -3,10 +3,12 @@ package com.jipi.ticket_ledger.user.presentation;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.global.exception.GlobalExceptionHandler;
 import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
-import com.jipi.ticket_ledger.user.application.UserService;
+import com.jipi.ticket_ledger.user.application.MyPageQueryService;
+import com.jipi.ticket_ledger.user.application.UserCommandService;
+import com.jipi.ticket_ledger.user.application.UserQueryService;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
-import com.jipi.ticket_ledger.user.presentation.dto.ResponseMeDTO;
-import com.jipi.ticket_ledger.user.presentation.dto.ResponseMyPageDTO;
+import com.jipi.ticket_ledger.user.application.model.ResponseMeDTO;
+import com.jipi.ticket_ledger.user.application.model.ResponseMyPageDTO;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,7 +42,13 @@ class UserControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private UserService userService;
+    private UserCommandService userCommandService;
+
+    @MockitoBean
+    private UserQueryService userQueryService;
+
+    @MockitoBean
+    private MyPageQueryService myPageQueryService;
 
     @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
@@ -59,7 +67,7 @@ class UserControllerTest {
     @Test
     @DisplayName("GET /api/v1/users/me: 로그인 사용자 기본 정보를 반환한다")
     void getMyInfoSuccess() throws Exception {
-        when(userService.getMyInfo(1L))
+        when(userQueryService.getMyInfo(1L))
                 .thenReturn(new ResponseMeDTO(1L, "user@test.com", "테스터", "ROLE_USER", "ACTIVE"));
         SecurityContextHolder.getContext().setAuthentication(authenticationPrincipal(1L));
 
@@ -71,7 +79,7 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.role").value("ROLE_USER"))
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
-        verify(userService).getMyInfo(1L);
+        verify(userQueryService).getMyInfo(1L);
     }
 
     @Test
@@ -104,7 +112,7 @@ class UserControllerTest {
                         )
                 ))
         );
-        when(userService.getUserInfo(1L, 1L)).thenReturn(response);
+        when(myPageQueryService.getUserInfo(1L, 1L)).thenReturn(response);
         SecurityContextHolder.getContext().setAuthentication(authenticationPrincipal(1L));
 
         mockMvc.perform(get("/api/v1/users/1"))
@@ -117,13 +125,13 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.payments[0].status").value("APPROVED"))
                 .andExpect(jsonPath("$.payments[0].seats[1].seatNumber").value("A-2"));
 
-        verify(userService).getUserInfo(1L, 1L);
+        verify(myPageQueryService).getUserInfo(1L, 1L);
     }
 
     @Test
     @DisplayName("GET /api/v1/users/{userId}: 다른 사용자 조회 예외는 409로 반환한다")
     void getUserInfoForbiddenOtherUser() throws Exception {
-        when(userService.getUserInfo(2L, 1L))
+        when(myPageQueryService.getUserInfo(2L, 1L))
                 .thenThrow(new IllegalStateException("잘못된 접근 입니다."));
         SecurityContextHolder.getContext().setAuthentication(authenticationPrincipal(1L));
 
@@ -132,7 +140,7 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.code").value("ILLEGAL_STATE"))
                 .andExpect(jsonPath("$.message").value("잘못된 접근 입니다."));
 
-        verify(userService).getUserInfo(2L, 1L);
+        verify(myPageQueryService).getUserInfo(2L, 1L);
     }
 
     private UsernamePasswordAuthenticationToken authenticationPrincipal(Long userId) {

@@ -1,4 +1,4 @@
-package com.jipi.ticket_ledger.user.presentation.dto;
+package com.jipi.ticket_ledger.user.application.model;
 
 public record ResponseMeDTO(
         Long id,

@@ -5,9 +5,11 @@ import com.jipi.ticket_ledger.event.domain.EventRepository;
 import com.jipi.ticket_ledger.global.config.CacheNames;
 import com.jipi.ticket_ledger.global.config.DataInitializer;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
+import com.jipi.ticket_ledger.seat.application.SeatQueryService;
 import com.jipi.ticket_ledger.seat.domain.SeatRepository;
 import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.support.PostgresTestContainerSupport;
+import com.jipi.ticket_ledger.support.RedisTestContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,7 +42,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class EventServiceTest {
+class EventQueryServiceTest {
 
     @Mock
     private EventRepository eventRepository;
@@ -55,7 +57,10 @@ class EventServiceTest {
     private ReservationExpirationService reservationExpirationService;
 
     @InjectMocks
-    private EventService eventService;
+    private EventQueryService eventQueryService;
+
+    @InjectMocks
+    private SeatQueryService seatQueryService;
 
     @Test
     @DisplayName("getEvents: 메인 목록 조회는 좌석 전체를 조회하지 않고 회차 정보만 조립한다")
@@ -82,7 +87,7 @@ class EventServiceTest {
         when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
                 .thenReturn(List.of(schedule));
 
-        var responses = eventService.getEvents().events();
+        var responses = eventQueryService.getEvents().events();
 
         assertEquals(1, responses.size());
         assertEquals(1L, responses.get(0).id());
@@ -106,7 +111,7 @@ class EventServiceTest {
         when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
-        var responses = eventService.getEvents().events();
+        var responses = eventQueryService.getEvents().events();
 
         assertTrue(responses.isEmpty());    }
 
@@ -135,7 +140,7 @@ class EventServiceTest {
         when(scheduleRepository.findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class)))
                 .thenReturn(List.of(schedule));
 
-        var response = eventService.getEvent(1L);
+        var response = eventQueryService.getEvent(1L);
 
         assertEquals(1L, response.id());
         assertEquals(1, response.schedules().size());
@@ -147,7 +152,7 @@ class EventServiceTest {
         when(seatRepository.countStatusesByScheduleIds(anyCollection())).thenReturn(List.of());
         when(seatRepository.findAvailableSeatSummariesByScheduleId(10L)).thenReturn(List.of());
 
-        var response = eventService.getSeats(10L);
+        var response = seatQueryService.getSeats(10L);
 
         assertFalse(response.soldOut());
         assertEquals(List.of(), response.seats());
@@ -164,7 +169,7 @@ class EventServiceTest {
                 new StatusCount(10L, SeatStatus.BOOKED, 1000)
         ));
 
-        var response = eventService.getSeats(10L);
+        var response = seatQueryService.getSeats(10L);
 
         assertTrue(response.soldOut());
         assertEquals(10L, response.scheduleId());
@@ -181,7 +186,7 @@ class EventServiceTest {
         ));
         when(seatRepository.findAvailableSeatSummariesByScheduleId(10L)).thenReturn(List.of());
 
-        var response = eventService.getSeats(10L);
+        var response = seatQueryService.getSeats(10L);
 
         assertFalse(response.soldOut());
         verify(seatRepository).countStatusesByScheduleIds(anyCollection());
@@ -198,7 +203,7 @@ class EventServiceTest {
                 new SeatSummary(2L, "A-2", "R", 1000, SeatStatus.AVAILABLE)
         ));
 
-        var response = eventService.getSeats(10L);
+        var response = seatQueryService.getSeats(10L);
 
         assertFalse(response.soldOut());
         assertEquals(2, response.seats().size());
@@ -220,7 +225,7 @@ class EventServiceTest {
                 new StatusCount(11L, SeatStatus.BOOKED, 996)
         ));
 
-        var responses = eventService.getScheduleAvailability(List.of(10L, 11L));
+        var responses = seatQueryService.getScheduleAvailability(List.of(10L, 11L));
 
         assertEquals(2, responses.size());
         assertTrue(responses.get(0).soldOut());
@@ -235,14 +240,14 @@ class EventServiceTest {
 
     @Test
     @DisplayName("getSeats: 좌석 조회 메서드는 만료 처리 write transaction을 감싸지 않는다")
-    void getSeatsDoesNotWrapExpirationInEventServiceTransaction() throws Exception {
-        assertNull(EventService.class.getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+    void getSeatsDoesNotWrapExpirationInQueryTransaction() throws Exception {
+        assertNull(SeatQueryService.class.getAnnotation(org.springframework.transaction.annotation.Transactional.class));
 
-        Method getSeats = EventService.class.getMethod("getSeats", Long.class);
+        Method getSeats = SeatQueryService.class.getMethod("getSeats", Long.class);
         assertNull(getSeats.getAnnotation(org.springframework.transaction.annotation.Transactional.class));
 
-        Method getEvents = EventService.class.getMethod("getEvents");
-        Method getEvent = EventService.class.getMethod("getEvent", Long.class);
+        Method getEvents = EventQueryService.class.getMethod("getEvents");
+        Method getEvent = EventQueryService.class.getMethod("getEvent", Long.class);
 
         assertTrue(getEvents.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
         assertTrue(getEvent.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
@@ -254,10 +259,10 @@ class EventServiceTest {
             "cache.event.list.ttl=60s",
             "cache.event.detail.ttl=5m"
     })
-    class EventCacheTest extends PostgresTestContainerSupport {
+    class EventCacheTest extends RedisTestContainerSupport {
 
         @Autowired
-        private EventService cacheEventService;
+        private EventQueryService cacheEventService;
 
         @Autowired
         private CacheManager cacheManager;

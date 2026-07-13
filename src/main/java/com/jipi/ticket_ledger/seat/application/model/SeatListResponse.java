@@ -1,4 +1,4 @@
-package com.jipi.ticket_ledger.seat.presentation.dto;
+package com.jipi.ticket_ledger.seat.application.model;
 
 import java.util.List;
 

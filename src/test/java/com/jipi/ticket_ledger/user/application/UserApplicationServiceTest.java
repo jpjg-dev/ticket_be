@@ -11,14 +11,15 @@ import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.seat.domain.Seat;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
-import com.jipi.ticket_ledger.user.presentation.dto.ResponseMeDTO;
-import com.jipi.ticket_ledger.user.presentation.dto.ResponseMyPageDTO;
+import com.jipi.ticket_ledger.user.application.model.ResponseMeDTO;
+import com.jipi.ticket_ledger.user.application.model.ResponseMyPageDTO;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class UserServiceTest {
+class UserApplicationServiceTest {
 
     @Mock
     private UserRepository userRepository;
@@ -51,7 +52,13 @@ class UserServiceTest {
     private PaymentRepository paymentRepository;
 
     @InjectMocks
-    private UserService userService;
+    private UserQueryService userQueryService;
+
+    @Spy
+    private MyPageResponseMapper responseMapper = new MyPageResponseMapper();
+
+    @InjectMocks
+    private MyPageQueryService myPageQueryService;
 
     @Test
     @DisplayName("getMyInfo: 로그인 사용자 기본 정보를 반환한다")
@@ -59,7 +66,7 @@ class UserServiceTest {
         User user = createUser(1L, "user@test.com", "테스터");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
 
-        ResponseMeDTO response = userService.getMyInfo(1L);
+        ResponseMeDTO response = userQueryService.getMyInfo(1L);
 
         assertEquals(1L, response.id());
         assertEquals("user@test.com", response.email());
@@ -73,7 +80,7 @@ class UserServiceTest {
     void getMyInfoUserNotFound() {
         when(userRepository.findById(404L)).thenReturn(Optional.empty());
 
-        assertThrows(EntityNotFoundException.class, () -> userService.getMyInfo(404L));
+        assertThrows(EntityNotFoundException.class, () -> userQueryService.getMyInfo(404L));
     }
 
     @Test
@@ -99,7 +106,7 @@ class UserServiceTest {
                 eq(Sort.by(Sort.Direction.DESC, "requestedAt"))
         )).thenReturn(List.of(approvedFixture.payment(), canceledFixture.payment()));
 
-        ResponseMyPageDTO response = userService.getUserInfo(1L, 1L);
+        ResponseMyPageDTO response = myPageQueryService.getUserInfo(1L, 1L);
 
         assertEquals(2, response.reservations().size());
         assertEquals(10L, response.reservations().get(0).reservationGroupId());
@@ -141,7 +148,7 @@ class UserServiceTest {
                 eq(Sort.by(Sort.Direction.DESC, "requestedAt"))
         )).thenReturn(List.of(cancelingFixture.payment()));
 
-        ResponseMyPageDTO response = userService.getUserInfo(1L, 1L);
+        ResponseMyPageDTO response = myPageQueryService.getUserInfo(1L, 1L);
 
         assertEquals(1, response.payments().size());
         assertEquals("CANCELING", response.payments().get(0).status());
@@ -153,7 +160,7 @@ class UserServiceTest {
     void getUserInfoUserNotFound() {
         when(userRepository.existsById(404L)).thenReturn(false);
 
-        assertThrows(EntityNotFoundException.class, () -> userService.getUserInfo(404L, 404L));
+        assertThrows(EntityNotFoundException.class, () -> myPageQueryService.getUserInfo(404L, 404L));
         verify(reservationRepository, never()).findByReservationGroupUserIdAndReservationGroupStatusIn(
                 eq(404L),
                 eq(List.of(ReservationGroupStatus.CONFIRMED, ReservationGroupStatus.CANCELED)),
@@ -166,7 +173,7 @@ class UserServiceTest {
     void getUserInfoForbiddenOtherUser() {
         when(userRepository.existsById(2L)).thenReturn(true);
 
-        assertThrows(IllegalStateException.class, () -> userService.getUserInfo(2L, 1L));
+        assertThrows(IllegalStateException.class, () -> myPageQueryService.getUserInfo(2L, 1L));
         verify(paymentRepository, never()).findByReservationGroupUserIdAndStatusIn(
                 eq(2L),
                 eq(List.of(com.jipi.ticket_ledger.payment.domain.PaymentStatus.APPROVED, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELING, com.jipi.ticket_ledger.payment.domain.PaymentStatus.CANCELED)),

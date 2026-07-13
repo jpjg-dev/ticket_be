@@ -1,9 +1,9 @@
-package com.jipi.ticket_ledger.event.presentation.dto;
+package com.jipi.ticket_ledger.event.application.model;
 
 import java.time.Instant;
 import java.util.List;
 
-public record EventListResponse(
+public record EventDetailResponse(
         Long id,
         String title,
         String description,

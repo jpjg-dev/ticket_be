@@ -1,10 +1,10 @@
 package com.jipi.ticket_ledger.auth.presentation;
 
 import com.jipi.ticket_ledger.auth.application.AuthService;
+import com.jipi.ticket_ledger.auth.application.AuthTokens;
 import com.jipi.ticket_ledger.auth.infrastructure.AuthCookieNames;
 import com.jipi.ticket_ledger.auth.infrastructure.AuthCookieProvider;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthRequestLoginDTO;
-import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -26,7 +26,7 @@ public class AuthController {
     @Operation(summary = "사용자 로그인", description = "사용자 이메일, 비밀번호를 입력받아 로그인 처리합니다.")
     @PostMapping("/login")
     public ResponseEntity<Void> login(@Valid @RequestBody AuthRequestLoginDTO request) {
-        AuthResponseLoginDTO token = authService.login(request);
+        AuthTokens token = authService.login(request.email(), request.password());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, authCookieProvider.createAccessTokenCookie(token.accessToken()).toString())
@@ -37,7 +37,7 @@ public class AuthController {
     @Operation(summary = "Access Token 재발급", description = "Refresh Token 쿠키를 기반으로 새로운 Access Token을 발급합니다.")
     @PostMapping("/reissue")
     public ResponseEntity<Void> reissue(@CookieValue(name = AuthCookieNames.REFRESH_TOKEN, required = false) String refreshToken) {
-        AuthResponseLoginDTO token = authService.reissue(refreshToken);
+        AuthTokens token = authService.reissue(refreshToken);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, authCookieProvider.createAccessTokenCookie(token.accessToken()).toString())

@@ -1,9 +1,11 @@
 package com.jipi.ticket_ledger.user.presentation;
 
-import com.jipi.ticket_ledger.user.application.UserService;
+import com.jipi.ticket_ledger.user.application.MyPageQueryService;
+import com.jipi.ticket_ledger.user.application.UserCommandService;
+import com.jipi.ticket_ledger.user.application.UserQueryService;
 import com.jipi.ticket_ledger.user.presentation.dto.RequestSignUpDTO;
-import com.jipi.ticket_ledger.user.presentation.dto.ResponseMeDTO;
-import com.jipi.ticket_ledger.user.presentation.dto.ResponseMyPageDTO;
+import com.jipi.ticket_ledger.user.application.model.ResponseMeDTO;
+import com.jipi.ticket_ledger.user.application.model.ResponseMyPageDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -18,23 +20,26 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/users")
 public class UserController {
-    private final UserService userService;
+    private final UserCommandService userCommandService;
+    private final UserQueryService userQueryService;
+    private final MyPageQueryService myPageQueryService;
 
     @Operation(summary = "사용자 생성", description = "사용자 정보를 입력받아 새로운 사용자를 생성합니다.")
     @PostMapping("/signup")
     public ResponseEntity<String> signUp(@RequestBody @Valid RequestSignUpDTO request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(userService.signUp(request));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(userCommandService.signUp(request.email(), request.password(), request.name()));
     }
 
     @Operation(summary = "사용자 정보 조회", description = "현재 로그인한 사용자의 정보를 조회합니다.")
     @GetMapping("/me")
     public ResponseEntity<ResponseMeDTO> getMyInfo(@AuthenticationPrincipal Long userId) {
-        return ResponseEntity.ok(userService.getMyInfo(userId));
+        return ResponseEntity.ok(userQueryService.getMyInfo(userId));
     }
 
     @Operation(summary = "사용자 상세 조회", description = "사용자 ID를 입력받아 해당 사용자의 상세 정보를 조회합니다.")
     @GetMapping("/{userId}")
     public ResponseEntity<ResponseMyPageDTO> getUserInfo(@PathVariable Long userId, @AuthenticationPrincipal Long principalUserId) {
-        return ResponseEntity.ok(userService.getUserInfo(userId,principalUserId));
+        return ResponseEntity.ok(myPageQueryService.getUserInfo(userId, principalUserId));
     }
 }

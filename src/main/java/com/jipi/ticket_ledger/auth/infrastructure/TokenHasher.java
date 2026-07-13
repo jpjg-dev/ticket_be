@@ -1,5 +1,7 @@
 package com.jipi.ticket_ledger.auth.infrastructure;
 
+import com.jipi.ticket_ledger.auth.application.port.out.TokenHashEncoder;
+
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -8,7 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 @Component // 스프링이 이 클래스를 빈으로 관리하도록 지정
-public class TokenHasher {
+public class TokenHasher implements TokenHashEncoder {
     /**
      * Refresh Token 원문은 DB에 그대로 저장하지 않는다.
      * 토큰이 탈취되면 그대로 인증에 사용할 수 있기 때문에, DB에는 SHA-256 해시값만 저장한다.
