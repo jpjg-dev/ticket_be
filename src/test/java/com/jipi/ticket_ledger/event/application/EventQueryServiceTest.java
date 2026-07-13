@@ -1,8 +1,9 @@
 package com.jipi.ticket_ledger.event.application;
 
+import com.jipi.ticket_ledger.event.application.model.EventListCacheResponse;
 import com.jipi.ticket_ledger.event.domain.ScheduleRepository;
 import com.jipi.ticket_ledger.event.domain.EventRepository;
-import com.jipi.ticket_ledger.global.config.CacheNames;
+import com.jipi.ticket_ledger.event.infrastructure.cache.EventCacheNames;
 import com.jipi.ticket_ledger.global.config.DataInitializer;
 import com.jipi.ticket_ledger.reservation.application.ReservationExpirationService;
 import com.jipi.ticket_ledger.seat.application.SeatQueryService;
@@ -25,9 +26,16 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.LocalDateTime;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -56,11 +64,16 @@ class EventQueryServiceTest {
     @Mock
     private ReservationExpirationService reservationExpirationService;
 
-    @InjectMocks
-    private EventQueryService eventQueryService;
+    private EventDatabaseReader eventDatabaseReader;
 
     @InjectMocks
     private SeatQueryService seatQueryService;
+
+    @BeforeEach
+    void setUpDatabaseReader() {
+        eventDatabaseReader = new EventDatabaseReader(eventRepository, scheduleRepository,
+                Clock.fixed(Instant.parse("2026-06-10T03:00:00Z"), ZoneId.of("Asia/Seoul")));
+    }
 
     @Test
     @DisplayName("getEvents: 메인 목록 조회는 좌석 전체를 조회하지 않고 회차 정보만 조립한다")
@@ -87,7 +100,7 @@ class EventQueryServiceTest {
         when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
                 .thenReturn(List.of(schedule));
 
-        var responses = eventQueryService.getEvents().events();
+        var responses = eventDatabaseReader.getEvents().events();
 
         assertEquals(1, responses.size());
         assertEquals(1L, responses.get(0).id());
@@ -111,7 +124,7 @@ class EventQueryServiceTest {
         when(scheduleRepository.findByEventIdInAndStartAtAfterOrderByStartAtAsc(anyCollection(), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
-        var responses = eventQueryService.getEvents().events();
+        var responses = eventDatabaseReader.getEvents().events();
 
         assertTrue(responses.isEmpty());    }
 
@@ -140,7 +153,7 @@ class EventQueryServiceTest {
         when(scheduleRepository.findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class)))
                 .thenReturn(List.of(schedule));
 
-        var response = eventQueryService.getEvent(1L);
+        var response = eventDatabaseReader.getEvent(1L);
 
         assertEquals(1L, response.id());
         assertEquals(1, response.schedules().size());
@@ -246,8 +259,8 @@ class EventQueryServiceTest {
         Method getSeats = SeatQueryService.class.getMethod("getSeats", Long.class);
         assertNull(getSeats.getAnnotation(org.springframework.transaction.annotation.Transactional.class));
 
-        Method getEvents = EventQueryService.class.getMethod("getEvents");
-        Method getEvent = EventQueryService.class.getMethod("getEvent", Long.class);
+        Method getEvents = EventDatabaseReader.class.getMethod("getEvents");
+        Method getEvent = EventDatabaseReader.class.getMethod("getEvent", Long.class);
 
         assertTrue(getEvents.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
         assertTrue(getEvent.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly());
@@ -284,8 +297,8 @@ class EventQueryServiceTest {
 
         @BeforeEach
         void clearCaches() {
-            cacheManager.getCache(CacheNames.EVENT_LIST).clear();
-            cacheManager.getCache(CacheNames.EVENT_DETAIL).clear();
+            cacheManager.getCache(EventCacheNames.EVENT_LIST).clear();
+            cacheManager.getCache(EventCacheNames.EVENT_DETAIL).clear();
         }
 
         @Test
@@ -320,6 +333,35 @@ class EventQueryServiceTest {
 
             verify(eventRepository, times(1)).findById(1L);
             verify(scheduleRepository, times(1)).findByEventIdAndStartAtAfterOrderByStartAtAsc(any(Long.class), any(LocalDateTime.class));        }
+
+        @Test
+        @DisplayName("동일 목록 cache miss가 동시에 발생해도 DB 로더는 하나만 실행한다")
+        void concurrentCacheMissUsesSingleDatabaseLoader() throws Exception {
+            when(eventRepository.findAllByOrderByBookingOpenAtAsc()).thenAnswer(invocation -> {
+                Thread.sleep(80);
+                return List.of();
+            });
+            CountDownLatch ready = new CountDownLatch(8);
+            CountDownLatch start = new CountDownLatch(1);
+
+            try (ExecutorService executor = Executors.newFixedThreadPool(8)) {
+                List<Future<EventListCacheResponse>> futures = java.util.stream.IntStream.range(0, 8)
+                        .mapToObj(index -> executor.submit(() -> {
+                            ready.countDown();
+                            start.await();
+                            return cacheEventService.getEvents();
+                        }))
+                        .toList();
+                ready.await();
+                start.countDown();
+
+                for (Future<EventListCacheResponse> future : futures) {
+                    assertTrue(future.get().events().isEmpty());
+                }
+            }
+
+            verify(eventRepository, times(1)).findAllByOrderByBookingOpenAtAsc();
+        }
     }
 
     private record StatusCount(

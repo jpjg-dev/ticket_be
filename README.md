@@ -394,9 +394,11 @@ GET  /api/v1/payments/{paymentId}/status
 │   └── infrastructure   # JwtTokenProvider, JwtAuthenticationFilter, CookieProvider, TokenHasher
 ├── event                # 공연 / 회차 / 좌석 조회
 │   ├── presentation     # EventController
-│   ├── application      # EventQueryService
+│   ├── application      # EventQueryService, EventDatabaseReader
+│   │   ├── cache        # EventCache, CacheAsideLoader, DB load 제한, 캐시 메트릭
 │   │   └── model        # EventListResponse, EventDetailResponse, ScheduleResponse
-│   └── domain           # Event, Schedule, Repository
+│   ├── domain           # Event, Schedule, Repository
+│   └── infrastructure   # Redis 캐시 어댑터, 직렬화, 동적 TTL
 ├── seat                 # 좌석 상태
 │   ├── application      # SeatQueryService
 │   │   └── model        # SeatResponse, SeatListResponse, SeatAvailabilityResponse
@@ -407,7 +409,7 @@ GET  /api/v1/payments/{paymentId}/status
 │   │   └── model        # 사용자/마이페이지 조회 결과
 │   └── domain           # User, UserRole, UserStatus, UserRepository
 └── global               # 전 계층 공통 관심사
-    ├── config           # Cache, Security, Swagger, Time, 초기 데이터
+    ├── config           # Security, Swagger, Time, 초기 데이터
     ├── security         # CSRF Origin 필터/설정
     ├── exception        # 공통 예외 응답
     └── log              # TraceId, AccessLog, LogEvents, 민감값 마스킹

@@ -17,9 +17,9 @@ spring:
 
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      timeout: ${REDIS_TIMEOUT:2s}
+      host: ${CACHE_REDIS_HOST:localhost}
+      port: ${CACHE_REDIS_PORT:6379}
+      timeout: ${CACHE_REDIS_TIMEOUT:2s}
 
 server:
   port: ${PORT:8080}
@@ -81,3 +81,11 @@ cache:
       ttl: 60s
     detail:
       ttl: 5m
+    policy:
+      max-concurrent-database-loads: 2
+      refresh-wait-timeout: 300ms
+      refresh-retry-interval: 20ms
+      refresh-lock-ttl: 2s
+      retry-after-seconds: 1
+      ttl-jitter-ratio: 0.1
+      schedule-boundary-safety-margin: 1s

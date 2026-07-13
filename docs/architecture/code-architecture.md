@@ -28,7 +28,8 @@ presentation -> application -> domain
 | --- | --- | --- |
 | 결제 PG | `PaymentGateway` 출력 포트와 PG 중립 상태를 도입했습니다. | PG 호출 전후 트랜잭션 분리, 멱등키, `CONFIRMING`/`CANCELING` 보정 |
 | 인증 | `TokenProvider`, `TokenHashEncoder`로 JWT 구현을 분리했습니다. | RTR, 조건부 Refresh Token 소비, 토큰 원문 미저장 |
-| 공연/좌석 조회 | `EventQueryService`, `SeatQueryService`로 책임을 나눴습니다. | 미래 회차 필터, 만료 선처리, SoldOut 판정, 가용 좌석 조회 |
+| 공연/좌석 조회 | `EventQueryService`, `EventDatabaseReader`, `SeatQueryService`로 흐름과 읽기 트랜잭션을 나눴습니다. | 미래 회차 필터, 만료 선처리, SoldOut 판정, 가용 좌석 조회 |
+| 공연 캐시 | `EventCache` 출력 포트와 Redis 어댑터, DB load guard를 분리했습니다. | Cache-Aside, key별 단일 로더, 제한 fallback, 회차 경계 TTL |
 | 출력 모델 | 조회 결과를 `application.model`로 이동했습니다. | 기존 HTTP JSON 필드 |
 | 관측성 | 보정 메트릭을 `application.observability`로 이동했습니다. | 기존 Prometheus 지표명과 태그 |
 

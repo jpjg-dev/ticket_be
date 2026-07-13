@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -88,5 +89,14 @@ public class GlobalExceptionHandler {
         log.warn("event={} code=FORBIDDEN status=403 message={}", LogEvents.API_ERROR, e.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(new ErrorResponse("FORBIDDEN", e.getMessage()));
+    }
+
+    @ExceptionHandler(CacheTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleCacheTemporarilyUnavailable(CacheTemporarilyUnavailableException e) {
+        log.warn("event={} code=CACHE_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("CACHE_TEMPORARILY_UNAVAILABLE", e.getMessage()));
     }
 }
