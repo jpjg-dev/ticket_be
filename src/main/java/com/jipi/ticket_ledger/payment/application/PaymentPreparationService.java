@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application;
 
+import com.jipi.ticket_ledger.global.exception.ForbiddenAccessException;
 import com.jipi.ticket_ledger.payment.application.port.out.OrderIdGenerator;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -27,12 +29,22 @@ public class PaymentPreparationService {
 
     @Transactional
     public Payment readyPayment(Long reservationGroupId) {
-        ReservationGroup group = reservationGroupRepository.findById(reservationGroupId)
+        return readyPayment(reservationGroupId, null);
+    }
+
+    @Transactional
+    public Payment readyPayment(Long reservationGroupId, Long requesterUserId) {
+        Payment lockedPayment = paymentRepository.findByReservationGroupIdForUpdate(reservationGroupId).orElse(null);
+        ReservationGroup group = reservationGroupRepository.findByIdForUpdate(reservationGroupId)
                 .orElseThrow(() -> new EntityNotFoundException("예매 묶음을 찾을 수 없습니다."));
+        verifyOwner(group, requesterUserId);
+
         List<Reservation> reservations = paymentQueryService.getReservations(reservationGroupId);
         group.validateReadyPayment(reservations, clock.instant());
 
-        Payment existingPayment = paymentRepository.findByReservationGroupId(reservationGroupId).orElse(null);
+        Payment existingPayment = lockedPayment != null
+                ? lockedPayment
+                : paymentRepository.findByReservationGroupId(reservationGroupId).orElse(null);
         if (existingPayment != null) {
             return existingPayment;
         }
@@ -48,6 +60,12 @@ public class PaymentPreparationService {
         } catch (DataIntegrityViolationException duplicate) {
             return paymentRepository.findByReservationGroupId(reservationGroupId)
                     .orElseThrow(() -> duplicate);
+        }
+    }
+
+    private void verifyOwner(ReservationGroup group, Long requesterUserId) {
+        if (requesterUserId != null && !Objects.equals(group.getUser().getId(), requesterUserId)) {
+            throw new ForbiddenAccessException("잘못된 접근 입니다.");
         }
     }
 }

@@ -20,12 +20,16 @@ import com.jipi.ticket_ledger.seat.domain.SeatStatus;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -65,10 +69,20 @@ class PaymentApiControllerTest {
     @MockitoBean
     private UserRepository userRepository;
 
+    @BeforeEach
+    void authenticateOwner() {
+        authenticate(100L);
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     @DisplayName("결제 준비 성공 시 200과 결제 응답을 반환한다")
     void readyPaymentSuccess() throws Exception {
-        when(paymentService.readyPaymentResult(1L)).thenReturn(new ReadyPaymentResult(
+        when(paymentService.readyPaymentResult(1L, 100L)).thenReturn(new ReadyPaymentResult(
                 1L, "order-1", 110000, 100000, 10000, "테스트 공연 A-1", "KRW"));
 
         mockMvc.perform(post("/api/v1/payments/ready")
@@ -106,7 +120,7 @@ class PaymentApiControllerTest {
     @Test
     @DisplayName("결제 상태 조회 성공 시 200과 현재 상태를 반환한다")
     void getPaymentStatusSuccess() throws Exception {
-        when(paymentService.getPaymentStatusResult(1L)).thenReturn(
+        when(paymentService.getPaymentStatusResult(1L, 100L)).thenReturn(
                 new PaymentStatusResult(1L, "order-1", PaymentStatus.APPROVED,
                         ReservationStatus.CONFIRMED, SeatStatus.BOOKED));
 
@@ -115,6 +129,32 @@ class PaymentApiControllerTest {
                 .andExpect(jsonPath("$.paymentStatus").value("APPROVED"))
                 .andExpect(jsonPath("$.reservationStatus").value("CONFIRMED"))
                 .andExpect(jsonPath("$.seatStatus").value("BOOKED"));
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 예매로 결제를 준비하면 403을 반환한다")
+    void readyPaymentForbidden() throws Exception {
+        authenticate(200L);
+        doThrow(new ForbiddenAccessException("잘못된 접근 입니다."))
+                .when(paymentService).readyPaymentResult(1L, 200L);
+
+        mockMvc.perform(post("/api/v1/payments/ready")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reservationGroupId\":1}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 결제 상태를 조회하면 403을 반환한다")
+    void getPaymentStatusForbidden() throws Exception {
+        authenticate(200L);
+        doThrow(new ForbiddenAccessException("잘못된 접근 입니다."))
+                .when(paymentService).getPaymentStatusResult(1L, 200L);
+
+        mockMvc.perform(get("/api/v1/payments/1/status"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
     @Test
@@ -215,5 +255,9 @@ class PaymentApiControllerTest {
     }
 
     private record PaymentFixture(Payment payment, List<Reservation> reservations) {
+    }
+
+    private void authenticate(Long userId) {
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(userId, null));
     }
 }

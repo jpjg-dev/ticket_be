@@ -33,8 +33,9 @@ public class PaymentApiController {
 
     @Operation(summary = "결제 준비", description = "예약 식별자로 결제 요청 정보를 생성합니다.")
     @PostMapping("/ready")
-    public ReadyPaymentResponse readyPayment(@RequestBody @Valid ReadyPaymentRequest request) {
-        ReadyPaymentResult result = paymentService.readyPaymentResult(request.reservationGroupId());
+    public ReadyPaymentResponse readyPayment(@RequestBody @Valid ReadyPaymentRequest request,
+                                             @AuthenticationPrincipal Long userId) {
+        ReadyPaymentResult result = paymentService.readyPaymentResult(request.reservationGroupId(), userId);
         return ReadyPaymentResponse.from(result);
     }
 
@@ -63,8 +64,9 @@ public class PaymentApiController {
 
     @Operation(summary = "결제 상태 조회", description = "결제 식별자로 현재 결제/예약/좌석 상태를 조회합니다.")
     @GetMapping("/{paymentId}/status")
-    public ConfirmPaymentResponse getPaymentStatus(@PathVariable Long paymentId) {
-        return ConfirmPaymentResponse.from(paymentService.getPaymentStatusResult(paymentId));
+    public ConfirmPaymentResponse getPaymentStatus(@PathVariable Long paymentId,
+                                                   @AuthenticationPrincipal Long userId) {
+        return ConfirmPaymentResponse.from(paymentService.getPaymentStatusResult(paymentId, userId));
     }
 
     @Operation(summary = "결제 실패 리다이렉트 기록", description = "failUrl로 전달된 code, message, orderId를 백엔드 로그에 기록합니다.")

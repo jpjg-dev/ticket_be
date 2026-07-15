@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application;
 
+import com.jipi.ticket_ledger.global.exception.ForbiddenAccessException;
 import com.jipi.ticket_ledger.payment.application.model.PaymentStatusResult;
 import com.jipi.ticket_ledger.payment.application.model.ReadyPaymentResult;
 import com.jipi.ticket_ledger.payment.domain.Payment;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +38,19 @@ public class PaymentViewQueryService {
     @Transactional(readOnly = true)
     public PaymentStatusResult getPaymentStatus(Long paymentId) {
         Payment payment = paymentQueryService.getPayment(paymentId);
+        return toPaymentStatusResult(payment);
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentStatusResult getPaymentStatus(Long paymentId, Long requesterUserId) {
+        Payment payment = paymentQueryService.getPayment(paymentId);
+        if (!Objects.equals(payment.getReservationGroup().getUser().getId(), requesterUserId)) {
+            throw new ForbiddenAccessException("잘못된 접근 입니다.");
+        }
+        return toPaymentStatusResult(payment);
+    }
+
+    private PaymentStatusResult toPaymentStatusResult(Payment payment) {
         Reservation reservation = paymentQueryService.getReservations(payment).getFirst();
         return new PaymentStatusResult(
                 payment.getId(), payment.getOrderId(), payment.getStatus(),

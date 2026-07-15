@@ -26,8 +26,8 @@ public class PaymentService {
         return paymentPreparationService.readyPayment(reservationGroupId);
     }
 
-    public ReadyPaymentResult readyPaymentResult(Long reservationGroupId) {
-        Payment payment = paymentPreparationService.readyPayment(reservationGroupId);
+    public ReadyPaymentResult readyPaymentResult(Long reservationGroupId, Long requesterUserId) {
+        Payment payment = paymentPreparationService.readyPayment(reservationGroupId, requesterUserId);
         return paymentViewQueryService.getReadyPayment(payment.getId());
     }
 
@@ -39,8 +39,8 @@ public class PaymentService {
         return paymentQueryService.getPayment(paymentId);
     }
 
-    public PaymentStatusResult getPaymentStatusResult(Long paymentId) {
-        return paymentViewQueryService.getPaymentStatus(paymentId);
+    public PaymentStatusResult getPaymentStatusResult(Long paymentId, Long requesterUserId) {
+        return paymentViewQueryService.getPaymentStatus(paymentId, requesterUserId);
     }
 
     // 내부 결제 전 검증로직

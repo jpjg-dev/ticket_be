@@ -167,6 +167,75 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
+    @DisplayName("readyPayment/status: 다른 사용자는 결제를 준비하거나 조회할 수 없다")
+    void paymentResourceOwnerRequired() {
+        Fixture fixture = createPendingReservationFixture(false);
+        User otherUser = userRepository.save(new User(
+                "payment-other-" + System.nanoTime() + "@test.com",
+                "password",
+                "다른사용자",
+                LocalDateTime.now()
+        ));
+        userIds.add(otherUser.getId());
+
+        assertThrows(ForbiddenAccessException.class,
+                () -> paymentService.readyPaymentResult(fixture.reservationGroupId, otherUser.getId()));
+        assertTrue(paymentRepository.findByReservationGroupId(fixture.reservationGroupId).isEmpty());
+
+        var ready = paymentService.readyPaymentResult(fixture.reservationGroupId, fixture.userId);
+        paymentIds.add(ready.paymentId());
+
+        assertThrows(ForbiddenAccessException.class,
+                () -> paymentService.getPaymentStatusResult(ready.paymentId(), otherUser.getId()));
+        assertEquals(PaymentStatus.READY,
+                paymentService.getPaymentStatusResult(ready.paymentId(), fixture.userId).paymentStatus());
+    }
+
+    @Test
+    @DisplayName("readyPayment: 결제 준비와 만료가 동시에 실행돼도 만료 상태로 수렴한다")
+    void readyPaymentAndExpirationConverge() throws Exception {
+        Fixture fixture = createPendingReservationFixture(true);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<Boolean> readyFuture = executor.submit(() -> {
+                startLatch.await();
+                try {
+                    paymentService.readyPayment(fixture.reservationGroupId);
+                    return true;
+                } catch (IllegalStateException expected) {
+                    return false;
+                }
+            });
+            Future<Integer> expirationFuture = executor.submit(() -> {
+                startLatch.await();
+                return reservationExpirationService.expireByScheduleId(fixture.scheduleId);
+            });
+
+            startLatch.countDown();
+
+            assertFalse(readyFuture.get(5, TimeUnit.SECONDS));
+            assertTrue(expirationFuture.get(5, TimeUnit.SECONDS) >= 0);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        ReservationGroup group = reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow();
+        List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
+        List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
+        Payment payment = paymentRepository.findByReservationGroupId(fixture.reservationGroupId).orElse(null);
+        if (payment != null) {
+            paymentIds.add(payment.getId());
+        }
+
+        assertEquals(ReservationGroupStatus.EXPIRED, group.getStatus());
+        assertTrue(reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.EXPIRED));
+        assertTrue(seats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
+        assertTrue(payment == null || payment.getStatus() == PaymentStatus.FAILED);
+    }
+
+    @Test
     @DisplayName("readyPayment: 만료된 예약이면 예외가 발생하고 트랜잭션 롤백으로 기존 상태가 유지된다")
     void readyPaymentExpiredReservation() {
         Fixture fixture = createPendingReservationFixture(true);

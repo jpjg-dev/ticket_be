@@ -128,13 +128,15 @@ class PaymentServiceTest {
         Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, LocalDateTime.now().plusMinutes(10));
         Payment existingPayment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-ready-1", "KRW");
 
-        when(reservationGroupRepository.findById(1L)).thenReturn(Optional.of(reservationGroup));
+        when(reservationGroupRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(reservationGroup));
         when(reservationRepository.findByReservationGroupId(1L)).thenReturn(List.of(reservation));
-        when(paymentRepository.findByReservationGroupId(1L)).thenReturn(Optional.of(existingPayment));
+        when(paymentRepository.findByReservationGroupIdForUpdate(1L)).thenReturn(Optional.of(existingPayment));
 
         Payment readyPayment = paymentService.readyPayment(1L);
 
         assertSame(existingPayment, readyPayment);
+        verify(paymentRepository).findByReservationGroupIdForUpdate(1L);
+        verify(reservationGroupRepository).findByIdForUpdate(1L);
         verify(paymentRepository, never()).save(org.mockito.ArgumentMatchers.any(Payment.class));
     }
 
@@ -145,8 +147,9 @@ class PaymentServiceTest {
         Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, LocalDateTime.now().plusMinutes(10));
         Payment existingPayment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-ready-2", "KRW");
 
-        when(reservationGroupRepository.findById(1L)).thenReturn(Optional.of(reservationGroup));
+        when(reservationGroupRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(reservationGroup));
         when(reservationRepository.findByReservationGroupId(1L)).thenReturn(List.of(reservation));
+        when(paymentRepository.findByReservationGroupIdForUpdate(1L)).thenReturn(Optional.empty());
         when(paymentRepository.findByReservationGroupId(1L))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(existingPayment));
