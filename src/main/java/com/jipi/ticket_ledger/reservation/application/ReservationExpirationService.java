@@ -1,44 +1,35 @@
 package com.jipi.ticket_ledger.reservation.application;
 
-import com.jipi.ticket_ledger.global.log.LogEvents;
-import com.jipi.ticket_ledger.payment.domain.Payment;
-import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
-import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
-import com.jipi.ticket_ledger.reservation.domain.Reservation;
-import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
-import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
-import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 @Slf4j
 public class ReservationExpirationService {
 
-    private final ReservationRepository reservationRepository;
-    private final PaymentRepository paymentRepository;
     private final ReservationGroupRepository reservationGroupRepository;
+    private final ReservationExpirationTransactionService transactionService;
+    private final ReservationExpirationMetrics metrics;
     private final Clock clock;
 
     @Value("${reservation.expire-scheduler.batch-size}")
     private int batchSize;
 
-    // 스케줄러 만료는 저빈도(1분 주기)·전역(모든 회차) 일괄 처리라 한 주기에 후보가 크게 쌓일 수 있으므로
-    // batch-size 로 한 트랜잭션 작업량을 제한한다(긴 트랜잭션·락 보유 방지). 못 비운 잔여분은 다음 주기에 이어서 처리한다.
+    // 스케줄러 후보 조회에는 batch-size를 적용하고, 실제 만료는 그룹마다 독립 트랜잭션으로 처리한다.
+    // 한 건이 실패해도 나머지 후보는 계속 처리하며, 실패 건은 다음 주기에 다시 조회된다.
     public int expireAll() {
         return expireGroups(
                 reservationGroupRepository.findExpiredPendingIds(clock.instant(), PageRequest.of(0, batchSize)),
-                "SCHEDULER"
+                "SCHEDULER",
+                true
         );
     }
 
@@ -47,61 +38,40 @@ public class ReservationExpirationService {
     public int expireByScheduleId(Long scheduleId) {
         return expireGroups(
                 reservationGroupRepository.findExpiredPendingIdsByScheduleId(scheduleId, clock.instant()),
-                "SEAT_QUERY"
+                "SEAT_QUERY",
+                false
         );
     }
 
-    private int expireGroups(List<Long> expiredGroupIds, String trigger) {
+    private int expireGroups(List<Long> expiredGroupIds, String trigger, boolean continueOnFailure) {
         int expiredCount = 0;
         int skippedCount = 0;
+        int failedCount = 0;
+
         for (Long reservationGroupId : expiredGroupIds) {
-            Payment payment = paymentRepository.findByReservationGroupIdForUpdate(reservationGroupId).orElse(null);
-            ReservationGroup reservationGroup = reservationGroupRepository.findByIdForUpdate(reservationGroupId).orElse(null);
-            if (reservationGroup == null
-                    || reservationGroup.getStatus() != ReservationGroupStatus.PENDING
-                    || !reservationGroup.isExpiredAt(clock.instant())) {
-                skippedCount++;
-                continue;
+            try {
+                int groupExpiredCount = transactionService.expireGroup(reservationGroupId, trigger);
+                if (groupExpiredCount > 0) {
+                    expiredCount += groupExpiredCount;
+                    metrics.record(trigger, "expired");
+                } else {
+                    skippedCount++;
+                    metrics.record(trigger, "skipped");
+                }
+            } catch (RuntimeException exception) {
+                failedCount++;
+                metrics.record(trigger, "failed");
+                log.error("Expire reservation group failed. trigger={} reservationGroupId={} reason={}",
+                        trigger, reservationGroupId, exception.getMessage(), exception);
+                if (!continueOnFailure) {
+                    throw exception;
+                }
             }
-
-            if (payment != null && payment.getStatus() == PaymentStatus.CONFIRMING) {
-                log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
-                        LogEvents.RESERVATION_EXPIRE_START, payment.getOrderId(), payment.getId(), reservationGroup.getId(), "SKIP_CONFIRMING_PAYMENT");
-                skippedCount++;
-                continue;
-            }
-
-            List<Reservation> pendingReservations = reservationRepository.findByReservationGroupIdWithSeat(reservationGroup.getId()).stream()
-                    .filter(Reservation::isPending)
-                    .toList();
-            if (pendingReservations.isEmpty()) {
-                skippedCount++;
-                continue;
-            }
-
-            String orderId = payment != null ? payment.getOrderId() : "N/A";
-            Long paymentId = payment != null ? payment.getId() : null;
-            log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
-                    LogEvents.RESERVATION_EXPIRE_START, orderId, paymentId, reservationGroup.getId(), trigger);
-
-            if (payment != null && payment.getStatus() == PaymentStatus.READY) {
-                payment.fail();
-                log.warn("event={} orderId={} paymentId={} reservationGroupId={} reason={}",
-                        LogEvents.PAYMENT_EXPIRE_SUCCESS, orderId, paymentId, reservationGroup.getId(), "READY_TO_FAILED");
-            }
-
-            reservationGroup.expire();
-            pendingReservations.forEach(reservation -> {
-                reservation.expire();
-                reservation.getSeat().release();
-            });
-            log.warn("event={} orderId={} paymentId={} reservationGroupId={} expiredCount={} reason={}",
-                    LogEvents.RESERVATION_EXPIRE_SUCCESS, orderId, paymentId, reservationGroup.getId(), pendingReservations.size(), trigger);
-            expiredCount += pendingReservations.size();
         }
+
         if (!expiredGroupIds.isEmpty()) {
-            log.info("Expire reservation batch finished. trigger={} candidateGroupCount={} expiredReservationCount={} skippedGroupCount={}",
-                    trigger, expiredGroupIds.size(), expiredCount, skippedCount);
+            log.info("Expire reservation batch finished. trigger={} candidateGroupCount={} expiredReservationCount={} skippedGroupCount={} failedGroupCount={}",
+                    trigger, expiredGroupIds.size(), expiredCount, skippedCount, failedCount);
         }
         return expiredCount;
     }
