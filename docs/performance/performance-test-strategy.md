@@ -104,6 +104,25 @@ RPS 개선율:
 | DB 커넥션 풀이 부족합니다. | Hikari pool 크기 조정 후 재측정했습니다. | p95와 완료 처리량 차이가 크지 않았습니다. | 단독 원인으로 보지 않았습니다. |
 | 매진 이후에도 좌석 목록 조회가 반복됩니다. | 회차별 가용 상태를 먼저 집계하고, `soldOut=true`이면 좌석 목록 조회 없이 빈 `seats`를 반환했습니다. | 완료 결제 `1,000`, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 유지했습니다. 응답 크기 감소는 부가 효과로 봤습니다. | SoldOut 정책으로 채택했습니다. |
 
+## 스레드 풀·커넥션 풀 증설을 보류한 이유
+
+운영 서버와 같은 `2 vCPU / 8GB` 제한을 두고, 백엔드·PostgreSQL·Redis·Prometheus·Grafana가 두 CPU를 공유하게 구성했습니다. k6와 Mock PG는 별도 CPU 영역에서 실행했습니다. 이 조건의 인기 공연 전체 여정 스파이크에서 결제 `1,000`건과 정합성 오류 `0`을 유지했지만 다음 포화 신호를 확인했습니다.
+
+| 지표 | 최대 관측값 |
+| --- | ---: |
+| 서버 공유 CPU | `100%` |
+| 백엔드 process CPU | `85.38%` |
+| Tomcat busy thread | `200` |
+| Hikari pending connection | `183` |
+| JVM Heap 사용률 | `24.86%` |
+| Redis 공연 캐시 적중률 | `99.96%` |
+
+Tomcat `maxThreads`를 `200 -> 250`으로 늘리면 동시에 실행되는 요청은 늘지만, 이미 CPU가 포화되고 Hikari connection을 기다리는 요청이 많아 추가 스레드도 같은 자원을 두고 경쟁합니다. 이 경우 스레드 스택 메모리와 컨텍스트 스위칭 비용이 증가하고, DB 대기가 더 길어질 수 있어 증설하지 않았습니다.
+
+Hikari pool도 기본값 `10`을 유지했습니다. 커넥션 수를 늘리면 pending은 일시적으로 줄 수 있지만, 백엔드와 PostgreSQL이 같은 두 CPU를 공유하는 조건에서는 더 많은 쿼리가 동시에 실행되어 DB 내부 CPU·락·버퍼 경쟁으로 대기 위치만 이동할 수 있습니다. Hikari 공식 가이드의 `((physical core * 2) + effective spindle count)`는 시작점일 뿐이며, 현재 관측값은 커넥션 부족보다 전체 CPU 포화가 먼저 나타난 상태입니다.
+
+따라서 제한된 서버 자원 안에서는 풀 크기를 키워 유입량을 모두 내부로 받아들이기보다, Redis 대기열로 좌석 선택·예약 경로의 동시 진입량을 제한하는 방식을 우선합니다. 목표는 최대 요청을 동시에 실행하는 것이 아니라 서버 공유 CPU를 `50~70%` 범위로 유지하면서 Tomcat·Hikari가 포화되기 전에 감당 가능한 요청만 입장시키는 것입니다. 대기열 적용 후 DB CPU에 여유가 있는데 Hikari pending만 지속될 때 pool 크기를 다시 A/B 테스트합니다.
+
 ## 마이페이지 N+1 검증
 
 마이페이지 조회는 예매 이력이 늘어날수록 DTO 변환 과정에서 LAZY 연관 조회와 반복 조회 비용이 커지는 구조였습니다.
@@ -176,5 +195,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 - Spring Data JPA Modifying Queries: https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.modifying-queries
 - Hibernate ORM User Guide, fetching and N+1: https://docs.jboss.org/hibernate/orm/7.0/userguide/html_single/Hibernate_User_Guide.html
 - PostgreSQL Explicit Locking: https://www.postgresql.org/docs/17/explicit-locking.html
+- Apache Tomcat HTTP Connector, maxThreads: https://tomcat.apache.org/tomcat-10.1-doc/config/http.html
+- HikariCP Pool Sizing: https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing
 - Toss Payments 결제 흐름: https://docs.tosspayments.com/guides/v2/get-started/payment-flow
 - Toss Payments 멱등성 설명: https://docs.tosspayments.com/blog/what-is-idempotency
