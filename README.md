@@ -51,7 +51,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 - 외부 PG 호출에는 connect/read timeout을 두고, 응답 불명 상태는 `CONFIRMING`/`CANCELING` 보정 흐름으로 수렴시킵니다.
 - Redis 캐시와 외부 PG에는 용도별 Circuit Breaker를 두어 장애 중 반복 호출을 차단하고, 자동 Retry는 사용하지 않습니다.
 - 결제되지 않은 선점 좌석은 만료 후 다시 `AVAILABLE`로 복구합니다.
-- 재기동 후 backlog가 한 번에 몰리지 않도록 보정/만료 스케줄러는 한 주기 처리량을 제한합니다.
+- 재기동 후 backlog가 한 번에 몰리지 않도록 보정/만료 스케줄러는 한 주기 처리량을 제한하고, 만료 작업은 그룹별 독립 트랜잭션으로 격리합니다.
 - 고부하 전체 여정 테스트에서는 완료 결제 `1,000`건, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 확인했습니다.
 - 마이페이지는 예매 그룹 `100`개 조건에서 N+1과 반복 조회 비용을 줄였습니다.
 
@@ -213,6 +213,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 | `payment_gray_zone_recovery_total` | `operation`, `outcome` | 보정 시도의 결과 분포(승인 확정, 실패 정리, 환불 후 실패, 수동 보류 등) |
 | `payment_gray_zone_pg_failure_total` | `operation`, `call` | PG 조회/승인/취소 호출이 결과 불명으로 끝난 횟수 |
 | `payment_gray_zone_backlog` | `status` | 스케줄러 한 주기 기준 `CONFIRMING`/`CANCELING` 잔존 건수 |
+| `reservation_expiration_group_total` | `trigger`, `outcome` | 예약 그룹 만료 처리 결과(`expired`, `skipped`, `failed`) |
 
 ## 주요 설계 판단
 
