@@ -1,8 +1,11 @@
 package com.jipi.ticket_ledger.payment.infrastructure;
 
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayRejectedException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayTemporarilyUnavailableException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -86,6 +90,8 @@ class TossPaymentClientTest {
         CircuitBreakerRegistry registry = CircuitBreakerRegistry.ofDefaults();
         MockRestServiceServer[] serverHolder = new MockRestServiceServer[1];
         TossPaymentClient client = clientBoundTo(serverHolder, registry);
+        Resilience4jPaymentGatewayCircuitState circuitState =
+                new Resilience4jPaymentGatewayCircuitState(registry);
 
         serverHolder[0].expect(requestTo("/v1/payments/pay-key"))
                 .andRespond(withSuccess(
@@ -101,8 +107,9 @@ class TossPaymentClientTest {
                         MediaType.APPLICATION_JSON));
 
         registry.circuitBreaker(PaymentGatewayCircuitBreakers.CONFIRM).transitionToForcedOpenState();
-        PaymentGatewayException confirmBlocked = assertThrows(PaymentGatewayException.class,
-                () -> client.confirm("pay-key", "order-1", 11000, "confirm:order-1"));
+        PaymentGatewayTemporarilyUnavailableException confirmBlocked =
+                assertThrows(PaymentGatewayTemporarilyUnavailableException.class,
+                        circuitState::acquireConfirmPermit);
         assertInstanceOf(CallNotPermittedException.class, confirmBlocked.getCause());
         assertEquals("DONE", client.getPaymentByPaymentKey("pay-key").status());
         assertEquals("CANCELED", client.cancel("pay-key", "reason", "KRW", "cancel:1").status());
@@ -124,6 +131,35 @@ class TossPaymentClientTest {
                 registry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP).getState());
         assertEquals(CircuitBreaker.State.FORCED_OPEN,
                 registry.circuitBreaker(PaymentGatewayCircuitBreakers.CANCEL).getState());
+        serverHolder[0].verify();
+    }
+
+    @Test
+    @DisplayName("PG 4xx 거절은 회로 실패율에 포함하지 않는다")
+    void clientRejectionDoesNotIncreaseCircuitBreakerFailureRate() {
+        CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+                .slidingWindowSize(2)
+                .minimumNumberOfCalls(2)
+                .failureRateThreshold(50)
+                .ignoreExceptions(PaymentGatewayRejectedException.class)
+                .build();
+        CircuitBreakerRegistry registry = CircuitBreakerRegistry.of(config);
+        MockRestServiceServer[] serverHolder = new MockRestServiceServer[1];
+        TossPaymentClient client = clientBoundTo(serverHolder, registry);
+
+        serverHolder[0].expect(requestTo("/v1/payments/pay-key"))
+                .andRespond(withBadRequest());
+        serverHolder[0].expect(requestTo("/v1/payments/pay-key"))
+                .andRespond(withBadRequest());
+
+        assertThrows(PaymentGatewayRejectedException.class,
+                () -> client.getPaymentByPaymentKey("pay-key"));
+        assertThrows(PaymentGatewayRejectedException.class,
+                () -> client.getPaymentByPaymentKey("pay-key"));
+
+        CircuitBreaker lookup = registry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP);
+        assertEquals(CircuitBreaker.State.CLOSED, lookup.getState());
+        assertEquals(0, lookup.getMetrics().getNumberOfFailedCalls());
         serverHolder[0].verify();
     }
 }

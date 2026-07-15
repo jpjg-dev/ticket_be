@@ -2,8 +2,6 @@ package com.jipi.ticket_ledger.payment.application.confirm;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.global.log.PaymentLogFormatter;
-import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
-import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -26,7 +24,6 @@ public class PaymentConfirmTransactionService {
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
     private final PaymentConfirmValidator paymentConfirmValidator;
-    private final PaymentGatewayCircuitState paymentGatewayCircuitState;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -59,10 +56,6 @@ public class PaymentConfirmTransactionService {
 
         paymentConfirmValidator.validate(paymentKey, orderId, amount, payment, reservations, clock.instant());
 
-        if (paymentGatewayCircuitState.isConfirmCircuitOpen()) {
-            throw new PaymentGatewayException("PG 승인 circuit breaker가 열려 있습니다.");
-        }
-        // 이 상태 확인과 실제 PG 호출은 원자적일 수 없다. 이후 회로가 열리면 CONFIRMING을 복구 마커로 보존한다.
         payment.confirming();
         return ConfirmingPayment.from(payment);
     }

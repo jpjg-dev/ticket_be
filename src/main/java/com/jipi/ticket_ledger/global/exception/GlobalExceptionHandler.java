@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.global.exception;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayTemporarilyUnavailableException;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
@@ -98,5 +99,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
                 .body(new ErrorResponse("CACHE_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(PaymentGatewayTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handlePaymentGatewayTemporarilyUnavailable(
+            PaymentGatewayTemporarilyUnavailableException e
+    ) {
+        log.warn("event={} code=PAYMENT_GATEWAY_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("PAYMENT_GATEWAY_TEMPORARILY_UNAVAILABLE", e.getMessage()));
     }
 }

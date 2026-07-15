@@ -48,7 +48,7 @@ class EventRedisCacheAdapterCircuitBreakerTest {
 
     @Test
     @DisplayName("OPEN 대기 후 HALF_OPEN probe가 성공하면 CLOSED로 복구한다")
-    void recoversFromHalfOpenAfterSuccessfulRedisProbe() throws InterruptedException {
+    void recoversFromHalfOpenAfterSuccessfulRedisProbe() {
         CacheManager cacheManager = mock(CacheManager.class);
         Cache cache = mock(Cache.class);
         EventListCacheResponse expected = new EventListCacheResponse(List.of());
@@ -64,7 +64,7 @@ class EventRedisCacheAdapterCircuitBreakerTest {
         assertThrows(EventCacheAccessException.class, adapter::findEventList);
         assertEquals(CircuitBreaker.State.OPEN, circuitBreaker.getState());
 
-        Thread.sleep(25);
+        circuitBreaker.transitionToHalfOpenState();
 
         assertTrue(adapter.findEventList().isPresent());
         assertEquals(CircuitBreaker.State.CLOSED, circuitBreaker.getState());
@@ -79,7 +79,7 @@ class EventRedisCacheAdapterCircuitBreakerTest {
                 .slidingWindowSize(2)
                 .minimumNumberOfCalls(2)
                 .failureRateThreshold(50)
-                .waitDurationInOpenState(Duration.ofMillis(10))
+                .waitDurationInOpenState(Duration.ofMinutes(1))
                 .permittedNumberOfCallsInHalfOpenState(1)
                 .build();
         return CircuitBreaker.of("eventRedisCache", config);

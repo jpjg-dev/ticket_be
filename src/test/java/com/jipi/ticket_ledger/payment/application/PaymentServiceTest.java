@@ -17,6 +17,7 @@ import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayTemporarilyUnavailableException;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroupRepository;
@@ -43,11 +44,14 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -65,6 +69,9 @@ class PaymentServiceTest {
     private PaymentGatewayCircuitState paymentGatewayCircuitState;
 
     @Mock
+    private PaymentGatewayCircuitState.ConfirmCallPermit confirmCallPermit;
+
+    @Mock
     private ReservationRepository reservationRepository;
 
     @Mock
@@ -80,8 +87,14 @@ class PaymentServiceTest {
         PaymentConfirmTransactionService transactionService =
                 new PaymentConfirmTransactionService(
                         paymentRepository, reservationRepository, new PaymentConfirmValidator(),
-                        paymentGatewayCircuitState, clock);
-        PaymentConfirmService confirmService = new PaymentConfirmService(paymentGateway, transactionService);
+                        clock);
+        lenient().when(paymentGatewayCircuitState.acquireConfirmPermit()).thenReturn(confirmCallPermit);
+        lenient().when(confirmCallPermit.execute(any())).thenAnswer(invocation -> {
+            Supplier<?> action = invocation.getArgument(0);
+            return action.get();
+        });
+        PaymentConfirmService confirmService =
+                new PaymentConfirmService(paymentGateway, paymentGatewayCircuitState, transactionService);
         PaymentCancelTransactionService cancelTransactionService =
                 new PaymentCancelTransactionService(paymentRepository, reservationRepository, clock);
         PaymentRecoveryMetrics recoveryMetrics =
@@ -292,35 +305,35 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("confirmPayment: confirm breaker가 이미 OPEN이면 READY를 CONFIRMING으로 바꾸기 전에 거절한다")
+    @DisplayName("confirmPayment: confirm breaker가 OPEN이면 DB 상태를 바꾸기 전에 거절한다")
     void confirmPaymentRejectsReadyAdmissionWhenCircuitAlreadyOpen() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-open-admission", "KRW");
 
-        when(paymentRepository.findByOrderIdForUpdate("order-open-admission")).thenReturn(Optional.of(payment));
-        stubReservationsForPayment(payment, reservation);
-        when(paymentGatewayCircuitState.isConfirmCircuitOpen()).thenReturn(true);
+        when(paymentGatewayCircuitState.acquireConfirmPermit())
+                .thenThrow(new PaymentGatewayTemporarilyUnavailableException(
+                        "외부 결제 서비스를 일시적으로 사용할 수 없습니다.", 30, null));
 
-        assertThrows(PaymentGatewayException.class,
+        assertThrows(PaymentGatewayTemporarilyUnavailableException.class,
                 () -> paymentService.confirmPayment("pay-key-open", "order-open-admission", 11000));
 
         assertEquals(PaymentStatus.READY, payment.getStatus());
         assertEquals(ReservationStatus.PENDING, reservation.getStatus());
         assertEquals(SeatStatus.HELD, reservation.getSeat().getStatus());
+        verify(paymentRepository, never()).findByOrderIdForUpdate(anyString());
         verify(paymentGateway, never()).confirm(anyString(), anyString(), anyInt(), anyString());
     }
 
     @Test
-    @DisplayName("confirmPayment: admission 통과 후 회로가 열리는 race는 CONFIRMING을 복구 마커로 보존한다")
-    void confirmPaymentPreservesConfirmingWhenCircuitOpensAfterAdmissionPrecheck() {
+    @DisplayName("confirmPayment: permit 획득 후 PG 결과가 불명이면 CONFIRMING 복구 상태를 보존한다")
+    void confirmPaymentPreservesConfirmingWhenPgResultIsUnresolved() {
         Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
         Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-open-race", "KRW");
 
         when(paymentRepository.findByOrderIdForUpdate("order-open-race")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
-        when(paymentGatewayCircuitState.isConfirmCircuitOpen()).thenReturn(false);
         when(paymentGateway.confirm("pay-key-race", "order-open-race", 11000, "confirm:order-open-race"))
-                .thenThrow(new PaymentGatewayException("circuit opened after admission"));
+                .thenThrow(new PaymentGatewayException("PG result unresolved"));
         when(paymentGateway.getPaymentByPaymentKey("pay-key-race"))
                 .thenThrow(new PaymentGatewayException("lookup unresolved"));
 

@@ -64,6 +64,8 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 1
         automatic-transition-from-open-to-half-open-enabled: true
         register-health-indicator: false
+        ignore-exceptions:
+          - com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayRejectedException
     instances:
       paymentConfirm:
         base-config: payment-pg

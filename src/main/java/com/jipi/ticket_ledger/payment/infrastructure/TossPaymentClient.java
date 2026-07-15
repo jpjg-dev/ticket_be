@@ -5,6 +5,8 @@ import com.jipi.ticket_ledger.global.log.PaymentLogFormatter;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayRejectedException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayTemporarilyUnavailableException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -30,7 +32,6 @@ import java.util.function.Supplier;
 public class TossPaymentClient implements PaymentGateway {
     private final RestClient restClient;
     private final String secretKey;
-    private final CircuitBreaker confirmCircuitBreaker;
     private final CircuitBreaker lookupCircuitBreaker;
     private final CircuitBreaker cancelCircuitBreaker;
 
@@ -52,7 +53,6 @@ public class TossPaymentClient implements PaymentGateway {
                 .build();
         this.restClient = built;
         this.secretKey = secretKey;
-        this.confirmCircuitBreaker = circuitBreakerRegistry.circuitBreaker(PaymentGatewayCircuitBreakers.CONFIRM);
         this.lookupCircuitBreaker = circuitBreakerRegistry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP);
         this.cancelCircuitBreaker = circuitBreakerRegistry.circuitBreaker(PaymentGatewayCircuitBreakers.CANCEL);
     }
@@ -65,7 +65,6 @@ public class TossPaymentClient implements PaymentGateway {
     TossPaymentClient(RestClient restClient, String secretKey, CircuitBreakerRegistry circuitBreakerRegistry) {
         this.restClient = restClient;
         this.secretKey = secretKey;
-        this.confirmCircuitBreaker = circuitBreakerRegistry.circuitBreaker(PaymentGatewayCircuitBreakers.CONFIRM);
         this.lookupCircuitBreaker = circuitBreakerRegistry.circuitBreaker(PaymentGatewayCircuitBreakers.LOOKUP);
         this.cancelCircuitBreaker = circuitBreakerRegistry.circuitBreaker(PaymentGatewayCircuitBreakers.CANCEL);
     }
@@ -74,7 +73,7 @@ public class TossPaymentClient implements PaymentGateway {
     public TossConfirmResponse confirm(String paymentKey, String orderId, Integer amount, String idempotencyKey) {
         TossConfirmRequest request = new TossConfirmRequest(paymentKey, orderId, amount);
 
-        return execute(confirmCircuitBreaker, () -> call(TossOperation.CONFIRM, orderId, paymentKey, idempotencyKey, () ->
+        return call(TossOperation.CONFIRM, orderId, paymentKey, idempotencyKey, () ->
                 restClient.post()
                         .uri("/v1/payments/confirm")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -82,7 +81,7 @@ public class TossPaymentClient implements PaymentGateway {
                         .header("Idempotency-Key", idempotencyKey)
                         .body(request)
                         .retrieve()
-                        .body(TossConfirmResponse.class)));
+                        .body(TossConfirmResponse.class));
     }
 
     @Override
@@ -124,7 +123,12 @@ public class TossPaymentClient implements PaymentGateway {
         try {
             return circuitBreaker.executeSupplier(action);
         } catch (CallNotPermittedException e) {
-            throw new PaymentGatewayException("PG circuit breaker가 요청을 차단했습니다.", e);
+            long waitMillis = circuitBreaker.getCircuitBreakerConfig()
+                    .getWaitIntervalFunctionInOpenState()
+                    .apply(1);
+            long retryAfterSeconds = Math.max(1, Duration.ofMillis(waitMillis).toSeconds());
+            throw new PaymentGatewayTemporarilyUnavailableException(
+                    "PG 요청을 일시적으로 처리할 수 없습니다.", retryAfterSeconds, e);
         }
     }
 
@@ -141,7 +145,11 @@ public class TossPaymentClient implements PaymentGateway {
             // PG 가 상태코드를 돌려준 실패(4xx/5xx).
             logFailure(operation, orderId, paymentKey, idempotencyKey, "HTTP_ERROR",
                     String.valueOf(httpError.getStatusCode().value()), httpError, false);
-            throw new PaymentGatewayException("PG가 요청을 거절했습니다.", httpError);
+            int status = httpError.getStatusCode().value();
+            if (status < 500 && status != 408 && status != 429) {
+                throw new PaymentGatewayRejectedException("PG가 요청을 거절했습니다.", httpError);
+            }
+            throw new PaymentGatewayException("PG 호출에 실패했습니다.", httpError);
         } catch (RestClientException other) {
             // 분류하지 못한 통신 예외.
             logFailure(operation, orderId, paymentKey, idempotencyKey, "OTHER", "N/A", other, true);
