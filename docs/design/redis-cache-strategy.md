@@ -124,6 +124,8 @@ Redis가 정상이고 cache miss가 발생하면 동일 key의 요청 하나만 
 
 Redis get/put/refresh lock 호출은 하나의 `eventRedisCache` 회로로 보호합니다. 최근 `10`회 중 최소 `5`회가 수집된 뒤 실패율이 `50%` 이상이면 `10초` 동안 OPEN하고, HALF_OPEN에서는 `1`회만 복구 여부를 확인합니다.
 
+Redis 연결 수립과 명령 응답 대기는 성격이 다르므로 `spring.data.redis.connect-timeout`과 `spring.data.redis.timeout`을 분리합니다. 연결 timeout은 네트워크 단절 시 회로에 실패를 빠르게 전달하고, read timeout은 연결된 Redis 명령 응답의 최대 대기 시간을 제한합니다.
+
 OPEN 중 Redis 호출은 즉시 `EventCacheAccessException`으로 변환되어 기존 제한 DB fallback 정책으로 전달됩니다. Circuit Breaker는 DB fallback 상한을 대신하지 않습니다. 회로는 반복 timeout을 줄이고, 세마포어와 key별 단일 로더는 Redis가 없을 때 DB로 전달되는 요청 수를 제한합니다.
 
 ### TTL 만료 동시성 제어
@@ -202,11 +204,28 @@ Redis 컨테이너만 중지하고 공연 목록·상세 조회를 `50 VU / 30s`
 
 따라서 운영 timeout `2s`는 이번 단계에서 유지하고, 반복 timeout을 줄이기 위한 Circuit Breaker를 적용했습니다. timeout 대기가 우연히 요청률을 낮추는 구조를 최종 정책으로 보지는 않으므로, 회로 적용 전후의 fail-fast 비율·DB fallback·CPU를 같은 장애 조건에서 다시 측정합니다. 캐시 재생성 대기 `300ms`와 refresh lock TTL `2s`는 Redis가 살아 있는 cache miss 경로의 값이므로 이번 Redis 중단 실험의 조정 대상에서 제외했습니다.
 
+Circuit Breaker 적용 후 같은 `50 VU / 30s` 조건으로 재측정했습니다. 최초 실패 호출은 Redis 명령 timeout을 기다렸지만, 회로가 열린 뒤에는 Redis 호출을 차단하고 제한 DB fallback 또는 `503`으로 빠르게 전환했습니다.
+
+| 항목 | Circuit Breaker 적용 후 |
+| --- | ---: |
+| 전체 요청 | `26,158` |
+| DB fallback 성공 | `4,079` (`15.59%`) |
+| 보호 거부 `503` | `22,079` (`84.40%`) |
+| 예기치 않은 응답 | `0` |
+| 응답 p95 | `248.59ms` |
+| Circuit Breaker 차단 호출 | `26,116` |
+| backend process CPU 최대 | `96.35%` |
+| Hikari pending 최대 | `0` |
+
+Redis 복구 후 회로는 `HALF_OPEN -> CLOSED`로 전환됐고, 목록·상세 조회 `200`, 캐시 key 재생성, backend liveness `200`을 확인했습니다. DB connection 대기는 발생하지 않았지만 fail-fast로 처리량이 늘면서 CPU가 포화됐으므로, 다음 조정의 기준은 fallback 동시성뿐 아니라 전체 요청률과 CPU 보호까지 포함해야 합니다.
+
+별도의 격리 백엔드를 연결 불가능한 Redis 주소와 `connect-timeout=1s`로 기동한 cold connection 테스트에서는 첫 공연 조회가 약 `1.367s` 후 DB fallback `200`으로 끝났습니다. Redis 컨테이너 중단처럼 이미 만들어진 연결이 끊기는 경우에는 최초 호출이 command read timeout `2s`의 영향을 받고, 처음부터 연결이 성립하지 않는 경우에는 connect timeout이 먼저 적용됩니다.
+
 ## CI 통합
 
 Redis 캐시 통합 테스트는 Testcontainers로 일회용 Redis를 실행합니다. Spring Boot의 `@ServiceConnection(name = "redis")`이 컨테이너의 동적 host와 port를 자동 주입하므로, 로컬 Redis 실행이나 CI의 고정 `localhost:6379` service container에 의존하지 않습니다.
 
 ## 후속 과제
 
-- Redis Circuit Breaker 적용 전후 장애 주입 재측정과 임계값 조정
+- Redis 장애 시 backend CPU 상한을 기준으로 fallback 허용량과 상위 요청 제한 조정
 - refresh token, 멱등성 key, 대기열, 분산락용 상태 Redis 정책 별도 설계
