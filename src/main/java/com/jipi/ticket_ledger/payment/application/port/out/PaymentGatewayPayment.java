@@ -12,6 +12,10 @@ public interface PaymentGatewayPayment {
 
     Integer totalAmount();
 
+    default Integer balanceAmount() {
+        return null;
+    }
+
     String currency();
 
     PaymentGatewayState state();

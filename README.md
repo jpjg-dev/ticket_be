@@ -135,7 +135,8 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 | 외부 PG 조회 결과 | 처리 |
 | --- | --- |
-| 취소 완료 | `Payment CANCELED`, 예매 `CANCELED`, 좌석 `AVAILABLE`로 확정 |
+| 전액 환불 확인(`balanceAmount=0`) | `Payment CANCELED`, 예매 `CANCELED`, 좌석 `AVAILABLE`로 확정 |
+| 전액 환불 미확정(`balanceAmount>0` 또는 불명) | `CANCELING`과 `BOOKED`를 유지하고 수동 확인 대상으로 남김 |
 | 아직 승인 상태 | PG 취소를 같은 idempotency key로 다시 요청 |
 | 취소 불가 응답 | `CANCELING`을 유지하고 수동 확인 대상으로 남김 |
 | 결과 불명 | `CANCELING`을 유지하고 다음 보정 주기에 재시도 |

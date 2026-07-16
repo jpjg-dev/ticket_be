@@ -1440,6 +1440,25 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
+    @DisplayName("cancelPayment: PG 부분 취소 잔액이 남으면 CANCELING/CONFIRMED/BOOKED를 유지한다")
+    void cancelPaymentPartialCanceledKeepsBookedSeat() {
+        ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-partial-cancel");
+
+        when(paymentGateway.cancel("pay-key-partial-cancel", "사용자 요청", "KRW", "cancel:" + fixture.paymentId))
+                .thenReturn(new TossCancelResponse(
+                        "pay-key-partial-cancel",
+                        "PARTIAL_CANCELED",
+                        110000,
+                        55000,
+                        "KRW"
+                ));
+
+        paymentService.cancelPayment(fixture.paymentId, "사용자 요청", fixture.fixture.userId);
+
+        assertPaymentHeldCanceling(fixture);
+    }
+
+    @Test
     @DisplayName("cancelPayment: PG 가 아직 승인(DONE) 상태면(CANCEL_AGAIN) 예외 없이 CANCELING durable 로 남는다")
     void cancelPaymentPgStillDoneHoldsCanceling() {
         ApprovedPaymentFixture fixture = createApprovedPaymentFixture("pay-key-cancel-status-mismatch");

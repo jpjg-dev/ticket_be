@@ -127,17 +127,18 @@ status = CANCELING  AND canceling_at  < now - grace   // cancel 배치
 
 | PG 조회 | 필드 일치 | 액션 |
 | --- | --- | --- |
-| 취소됨(`CANCELED`/`PARTIAL_CANCELED`) | `paymentKey`+통화 일치 | `FINALIZE`: `CANCELING -> CANCELED` + 좌석 release |
-| 취소됨 | `paymentKey`/통화 불일치 | `HOLD_MANUAL`: 무쓰기, `CANCELING` 유지(다른 결제건 의심) |
-| 승인(`DONE`, 아직 취소 안 먹음) | `paymentKey` 일치 | `CANCEL_AGAIN`: 같은 멱등키로 재취소, `CANCELING` 유지 |
-| 승인 | `paymentKey` 불일치 | `HOLD_MANUAL` |
+| 취소됨 | `paymentKey`+원결제 금액+통화 일치, `balanceAmount=0` | `FINALIZE`: `CANCELING -> CANCELED` + 좌석 release |
+| `PARTIAL_CANCELED` | 취소 가능 잔액 존재 | `HOLD_MANUAL`: 무쓰기, `CANCELING`/`BOOKED` 유지 |
+| 취소됨 | 응답값 불일치 또는 잔액 불명 | `HOLD_MANUAL`: 무쓰기, `CANCELING` 유지 |
+| 승인(`DONE`, 아직 취소 안 먹음) | `paymentKey`+원결제 금액+통화 일치 | `CANCEL_AGAIN`: 같은 멱등키로 재취소, `CANCELING` 유지 |
+| 승인 | 응답값 불일치 | `HOLD_MANUAL` |
 | 그 외 status | - | `HOLD_MANUAL` |
 
 - 만료로 좌석이 풀린 경우 무리하게 재확정하지 않고 환불합니다. 환불 호출 자체가 실패하면 다음 주기에 재시도합니다(멱등 cancel).
 - **금액/통화 불일치**는 대개 우리 계산/파싱 문제입니다. 조회는 `orderId`로 하므로 응답 row는 우리 결제건이 확실하고, 고객이 낸 금액 그대로 환불(`PG_DATA_MISMATCH`)하면 고객 피해가 없습니다. 단, 가격 버그를 은폐하지 않도록 기대값 vs PG값을 `log.error`로 남깁니다.
 - **`orderId` 불일치**는 우리 결제건 여부 자체가 의심스러워(다른 주문 환불 위험) 자동 환불/실패를 하지 않고 알림 후 보류합니다. `orderId`로 조회하는 한 현실적으로 거의 발생하지 않는 방어 분기입니다.
 - **`REVERT` 없음**: cancel 결정에는 `CANCELING -> APPROVED` 복귀가 없습니다. 탈출구는 `FINALIZE`(→`CANCELED`) 또는 `HOLD_MANUAL`/`CANCEL_AGAIN`(→`CANCELING` 유지)뿐입니다.
-- **전액취소 전제**: `TossPaymentStatus.isCanceled`가 `PARTIAL_CANCELED`를 포함하지만 본 시스템은 취소를 항상 전액으로만 발행합니다. `PARTIAL_CANCELED`가 관측되면 운영 예외 신호이며, 여기서는 `FINALIZE`(전량 좌석 release)로 수렴합니다(트레이드오프 4).
+- **전액 취소 확정 기준**: 본 시스템은 부분 취소를 제공하지 않습니다. PG 상태가 `CANCELED` 또는 `PARTIAL_CANCELED`여도 `paymentKey`·원결제 금액·통화가 일치하고 `balanceAmount=0`인 경우에만 전액 환불로 확정합니다. 잔액이 남거나 불명확하면 `CANCELING`/`BOOKED`를 유지합니다(트레이드오프 4).
 
 ### 5. 주기
 
@@ -253,7 +254,7 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceling_at  timestamp NULL;  -- 
 1. **(수용) confirm 보정 APPROVE 결정 + apply 시점 좌석 유실 → 환불 최대 1주기(~60s) 지연.** 예전엔 같은 트랜잭션에서 즉시 환불했습니다. 근거: 돈은 PG가 보관하고, 좌석은 `CONFIRMING`이라 만료가 skip되어 이중 판매가 없습니다. 다음 주기에 `REFUND_THEN_FAIL`로 자가 치유합니다.
 2. **(수용) cancel 미확정(timeout/5xx/불일치) → 예외 대신 `200` + `CANCELING` durable 유지.** 스케줄러가 `CANCELED`로 수렴시킵니다. `markCanceling`을 통과한 뒤에는 `APPROVED`로 복귀하지 않아 사용자의 취소 의도가 보존됩니다. 사전 검사(소유자/상태/`paymentKey`) 실패만 예외를 던집니다.
 3. **멱등키 배타성 불변식**: 한 결제는 CONFIRMING 계열(→환불→`FAILED`) 또는 APPROVED 계열(→취소→`CANCELED`) 중 하나만 타므로, `cancel:{id}`를 공유해도 충돌이 없습니다. 재취소 경로들끼리는 **반드시 동일 키**여야 동시 요청 레이스가 방어됩니다 — 키 프리픽스를 분리하면 안 됩니다.
-4. **전액취소 전제**: `TossPaymentStatus.isCanceled`가 `PARTIAL_CANCELED`를 포함하지만 본 시스템은 취소를 항상 전액으로만 발행합니다. `PARTIAL_CANCELED`가 관측되면 운영 예외 신호이며, `FINALIZE`로 수렴합니다.
+4. **전액 취소 확정 기준**: PG 응답의 원결제 금액과 취소 가능 잔액을 검증합니다. `balanceAmount=0`인 전액 환불만 내부 취소로 확정하고, 잔액이 남으면 `CANCELING`/`BOOKED`를 유지해 좌석을 잘못 재판매하지 않습니다.
 5. **gauge push 방식**: 스크레이프 시 DB 조회가 없다는 장점 대신, 스케줄러가 지속 실패하면 gauge가 stale해지는 단점이 있습니다(배치와 독립 격리로 완화).
 6. **인덱스 부재**: `payments(status, confirming_at)`/`(status, canceling_at)`가 없어 주기당 status 기준 조회 4회(stale 2 + count 2)가 풀스캔에 가깝습니다. 저볼륨에선 무해하나 볼륨 증가 시 부분/복합 인덱스를 검토합니다.
 7. **패키지 결합**: `payment.application.cancel` ↔ `payment.application.recovery`가 공용 `PaymentRecoveryMetrics`로 양방향 참조합니다. DI 사이클은 없습니다. 향후 중립(관측성) 패키지로 이동할 후보입니다.

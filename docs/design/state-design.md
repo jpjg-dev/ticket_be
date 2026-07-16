@@ -150,9 +150,10 @@ PG 승인(돈이 빠짐)과 내부 상태 확정은 하나의 트랜잭션으로
 
 | PG 확인 결과 | 결과 |
 | --- | --- |
-| 취소됨(`CANCELED`/`PARTIAL_CANCELED`) + paymentKey·통화 일치 | `CANCELING -> CANCELED` + 좌석 release |
-| 아직 승인(`DONE`) + paymentKey 일치 | 재취소 발행, `CANCELING` 유지 |
-| paymentKey·통화 불일치 등 의심 | 자동 처리 안 함, `CANCELING` 유지(수동 검토) |
+| 취소됨 + paymentKey·원결제 금액·통화 일치 + `balanceAmount=0` | `CANCELING -> CANCELED` + 좌석 release |
+| `PARTIAL_CANCELED` + 취소 가능 잔액 존재 | 자동 처리 안 함, `CANCELING`/`BOOKED` 유지(수동 검토) |
+| 아직 승인(`DONE`) + paymentKey·원결제 금액·통화 일치 | 재취소 발행, `CANCELING` 유지 |
+| 응답값 불일치 또는 잔액 불명 | 자동 처리 안 함, `CANCELING` 유지(수동 검토) |
 | 미확정(timeout·5xx) | 보류, 보정 스케줄러가 이후 처리 |
 
 취소 요청 자체는 확정 응답을 강제하지 않습니다. 확정되지 않으면 예외 대신 `CANCELING` 상태를 반환하고, 스케줄러가 `CANCELED`로 수렴시킵니다. 다만 취소 시작 전 사전 검사(소유자 검증, 상태 검증, `paymentKey` 존재)에 실패하면 마킹 없이 예외를 던집니다.

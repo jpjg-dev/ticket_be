@@ -168,6 +168,7 @@ public class PaymentCancelTransactionService {
                 payment.getOrderId(),
                 reservationGroupId,
                 payment.getPaymentKey(),
+                payment.totalAmountWithVat(),
                 payment.getCurrency(),
                 ownerUserId,
                 false

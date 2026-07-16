@@ -10,11 +10,12 @@ record CancelingPaymentSnapshot(
         String orderId,
         Long reservationGroupId,
         String paymentKey,
+        Integer totalAmount,
         String currency,
         Long ownerUserId,
         boolean alreadyCanceled
 ) {
     static CancelingPaymentSnapshot alreadyCanceled(Long paymentId, String orderId, Long reservationGroupId) {
-        return new CancelingPaymentSnapshot(paymentId, orderId, reservationGroupId, null, null, null, true);
+        return new CancelingPaymentSnapshot(paymentId, orderId, reservationGroupId, null, null, null, null, true);
     }
 }

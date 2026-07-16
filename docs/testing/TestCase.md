@@ -152,11 +152,13 @@
 - [x] `APPROVED`/`CANCELING`이 아니면 `IllegalStateException`을 반환합니다.
 - [x] `paymentKey`가 없으면 `IllegalStateException`을 반환합니다.
 - [x] 결제 소유자가 아니면 `ForbiddenAccessException`(HTTP `403`)을 반환합니다.
-- [x] PG 응답의 결제키/통화가 불일치하면 상태를 바꾸지 않고 `CANCELING` 수동 보류로 남깁니다.
+- [x] PG 응답의 결제키/원결제 금액/통화가 불일치하면 상태를 바꾸지 않고 `CANCELING` 수동 보류로 남깁니다.
+- [x] PG 상태가 `PARTIAL_CANCELED`이고 취소 가능 잔액이 남으면 `CANCELING / CONFIRMED / BOOKED`를 유지합니다.
+- [x] PG 상태명과 무관하게 `balanceAmount=0`인 전액 환불 결과만 내부 취소와 좌석 반환으로 확정합니다.
 
 ### `recoverCanceling()`
 
-- [x] 조회 결과가 `CANCELED`면 취소를 확정합니다.
+- [x] 조회 결과가 취소 상태이고 `balanceAmount=0`이면 취소를 확정합니다.
 - [x] 조회 결과가 `DONE`이면 같은 idempotency key로 PG 취소를 재요청한 뒤 확정합니다.
 - [x] 재취소 후에도 `DONE`이면 `CANCELING`을 유지합니다.
 - [x] 재취소와 재조회가 모두 실패하면 `CANCELING`을 유지합니다.

@@ -4,6 +4,7 @@ import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryM
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
+import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class PaymentCancelServiceTest {
     }
 
     private CancelingPaymentSnapshot markedSnapshot() {
-        return new CancelingPaymentSnapshot(PAYMENT_ID, "order-1", 10L, "pay-key-1", "KRW", OWNER_ID, false);
+        return new CancelingPaymentSnapshot(PAYMENT_ID, "order-1", 10L, "pay-key-1", 11000, "KRW", OWNER_ID, false);
     }
 
     @Test
@@ -64,6 +65,19 @@ class PaymentCancelServiceTest {
 
         verify(paymentGateway).cancel("pay-key-1", "사용자 요청", "KRW", "cancel:1");
         verify(paymentCancelTransactionService).applyDecision(eq(PAYMENT_ID), any(CancelDecision.class));
+    }
+
+    @Test
+    @DisplayName("cancel: PG 부분 취소 잔액이 남으면 CANCELING을 유지하고 내부 취소를 적용하지 않는다")
+    void cancelPartialCanceledWithBalanceKeepsCanceling() {
+        when(paymentCancelTransactionService.markCanceling(PAYMENT_ID, OWNER_ID)).thenReturn(markedSnapshot());
+        when(paymentGateway.cancel("pay-key-1", "사용자 요청", "KRW", "cancel:1"))
+                .thenReturn(new TossCancelResponse("pay-key-1", "PARTIAL_CANCELED", 11000, 5000, "KRW"));
+
+        PaymentStatus result = paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", OWNER_ID);
+
+        assertEquals(PaymentStatus.CANCELING, result);
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
     }
 
     @Test

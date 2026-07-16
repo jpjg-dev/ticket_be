@@ -2,6 +2,8 @@ package com.jipi.ticket_ledger.payment.application.cancel;
 
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayState;
 
+import java.util.Objects;
+
 /**
  * CANCELING 회색지대의 결정 로직. 순수 함수만 담아 트랜잭션/외부호출과 분리한다.
  */
@@ -13,29 +15,29 @@ final class PaymentCancelPolicy {
     /**
      * 스냅샷과 PG 상태로 어떤 조치를 취할지 결정한다(부수효과 없음).
      * <ul>
-     *   <li>취소됨(CANCELED/PARTIAL_CANCELED) + paymentKey 일치 + 통화 일치 → FINALIZE</li>
-     *   <li>취소됨 + paymentKey 불일치 → HOLD_MANUAL(다른 결제건 의심)</li>
-     *   <li>취소됨 + 통화 불일치 → HOLD_MANUAL</li>
-     *   <li>승인(DONE, 아직 취소 안 먹음) + paymentKey 일치 → CANCEL_AGAIN</li>
-     *   <li>승인 + paymentKey 불일치 → HOLD_MANUAL</li>
+     *   <li>취소됨 + 식별값/원결제 금액 일치 + 취소 가능 잔액 0 → FINALIZE</li>
+     *   <li>전액 환불 미확정(잔액 존재) 또는 응답값 불일치/불명 → HOLD_MANUAL</li>
+     *   <li>승인(DONE, 아직 취소 안 먹음) + 응답값 일치 → CANCEL_AGAIN</li>
      *   <li>그 외 status → HOLD_MANUAL</li>
      * </ul>
-     * 전액취소 전제: {@code isCanceled} 는 PARTIAL_CANCELED 를 포함하나, 본 시스템은 취소를 항상 전액으로만 발행한다.
-     * PARTIAL_CANCELED 가 관측되면 운영상 예외 신호이며, 여기서는 FINALIZE(전량 좌석 release) 로 수렴한다.
+     * 본 시스템은 부분 취소를 지원하지 않는다. PG 상태명이 PARTIAL_CANCELED 여도 잔액이 0인 전액 환불 결과만 확정한다.
      */
     static CancelDecision decide(CancelingPaymentSnapshot snapshot, PgCancelState pgState) {
-        boolean paymentKeyMatch = snapshot.paymentKey().equals(pgState.paymentKey());
-        boolean currencyMatch = snapshot.currency().equals(pgState.currency());
+        boolean paymentKeyMatch = Objects.equals(snapshot.paymentKey(), pgState.paymentKey());
+        boolean amountMatch = Objects.equals(snapshot.totalAmount(), pgState.totalAmount());
+        boolean currencyMatch = Objects.equals(snapshot.currency(), pgState.currency());
+        boolean responseMatch = paymentKeyMatch && amountMatch && currencyMatch;
 
         if (pgState.state() == PaymentGatewayState.CANCELED) {
-            if (!paymentKeyMatch || !currencyMatch) {
+            boolean fullyRefunded = Integer.valueOf(0).equals(pgState.balanceAmount());
+            if (!responseMatch || !fullyRefunded) {
                 return CancelDecision.holdManual();
             }
             return CancelDecision.finalizeCancel();
         }
 
         if (pgState.state() == PaymentGatewayState.APPROVED) {
-            if (!paymentKeyMatch) {
+            if (!responseMatch) {
                 return CancelDecision.holdManual();
             }
             return CancelDecision.cancelAgain();

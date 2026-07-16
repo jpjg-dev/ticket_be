@@ -67,6 +67,7 @@ class PaymentCancelTransactionServiceTest {
         assertEquals(PaymentStatus.CANCELING, payment.getStatus());
         assertFalse(snapshot.alreadyCanceled());
         assertEquals("pay-key-1", snapshot.paymentKey());
+        assertEquals(11000, snapshot.totalAmount());
         assertEquals("KRW", snapshot.currency());
         assertEquals(OWNER_ID, snapshot.ownerUserId());
     }
@@ -159,6 +160,7 @@ class PaymentCancelTransactionServiceTest {
         assertEquals("order-1", snapshot.orderId());
         assertEquals(reservation.getReservationGroup().getId(), snapshot.reservationGroupId());
         assertEquals("pay-key-1", snapshot.paymentKey());
+        assertEquals(11000, snapshot.totalAmount());
         assertEquals("KRW", snapshot.currency());
         assertEquals(OWNER_ID, snapshot.ownerUserId());
         assertFalse(snapshot.alreadyCanceled());
