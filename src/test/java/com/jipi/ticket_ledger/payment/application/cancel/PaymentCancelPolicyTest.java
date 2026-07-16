@@ -16,7 +16,9 @@ class PaymentCancelPolicyTest {
         PaymentGatewayState state = switch (status) {
             case "DONE" -> PaymentGatewayState.APPROVED;
             case "CANCELED", "PARTIAL_CANCELED" -> PaymentGatewayState.CANCELED;
-            default -> PaymentGatewayState.OTHER;
+            case "READY", "IN_PROGRESS", "WAITING_FOR_DEPOSIT" -> PaymentGatewayState.PENDING;
+            case "ABORTED", "EXPIRED" -> PaymentGatewayState.FAILED;
+            default -> PaymentGatewayState.UNKNOWN;
         };
         return new PgCancelState(paymentKey, status, currency, state);
     }

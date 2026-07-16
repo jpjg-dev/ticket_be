@@ -58,11 +58,27 @@ class RecoveryPolicyTest {
     }
 
     @Test
-    @DisplayName("decide: 비 DONE(IN_PROGRESS 등) → FAIL")
-    void nonDoneFail() {
+    @DisplayName("decide: IN_PROGRESS → RETRY_LATER")
+    void inProgressRetryLater() {
         RecoveryDecision decision = RecoveryPolicy.decide(snapshot(true), lookup("IN_PROGRESS", "order-1", 11000, "KRW"));
 
+        assertEquals(RecoveryAction.RETRY_LATER, decision.action());
+    }
+
+    @Test
+    @DisplayName("decide: ABORTED → FAIL")
+    void abortedFail() {
+        RecoveryDecision decision = RecoveryPolicy.decide(snapshot(true), lookup("ABORTED", "order-1", 11000, "KRW"));
+
         assertEquals(RecoveryAction.FAIL, decision.action());
+    }
+
+    @Test
+    @DisplayName("decide: 알 수 없는 PG 상태 → HOLD_MANUAL")
+    void unknownStatusHoldManual() {
+        RecoveryDecision decision = RecoveryPolicy.decide(snapshot(true), lookup("NEW_UNKNOWN_STATUS", "order-1", 11000, "KRW"));
+
+        assertEquals(RecoveryAction.HOLD_MANUAL, decision.action());
     }
 
     @Test

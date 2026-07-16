@@ -117,6 +117,7 @@
 - [x] 동일 `orderId` 동시 승인 요청은 같은 멱등키로 PG를 호출하고 내부 상태는 확정 상태로 수렴합니다.
 - [x] 동일 `orderId` 동시 승인 요청 후에도 승인 결제 row는 1건만 유지됩니다.
 - [x] 오래된 `CONFIRMING` 결제는 PG 조회 결과가 `DONE`이고 좌석이 `HELD`이면 승인 상태로 보정됩니다.
+- [x] PG 조회 결과가 `IN_PROGRESS`이면 `CONFIRMING/PENDING/HELD`를 유지하고, 다음 조회가 `DONE`이면 `APPROVED/CONFIRMED/BOOKED`로 수렴합니다.
 - [x] PG는 `DONE`이지만 예약/좌석이 유효하지 않으면 환불 후 실패 상태로 정리됩니다.
 - [x] 승인 회로가 OPEN이면 `READY`를 `CONFIRMING`으로 바꾸기 전에 `503`으로 거절합니다.
 - [x] 승인 permit 획득 후 결과가 불명이면 `CONFIRMING`을 유지해 보정 대상으로 남깁니다.

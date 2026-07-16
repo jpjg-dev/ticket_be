@@ -58,9 +58,15 @@ public class PaymentRecoveryService {
 
         RecoveryDecision decision = RecoveryPolicy.decide(snapshot, lookup);
 
+        if (decision.action() == RecoveryAction.RETRY_LATER) {
+            log.info("PG payment is still processing, leaving CONFIRMING for next cycle. paymentId={} orderId={} pgStatus={}",
+                    paymentId, snapshot.orderId(), lookup.status());
+            return record(RecoveryOutcome.PG_PROCESSING);
+        }
+
         if (decision.action() == RecoveryAction.HOLD_MANUAL) {
-            // orderId 불일치: 우리 결제건이 맞는지 의심스러우므로 자동 조치하지 않고 알림 후 보류한다.
-            log.error("CONFIRMING payment lookup orderId mismatch, manual review required. paymentId={} ourOrderId={} pgOrderId={} pgStatus={}",
+            // 주문 불일치나 알 수 없는 PG 상태는 자동 변경하지 않고 운영 확인 대상으로 남긴다.
+            log.error("CONFIRMING payment requires manual review. paymentId={} ourOrderId={} pgOrderId={} pgStatus={}",
                     paymentId, snapshot.orderId(), lookup.orderId(), lookup.status());
             return record(RecoveryOutcome.HELD_MANUAL);
         }

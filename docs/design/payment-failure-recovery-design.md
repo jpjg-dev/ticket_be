@@ -118,7 +118,9 @@ status = CANCELING  AND canceling_at  < now - grace   // cancel 배치
 | `DONE` | `orderId`+금액+통화 일치 | 소실(만료·재판매) | `REFUND_THEN_FAIL(SEAT_UNAVAILABLE)`: 환불 → `CONFIRMING -> FAILED` + 좌석 release |
 | `DONE` | `orderId` 일치, 금액/통화 불일치 | - | `REFUND_THEN_FAIL(PG_DATA_MISMATCH)`: 환불 → `CONFIRMING -> FAILED` + `log.error` |
 | `DONE` | `orderId` 불일치 | - | `HOLD_MANUAL`: 자동 처리 안 함 + `log.error`, 보류(수동 검토) |
-| 미승인 | - | - | `FAIL`: `CONFIRMING -> FAILED` + 좌석 release |
+| `READY` / `IN_PROGRESS` / `WAITING_FOR_DEPOSIT` | - | - | `RETRY_LATER`: `CONFIRMING` 유지 후 다음 주기 재조회 |
+| `ABORTED` / `EXPIRED` / `CANCELED` | - | - | `FAIL`: `CONFIRMING -> FAILED` + 좌석 release |
+| 알 수 없는 상태 | - | - | `HOLD_MANUAL`: 자동 상태 변경 없이 운영 확인 |
 | 불명(PG 미응답) | - | - | 보류, 다음 주기 |
 
 **cancel — `PaymentCancelPolicy.decide`**

@@ -121,6 +121,20 @@ class PaymentRecoveryServiceTest {
     }
 
     @Test
+    @DisplayName("recover PG 처리 중: CONFIRMING을 유지하고 applyDecision을 호출하지 않는다")
+    void recoverPgProcessingKeepsConfirming() {
+        when(transactionService.loadRecoverySnapshot(PAYMENT_ID)).thenReturn(snapshot(true));
+        when(paymentGateway.getPaymentByOrderId("order-1")).thenReturn(lookup("IN_PROGRESS", "order-1"));
+
+        RecoveryOutcome outcome = service.recover(PAYMENT_ID);
+
+        assertEquals(RecoveryOutcome.PG_PROCESSING, outcome);
+        verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
+        verify(transactionService, never()).applyDecision(any(), any(), any());
+        verify(metrics).record(RecoveryOutcome.PG_PROCESSING);
+    }
+
+    @Test
     @DisplayName("recover R3 자가치유: 환불 성공 후 크래시로 CONFIRMING 잔존 → 2차 조회가 CANCELED면 재환불 없이 FAIL")
     void recoverSelfHealsAfterRefundCrash() {
         TossPaymentLookupResponse canceledLookup = lookup("CANCELED", "order-1");

@@ -48,7 +48,7 @@ public class PaymentRecoveryMetrics {
     /** confirm 보정 결과를 기록한다. 외부 호출 실패는 pg_failure 로, 나머지는 recovery_total 로 라우팅한다. */
     public void record(RecoveryOutcome outcome) {
         switch (outcome) {
-            case APPROVED, FAILED_RELEASED, REFUNDED_FAILED, HELD_MANUAL, SEAT_LOST_DEFERRED ->
+            case APPROVED, FAILED_RELEASED, REFUNDED_FAILED, PG_PROCESSING, HELD_MANUAL, SEAT_LOST_DEFERRED ->
                     recoveryTotal(CONFIRM, outcome.name());
             case LOOKUP_UNRESOLVED -> pgFailure(CONFIRM, LOOKUP);
             case REFUND_PENDING -> pgFailure(CONFIRM, CANCEL);

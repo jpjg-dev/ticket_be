@@ -8,6 +8,7 @@ public enum RecoveryOutcome {
     APPROVED(true),            // 승인으로 수렴
     FAILED_RELEASED(true),     // 실패 처리 + 좌석 해제로 수렴
     REFUNDED_FAILED(true),     // 환불 후 실패 처리로 수렴
+    PG_PROCESSING(false),      // PG 처리 중 → CONFIRMING 유지, 다음 주기 재조회
     HELD_MANUAL(false),        // orderId 불일치로 보류(자동 조치 안 함)
     REFUND_PENDING(false),     // 환불 호출 실패 → CONFIRMING 유지, 다음 주기 재시도
     SEAT_LOST_DEFERRED(false), // 승인하려 했으나 apply 시점 좌석 유실 → CONFIRMING 유지, 다음 주기 재결정

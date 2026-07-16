@@ -570,6 +570,63 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     }
 
     @Test
+    @DisplayName("recoverConfirmingPayments: PG 처리 중이면 유지하고 다음 조회가 DONE일 때 승인 상태로 수렴한다")
+    void recoverConfirmingPaymentProcessingThenDone() {
+        Fixture fixture = createPendingReservationFixture(false);
+        Payment ready = paymentService.readyPayment(fixture.reservationGroupId);
+        paymentIds.add(ready.getId());
+        int totalAmountWithVat = amountWithVat(ready.getAmount());
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
+            payment.confirming();
+            ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
+        });
+
+        when(paymentGateway.getPaymentByOrderId(ready.getOrderId()))
+                .thenReturn(
+                        new TossPaymentLookupResponse(
+                                "pay-key-processing",
+                                ready.getOrderId(),
+                                "IN_PROGRESS",
+                                "CARD",
+                                totalAmountWithVat,
+                                "KRW"
+                        ),
+                        new TossPaymentLookupResponse(
+                                "pay-key-processing",
+                                ready.getOrderId(),
+                                "DONE",
+                                "CARD",
+                                totalAmountWithVat,
+                                "KRW"
+                        )
+                );
+
+        int firstRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(Duration.ZERO, Integer.MAX_VALUE);
+
+        Payment processing = paymentRepository.findById(ready.getId()).orElseThrow();
+        Reservation pendingReservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat heldSeat = seatRepository.findById(fixture.seatId).orElseThrow();
+        assertEquals(0, firstRecoveredCount);
+        assertEquals(PaymentStatus.CONFIRMING, processing.getStatus());
+        assertEquals(ReservationStatus.PENDING, pendingReservation.getStatus());
+        assertEquals(SeatStatus.HELD, heldSeat.getStatus());
+
+        int secondRecoveredCount = paymentRecoveryService.reconcileStaleConfirmingPayments(Duration.ZERO, Integer.MAX_VALUE);
+
+        Payment approved = paymentRepository.findById(ready.getId()).orElseThrow();
+        Reservation confirmedReservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
+        Seat bookedSeat = seatRepository.findById(fixture.seatId).orElseThrow();
+        assertEquals(1, secondRecoveredCount);
+        assertEquals(PaymentStatus.APPROVED, approved.getStatus());
+        assertEquals(ReservationStatus.CONFIRMED, confirmedReservation.getStatus());
+        assertEquals(SeatStatus.BOOKED, bookedSeat.getStatus());
+        verify(paymentGateway, times(2)).getPaymentByOrderId(ready.getOrderId());
+    }
+
+    @Test
     @DisplayName("recoverConfirmingPayments: 설정된 batch-size 만큼만 오래된 CONFIRMING 결제를 보정한다")
     void recoverConfirmingPaymentsUsesConfiguredBatchSize() {
         Fixture firstFixture = createPendingReservationFixture(false);

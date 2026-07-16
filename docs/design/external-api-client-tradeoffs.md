@@ -91,6 +91,8 @@ confirm permit 확보
 
 PG 회로는 `confirm`, `lookup`, `cancel`로 분리합니다. timeout·5xx·408·429는 외부 장애로 집계하고, 금액 오류나 잘못된 요청처럼 PG가 명확히 거절한 일반 4xx는 회로 실패율에서 제외합니다. 회로가 OPEN이면 `503 Service Unavailable`과 `Retry-After`를 반환합니다.
 
+PG 조회가 성공해도 상태가 `READY`·`IN_PROGRESS`·`WAITING_FOR_DEPOSIT`이면 실패로 확정하지 않고 `CONFIRMING`을 유지합니다. `ABORTED`·`EXPIRED`·`CANCELED`처럼 최종 상태일 때만 내부 실패와 좌석 반환을 적용하며, 알 수 없는 신규 상태는 자동 변경하지 않고 수동 확인 대상으로 남깁니다.
+
 보정 스케줄러는 PG 상태 조회가 선행 조건이므로 lookup 회로가 OPEN이면 신규 배치를 시작하지 않습니다. 처리 중 lookup 회로가 열려도 남은 건을 중단하고 다음 주기로 넘깁니다. 반면 cancel 회로만 OPEN인 경우에는 조회 결과가 이미 취소 완료일 수 있으므로 조회·내부 확정 기회까지 막지 않습니다.
 
 ## 외부 호출 실패 로그 표준화

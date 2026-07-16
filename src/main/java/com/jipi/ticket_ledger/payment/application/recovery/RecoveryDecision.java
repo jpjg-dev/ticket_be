@@ -17,6 +17,10 @@ record RecoveryDecision(RecoveryAction action, String refundReason) {
         return new RecoveryDecision(RecoveryAction.REFUND_THEN_FAIL, reason);
     }
 
+    static RecoveryDecision retryLater() {
+        return new RecoveryDecision(RecoveryAction.RETRY_LATER, null);
+    }
+
     static RecoveryDecision holdManual() {
         return new RecoveryDecision(RecoveryAction.HOLD_MANUAL, null);
     }

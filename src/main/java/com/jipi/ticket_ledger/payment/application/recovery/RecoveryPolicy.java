@@ -22,7 +22,9 @@ final class RecoveryPolicy {
     /**
      * 스냅샷과 PG 조회 결과로 어떤 조치를 취할지 결정한다(부수효과 없음).
      * <ul>
-     *   <li>PG 미승인(비 DONE) → FAIL</li>
+     *   <li>PG 처리 중(READY/IN_PROGRESS/WAITING_FOR_DEPOSIT) → RETRY_LATER</li>
+     *   <li>PG 최종 실패/취소(ABORTED/EXPIRED/CANCELED) → FAIL</li>
+     *   <li>알 수 없는 PG 상태 → HOLD_MANUAL</li>
      *   <li>DONE + orderId 불일치 → HOLD_MANUAL</li>
      *   <li>DONE + orderId 일치 + 금액/통화 불일치 → REFUND_THEN_FAIL(PG_DATA_MISMATCH)</li>
      *   <li>DONE + 전 필드 일치 + 좌석 유효 → APPROVE</li>
@@ -30,8 +32,19 @@ final class RecoveryPolicy {
      * </ul>
      */
     static RecoveryDecision decide(RecoverySnapshot snapshot, PaymentGatewayPayment lookup) {
-        if (lookup.state() != PaymentGatewayState.APPROVED) {
-            return RecoveryDecision.fail();
+        switch (lookup.state()) {
+            case PENDING -> {
+                return RecoveryDecision.retryLater();
+            }
+            case FAILED, CANCELED -> {
+                return RecoveryDecision.fail();
+            }
+            case UNKNOWN -> {
+                return RecoveryDecision.holdManual();
+            }
+            case APPROVED -> {
+                // 승인 상태만 아래의 주문·금액·통화·좌석 검증을 계속한다.
+            }
         }
 
         if (!snapshot.orderId().equals(lookup.orderId())) {

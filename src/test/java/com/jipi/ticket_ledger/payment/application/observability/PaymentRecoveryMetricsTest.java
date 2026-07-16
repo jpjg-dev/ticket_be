@@ -23,12 +23,14 @@ class PaymentRecoveryMetricsTest {
         metrics.record(RecoveryOutcome.APPROVED);
         metrics.record(RecoveryOutcome.FAILED_RELEASED);
         metrics.record(RecoveryOutcome.REFUNDED_FAILED);
+        metrics.record(RecoveryOutcome.PG_PROCESSING);
         metrics.record(RecoveryOutcome.HELD_MANUAL);
         metrics.record(RecoveryOutcome.SEAT_LOST_DEFERRED);
 
         assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "approved"));
         assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "failed_released"));
         assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "refunded_failed"));
+        assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "pg_processing"));
         assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "held_manual"));
         assertEquals(1.0, counter(RECOVERY_TOTAL, "operation", "confirm", "outcome", "seat_lost_deferred"));
     }

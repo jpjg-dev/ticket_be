@@ -22,6 +22,23 @@ public final class TossPaymentStatus {
         if (isCanceled(status)) {
             return PaymentGatewayState.CANCELED;
         }
-        return PaymentGatewayState.OTHER;
+        if (isPending(status)) {
+            return PaymentGatewayState.PENDING;
+        }
+        if (isFailed(status)) {
+            return PaymentGatewayState.FAILED;
+        }
+        return PaymentGatewayState.UNKNOWN;
+    }
+
+    private static boolean isPending(String status) {
+        return "READY".equalsIgnoreCase(status)
+                || "IN_PROGRESS".equalsIgnoreCase(status)
+                || "WAITING_FOR_DEPOSIT".equalsIgnoreCase(status);
+    }
+
+    private static boolean isFailed(String status) {
+        return "ABORTED".equalsIgnoreCase(status)
+                || "EXPIRED".equalsIgnoreCase(status);
     }
 }
