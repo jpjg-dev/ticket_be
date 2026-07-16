@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -51,6 +52,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -135,8 +137,9 @@ class PaymentServiceTest {
         Payment readyPayment = paymentService.readyPayment(1L);
 
         assertSame(existingPayment, readyPayment);
-        verify(paymentRepository).findByReservationGroupIdForUpdate(1L);
-        verify(reservationGroupRepository).findByIdForUpdate(1L);
+        InOrder lockOrder = inOrder(paymentRepository, reservationGroupRepository);
+        lockOrder.verify(paymentRepository).findByReservationGroupIdForUpdate(1L);
+        lockOrder.verify(reservationGroupRepository).findByIdForUpdate(1L);
         verify(paymentRepository, never()).save(org.mockito.ArgumentMatchers.any(Payment.class));
     }
 

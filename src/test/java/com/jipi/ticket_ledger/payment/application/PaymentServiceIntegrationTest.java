@@ -47,6 +47,7 @@ import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayExcepti
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -164,6 +165,46 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
                 .filter(p -> p.getReservationGroup().getId().equals(fixture.reservationGroupId))
                 .count();
         assertEquals(1L, paymentCount);
+    }
+
+    @Test
+    @DisplayName("readyPayment: PostgreSQL에서 동시 요청은 같은 결제 한 건으로 수렴한다")
+    void readyPaymentConcurrentRequestsConvergeToSamePayment() throws Exception {
+        Fixture fixture = createPendingReservationFixture(false);
+        int requestCount = 8;
+        CountDownLatch readyLatch = new CountDownLatch(requestCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(requestCount);
+        List<Future<Long>> futures = new ArrayList<>();
+
+        try {
+            for (int i = 0; i < requestCount; i++) {
+                futures.add(executor.submit(() -> {
+                    readyLatch.countDown();
+                    startLatch.await();
+                    return paymentService.readyPayment(fixture.reservationGroupId).getId();
+                }));
+            }
+
+            assertTrue(readyLatch.await(5, TimeUnit.SECONDS));
+            startLatch.countDown();
+
+            Set<Long> resultPaymentIds = new LinkedHashSet<>();
+            for (Future<Long> future : futures) {
+                resultPaymentIds.add(future.get(10, TimeUnit.SECONDS));
+            }
+
+            assertEquals(1, resultPaymentIds.size());
+            paymentIds.add(resultPaymentIds.iterator().next());
+
+            long paymentCount = paymentRepository.findAll().stream()
+                    .filter(payment -> payment.getReservationGroup().getId().equals(fixture.reservationGroupId))
+                    .count();
+            assertEquals(1L, paymentCount);
+        } finally {
+            startLatch.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
