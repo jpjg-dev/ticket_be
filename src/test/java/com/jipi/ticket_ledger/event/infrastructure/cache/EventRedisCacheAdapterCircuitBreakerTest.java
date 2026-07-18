@@ -13,6 +13,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -34,13 +35,13 @@ class EventRedisCacheAdapterCircuitBreakerTest {
         Cache cache = mock(Cache.class);
         when(cacheManager.getCache(EventCacheNames.EVENT_LIST)).thenReturn(cache);
         when(cache.get(any(), eq(EventListCacheResponse.class))).thenThrow(new IllegalStateException("redis down"));
-        CircuitBreaker circuitBreaker = circuitBreaker();
-        EventRedisCacheAdapter adapter = adapter(cacheManager, circuitBreaker);
+        CircuitBreaker readCircuitBreaker = circuitBreaker("eventRedisCacheRead");
+        EventRedisCacheAdapter adapter = adapter(cacheManager, readCircuitBreaker, circuitBreaker("eventRedisCacheWrite"));
 
         assertThrows(EventCacheAccessException.class, adapter::findEventList);
         assertThrows(EventCacheAccessException.class, adapter::findEventList);
 
-        assertEquals(CircuitBreaker.State.OPEN, circuitBreaker.getState());
+        assertEquals(CircuitBreaker.State.OPEN, readCircuitBreaker.getState());
         EventCacheAccessException rejected = assertThrows(EventCacheAccessException.class, adapter::findEventList);
         assertInstanceOf(CallNotPermittedException.class, rejected.getCause());
         verify(cacheManager, times(2)).getCache(EventCacheNames.EVENT_LIST);
@@ -57,24 +58,63 @@ class EventRedisCacheAdapterCircuitBreakerTest {
                 .thenThrow(new IllegalStateException("redis down"))
                 .thenThrow(new IllegalStateException("redis down"))
                 .thenReturn(expected);
-        CircuitBreaker circuitBreaker = circuitBreaker();
-        EventRedisCacheAdapter adapter = adapter(cacheManager, circuitBreaker);
+        CircuitBreaker readCircuitBreaker = circuitBreaker("eventRedisCacheRead");
+        EventRedisCacheAdapter adapter = adapter(cacheManager, readCircuitBreaker, circuitBreaker("eventRedisCacheWrite"));
 
         assertThrows(EventCacheAccessException.class, adapter::findEventList);
         assertThrows(EventCacheAccessException.class, adapter::findEventList);
-        assertEquals(CircuitBreaker.State.OPEN, circuitBreaker.getState());
+        assertEquals(CircuitBreaker.State.OPEN, readCircuitBreaker.getState());
 
-        circuitBreaker.transitionToHalfOpenState();
+        readCircuitBreaker.transitionToHalfOpenState();
 
         assertTrue(adapter.findEventList().isPresent());
-        assertEquals(CircuitBreaker.State.CLOSED, circuitBreaker.getState());
+        assertEquals(CircuitBreaker.State.CLOSED, readCircuitBreaker.getState());
     }
 
-    private EventRedisCacheAdapter adapter(CacheManager cacheManager, CircuitBreaker circuitBreaker) {
-        return new EventRedisCacheAdapter(cacheManager, mock(StringRedisTemplate.class), circuitBreaker);
+    @Test
+    @DisplayName("읽기 회로가 열려도 캐시 쓰기 회로는 독립적으로 동작한다")
+    void readCircuitDoesNotBlockCacheWrites() {
+        CacheManager cacheManager = mock(CacheManager.class);
+        Cache cache = mock(Cache.class);
+        when(cacheManager.getCache(EventCacheNames.EVENT_LIST)).thenReturn(cache);
+        CircuitBreaker readCircuitBreaker = circuitBreaker("eventRedisCacheRead");
+        CircuitBreaker writeCircuitBreaker = circuitBreaker("eventRedisCacheWrite");
+        readCircuitBreaker.transitionToForcedOpenState();
+        EventRedisCacheAdapter adapter = adapter(cacheManager, readCircuitBreaker, writeCircuitBreaker);
+        EventListCacheResponse response = new EventListCacheResponse(List.of());
+
+        adapter.putEventList(response);
+
+        verify(cache).put("all", response);
+        assertEquals(CircuitBreaker.State.CLOSED, writeCircuitBreaker.getState());
     }
 
-    private CircuitBreaker circuitBreaker() {
+    @Test
+    @DisplayName("쓰기 회로가 열려도 기존 캐시 조회는 계속 동작한다")
+    void writeCircuitDoesNotBlockCacheReads() {
+        CacheManager cacheManager = mock(CacheManager.class);
+        Cache cache = mock(Cache.class);
+        EventListCacheResponse response = new EventListCacheResponse(List.of());
+        when(cacheManager.getCache(EventCacheNames.EVENT_LIST)).thenReturn(cache);
+        when(cache.get(any(), eq(EventListCacheResponse.class))).thenReturn(response);
+        CircuitBreaker readCircuitBreaker = circuitBreaker("eventRedisCacheRead");
+        CircuitBreaker writeCircuitBreaker = circuitBreaker("eventRedisCacheWrite");
+        writeCircuitBreaker.transitionToForcedOpenState();
+        EventRedisCacheAdapter adapter = adapter(cacheManager, readCircuitBreaker, writeCircuitBreaker);
+
+        Optional<EventListCacheResponse> cached = adapter.findEventList();
+
+        assertTrue(cached.isPresent());
+        assertEquals(CircuitBreaker.State.CLOSED, readCircuitBreaker.getState());
+    }
+
+    private EventRedisCacheAdapter adapter(CacheManager cacheManager, CircuitBreaker readCircuitBreaker,
+                                           CircuitBreaker writeCircuitBreaker) {
+        return new EventRedisCacheAdapter(cacheManager, mock(StringRedisTemplate.class),
+                readCircuitBreaker, writeCircuitBreaker);
+    }
+
+    private CircuitBreaker circuitBreaker(String name) {
         CircuitBreakerConfig config = CircuitBreakerConfig.custom()
                 .slidingWindowSize(2)
                 .minimumNumberOfCalls(2)
@@ -82,6 +122,6 @@ class EventRedisCacheAdapterCircuitBreakerTest {
                 .waitDurationInOpenState(Duration.ofMinutes(1))
                 .permittedNumberOfCallsInHalfOpenState(1)
                 .build();
-        return CircuitBreaker.of("eventRedisCache", config);
+        return CircuitBreaker.of(name, config);
     }
 }

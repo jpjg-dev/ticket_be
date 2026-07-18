@@ -74,7 +74,16 @@ resilience4j:
         base-config: payment-pg
       paymentCancel:
         base-config: payment-pg
-      eventRedisCache:
+      eventRedisCacheRead:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+      eventRedisCacheWrite:
         sliding-window-type: count_based
         sliding-window-size: 10
         minimum-number-of-calls: 5

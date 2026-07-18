@@ -9,7 +9,12 @@ import org.springframework.context.annotation.Configuration;
 public class EventRedisCircuitBreakerConfiguration {
 
     @Bean
-    public CircuitBreaker eventRedisCacheCircuitBreaker(CircuitBreakerRegistry circuitBreakerRegistry) {
-        return circuitBreakerRegistry.circuitBreaker("eventRedisCache");
+    public CircuitBreaker eventRedisCacheReadCircuitBreaker(CircuitBreakerRegistry circuitBreakerRegistry) {
+        return circuitBreakerRegistry.circuitBreaker("eventRedisCacheRead");
+    }
+
+    @Bean
+    public CircuitBreaker eventRedisCacheWriteCircuitBreaker(CircuitBreakerRegistry circuitBreakerRegistry) {
+        return circuitBreakerRegistry.circuitBreaker("eventRedisCacheWrite");
     }
 }

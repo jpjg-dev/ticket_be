@@ -77,6 +77,7 @@
 - [x] 같은 공연 상세 조회는 캐시되어 DB 조회를 반복하지 않습니다.
 - [x] Redis 회로가 OPEN이면 Redis 호출을 생략하고 제한된 DB fallback 경로를 사용합니다.
 - [x] HALF_OPEN probe 성공 후 Redis 회로가 CLOSED로 복구됩니다.
+- [x] Redis 캐시 읽기·쓰기 회로는 분리되어 한쪽 OPEN이 정상 연산을 차단하지 않습니다.
 
 ### `getSeats()`
 

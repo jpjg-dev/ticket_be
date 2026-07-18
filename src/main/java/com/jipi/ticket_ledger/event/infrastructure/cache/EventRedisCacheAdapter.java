@@ -6,7 +6,7 @@ import com.jipi.ticket_ledger.event.application.model.EventDetailResponse;
 import com.jipi.ticket_ledger.event.application.model.EventListCacheResponse;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -19,7 +19,6 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 @Component
-@RequiredArgsConstructor
 public class EventRedisCacheAdapter implements EventCache {
 
     private static final String EVENT_LIST_KEY = "all";
@@ -32,7 +31,20 @@ public class EventRedisCacheAdapter implements EventCache {
 
     private final CacheManager cacheManager;
     private final StringRedisTemplate redisTemplate;
-    private final CircuitBreaker eventRedisCacheCircuitBreaker;
+    private final CircuitBreaker eventRedisCacheReadCircuitBreaker;
+    private final CircuitBreaker eventRedisCacheWriteCircuitBreaker;
+
+    public EventRedisCacheAdapter(
+            CacheManager cacheManager,
+            StringRedisTemplate redisTemplate,
+            @Qualifier("eventRedisCacheReadCircuitBreaker") CircuitBreaker eventRedisCacheReadCircuitBreaker,
+            @Qualifier("eventRedisCacheWriteCircuitBreaker") CircuitBreaker eventRedisCacheWriteCircuitBreaker
+    ) {
+        this.cacheManager = cacheManager;
+        this.redisTemplate = redisTemplate;
+        this.eventRedisCacheReadCircuitBreaker = eventRedisCacheReadCircuitBreaker;
+        this.eventRedisCacheWriteCircuitBreaker = eventRedisCacheWriteCircuitBreaker;
+    }
 
     @Override
     public Optional<EventListCacheResponse> findEventList() {
@@ -56,32 +68,40 @@ public class EventRedisCacheAdapter implements EventCache {
 
     @Override
     public boolean tryAcquireRefreshLock(String key, String token, Duration ttl) {
-        return executeRedisOperation(() -> Boolean.TRUE.equals(
+        return executeWrite(() -> Boolean.TRUE.equals(
                 redisTemplate.opsForValue().setIfAbsent(lockKey(key), token, ttl)));
     }
 
     @Override
     public void releaseRefreshLock(String key, String token) {
-        executeRedisOperation(() -> {
+        executeWrite(() -> {
             redisTemplate.execute(RELEASE_LOCK, List.of(lockKey(key)), token);
             return null;
         });
     }
 
     private <T> Optional<T> get(String cacheName, Object key, Class<T> type) {
-        return executeRedisOperation(() -> Optional.ofNullable(cache(cacheName).get(key, type)));
+        return executeRead(() -> Optional.ofNullable(cache(cacheName).get(key, type)));
     }
 
     private void put(String cacheName, Object key, Object value) {
-        executeRedisOperation(() -> {
+        executeWrite(() -> {
             cache(cacheName).put(key, value);
             return null;
         });
     }
 
-    private <T> T executeRedisOperation(Supplier<T> operation) {
+    private <T> T executeRead(Supplier<T> operation) {
+        return execute(eventRedisCacheReadCircuitBreaker, operation);
+    }
+
+    private <T> T executeWrite(Supplier<T> operation) {
+        return execute(eventRedisCacheWriteCircuitBreaker, operation);
+    }
+
+    private <T> T execute(CircuitBreaker circuitBreaker, Supplier<T> operation) {
         try {
-            return eventRedisCacheCircuitBreaker.executeSupplier(operation);
+            return circuitBreaker.executeSupplier(operation);
         } catch (CallNotPermittedException exception) {
             throw new EventCacheAccessException(exception);
         } catch (RuntimeException exception) {
