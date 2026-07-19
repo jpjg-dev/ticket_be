@@ -419,8 +419,6 @@ GET  /api/v1/payments/{paymentId}/status
 │   ├── application      # UserService
 │   │   └── model        # 사용자/마이페이지 조회 결과
 │   └── domain           # User, UserRole, UserStatus, UserRepository
-├── admin                # 관리자 접근 확인
-│   └── presentation     # AdminAccessController, 관리자 접근 응답 DTO
 └── global               # 전 계층 공통 관심사
     ├── config           # Security, Swagger, Time, 초기 데이터
     ├── security         # CSRF Origin 필터/설정
