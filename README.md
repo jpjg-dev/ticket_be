@@ -27,9 +27,9 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 ## 배포 사이트
 
 - 서비스: [https://ticketledger.dev](https://ticketledger.dev)
-- API 명세서: 운영 사이트에서 관리자 계정으로 로그인하면 헤더의 `API 문서` 버튼이 노출됩니다.
+- API 명세서: 운영 사이트에서 관리자 계정으로 로그인한 뒤 헤더의 `관리자` 버튼으로 `/admin`에 진입하면 API 문서를 열 수 있습니다.
 - Swagger UI: [https://ticketledger.dev/swagger-ui/index.html](https://ticketledger.dev/swagger-ui/index.html)
-- Swagger에서 `401`이 표시되면 메인 페이지로 돌아가 새로고침한 뒤, 다시 `API 문서`로 이동해 Swagger 화면을 새로고침하면 됩니다.
+- Swagger에서 `401`이 표시되면 메인 페이지로 돌아가 새로고침한 뒤, `/admin`의 `API 문서 열기`로 이동해 Swagger 화면을 새로고침하면 됩니다.
 
 ## 운영 환경 로그인 정보
 
@@ -419,6 +419,8 @@ GET  /api/v1/payments/{paymentId}/status
 │   ├── application      # UserService
 │   │   └── model        # 사용자/마이페이지 조회 결과
 │   └── domain           # User, UserRole, UserStatus, UserRepository
+├── admin                # 관리자 접근 확인
+│   └── presentation     # AdminAccessController, 관리자 접근 응답 DTO
 └── global               # 전 계층 공통 관심사
     ├── config           # Security, Swagger, Time, 초기 데이터
     ├── security         # CSRF Origin 필터/설정
