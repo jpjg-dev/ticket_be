@@ -92,6 +92,24 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 1
         automatic-transition-from-open-to-half-open-enabled: true
         register-health-indicator: false
+      queueModeRedisCacheRead:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+      queueModeRedisCacheWrite:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
 
 springdoc:
   api-docs:
@@ -117,6 +135,11 @@ app:
     service-zone: Asia/Seoul
 
 cache:
+  featureflag:
+    queue:
+      mode:
+        # 캐시 동기화 실패 시 오래된 운영 모드가 남는 시간을 제한한다.
+        ttl: 5s
   event:
     list:
       ttl: 60s
@@ -130,3 +153,13 @@ cache:
       retry-after-seconds: 1
       ttl-jitter-ratio: 0.1
       schedule-boundary-safety-margin: 1s
+
+queue:
+  admission:
+    batch-size: 20
+    fixed-delay-ms: 3000
+    entry-ttl: 15m
+    admission-ttl: 2m
+    claim-ttl: 30s
+    stream-timeout: 5m
+    stream-interval: 1s

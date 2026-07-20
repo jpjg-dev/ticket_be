@@ -2,10 +2,13 @@ package com.jipi.ticket_ledger.global.exception;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayTemporarilyUnavailableException;
+import com.jipi.ticket_ledger.queue.application.QueueAdmissionRequiredException;
+import com.jipi.ticket_ledger.queue.application.QueueTemporarilyUnavailableException;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -110,5 +113,29 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
                 .body(new ErrorResponse("PAYMENT_GATEWAY_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(RedisConnectionFailureException.class)
+    public ResponseEntity<ErrorResponse> handleRedisConnectionFailure(RedisConnectionFailureException e) {
+        log.error("event={} code=REDIS_TEMPORARILY_UNAVAILABLE status=503", LogEvents.API_ERROR, e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(new ErrorResponse("REDIS_TEMPORARILY_UNAVAILABLE", "잠시 후 다시 시도해 주세요."));
+    }
+
+    @ExceptionHandler(QueueAdmissionRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleQueueAdmissionRequired(QueueAdmissionRequiredException e) {
+        log.warn("event={} code=QUEUE_ADMISSION_REQUIRED status=428", LogEvents.API_ERROR);
+        return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED)
+                .body(new ErrorResponse("QUEUE_ADMISSION_REQUIRED", e.getMessage()));
+    }
+
+    @ExceptionHandler(QueueTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleQueueTemporarilyUnavailable(QueueTemporarilyUnavailableException e) {
+        log.warn("event={} code=QUEUE_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("QUEUE_TEMPORARILY_UNAVAILABLE", e.getMessage()));
     }
 }

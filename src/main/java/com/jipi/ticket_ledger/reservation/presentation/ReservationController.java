@@ -1,6 +1,6 @@
 package com.jipi.ticket_ledger.reservation.presentation;
 
-import com.jipi.ticket_ledger.reservation.application.ReservationService;
+import com.jipi.ticket_ledger.reservation.application.ReservationCommandService;
 import com.jipi.ticket_ledger.reservation.presentation.dto.CreateReservationRequest;
 import com.jipi.ticket_ledger.reservation.presentation.dto.ReservationResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,12 +16,14 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class ReservationController {
 
-    private final ReservationService reservationService;
+    private final ReservationCommandService reservationCommandService;
 
     @Operation(summary = "공연 예매 생성", description = "사용자와 좌석 정보로 예약을 생성합니다.")
     @PostMapping
     public ReservationResponse createReservation(@AuthenticationPrincipal Long userId, @RequestBody @Valid CreateReservationRequest request) {
-        Long reservationGroupId = reservationService.createReservation(userId, request.seatIds());
+        Long reservationGroupId = reservationCommandService.createReservation(
+                userId, request.scheduleId(), request.seatIds(), request.queueToken()
+        );
         return new ReservationResponse(reservationGroupId);
     }
 }

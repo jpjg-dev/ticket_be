@@ -7,6 +7,7 @@ public final class SecurityURLs {
     // 관리자 허용
     public static final String[] ADMIN_URLS = {
             "/admin/**",
+            "/api/v1/admin/**",
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
@@ -16,6 +17,7 @@ public final class SecurityURLs {
     // 유저 허용
     public static final String[] AUTHENTICATED_URLS = {
             "/api/v1/reservations/**",
+            "/api/v1/queue/**",
             "/api/v1/payments/**",
             "/api/v1/users/{userId}", //MyPage
             "/api/v1/users/me",

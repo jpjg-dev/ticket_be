@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.auth.infrastructure.JwtAuthenticationFilter;
 import com.jipi.ticket_ledger.global.exception.ErrorResponse;
 import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.global.security.CsrfOriginProperties;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -67,6 +68,7 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable);
 
         http.authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(SecurityURLs.ADMIN_URLS).hasRole("ADMIN")
                 .requestMatchers(SecurityURLs.PUBLIC_URLS).permitAll()

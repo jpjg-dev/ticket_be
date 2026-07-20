@@ -44,7 +44,7 @@ public class ReservationService {
     private String serviceZoneId;
 
     @Transactional
-    public Long createReservation(Long userId, List<Long> seatIds) {
+    public Long createReservation(Long userId, Long scheduleId, List<Long> seatIds) {
         log.info("event={} userId={} requestedSeatCount={}",
                 LogEvents.RESERVATION_CREATE_START, userId, seatIds == null ? 0 : seatIds.size());
         reservationCreationPolicy.validateSeatIds(seatIds);
@@ -71,6 +71,11 @@ public class ReservationService {
             log.warn("event={} userId={} requestedSeatIds={} foundSeatCount={} reason={}",
                     LogEvents.RESERVATION_CREATE_REJECT, userId, sortedSeatIds, seats.size(), "SEAT_NOT_FOUND");
             throw new EntityNotFoundException("좌석을 찾을 수 없습니다.");
+        }
+        boolean scheduleMismatch = seats.stream()
+                .anyMatch(seat -> !seat.getSchedule().getId().equals(scheduleId));
+        if (scheduleMismatch) {
+            throw new IllegalArgumentException("선택한 회차와 좌석 정보가 일치하지 않습니다.");
         }
         Instant now = clock.instant();
         reservationCreationPolicy.validateSeats(
