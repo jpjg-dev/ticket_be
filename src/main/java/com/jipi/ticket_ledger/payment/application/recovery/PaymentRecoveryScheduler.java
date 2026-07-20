@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.payment.application.recovery;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -11,6 +12,7 @@ import java.time.Duration;
 import java.util.function.IntSupplier;
 
 @Component
+@ConditionalOnProperty(name = "app.scheduling.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentRecoveryScheduler {

@@ -45,6 +45,15 @@ public class ReservationService {
 
     @Transactional
     public Long createReservation(Long userId, Long scheduleId, List<Long> seatIds) {
+        return createReservation(userId, scheduleId, seatIds, false);
+    }
+
+    @Transactional
+    public Long createReservationWithPessimisticLock(Long userId, Long scheduleId, List<Long> seatIds) {
+        return createReservation(userId, scheduleId, seatIds, true);
+    }
+
+    private Long createReservation(Long userId, Long scheduleId, List<Long> seatIds, boolean pessimisticFallback) {
         log.info("event={} userId={} requestedSeatCount={}",
                 LogEvents.RESERVATION_CREATE_START, userId, seatIds == null ? 0 : seatIds.size());
         reservationCreationPolicy.validateSeatIds(seatIds);
@@ -57,16 +66,9 @@ public class ReservationService {
                 .sorted()
                 .toList();
 
-        List<Seat> seats;
-        try {
-            seatRepository.setSeatLockTimeoutForCurrentTransaction();
-            seats = seatRepository.findAllByIdInForUpdate(sortedSeatIds);
-        } catch (PessimisticLockingFailureException lockTimeout) {
-            // 1초 안에 락을 못 얻음 = 다른 요청이 지금 이 좌석(들)을 선점 처리 중.
-            log.warn("event={} userId={} requestedSeatIds={} reason={}",
-                    LogEvents.RESERVATION_CREATE_REJECT, userId, sortedSeatIds, "SEAT_LOCK_TIMEOUT");
-            throw new IllegalStateException("다른 사용자가 선택 중인 좌석입니다. 잠시 후 다시 시도해주세요.");
-        }
+        List<Seat> seats = pessimisticFallback
+                ? findSeatsWithPessimisticLock(userId, sortedSeatIds)
+                : seatRepository.findAllByIdInOrderByIdAsc(sortedSeatIds);
         if (seats.size() != sortedSeatIds.size()) {
             log.warn("event={} userId={} requestedSeatIds={} foundSeatCount={} reason={}",
                     LogEvents.RESERVATION_CREATE_REJECT, userId, sortedSeatIds, seats.size(), "SEAT_NOT_FOUND");
@@ -98,6 +100,17 @@ public class ReservationService {
         log.info("event={} userId={} reservationGroupId={} seatCount={} expiresAt={}",
                 LogEvents.RESERVATION_CREATE_SUCCESS, userId, reservationGroup.getId(), reservations.size(), reservationGroup.getExpiresAt());
         return reservationGroup.getId();
+    }
+
+    private List<Seat> findSeatsWithPessimisticLock(Long userId, List<Long> sortedSeatIds) {
+        try {
+            seatRepository.setSeatLockTimeoutForCurrentTransaction();
+            return seatRepository.findAllByIdInForUpdate(sortedSeatIds);
+        } catch (PessimisticLockingFailureException lockTimeout) {
+            log.warn("event={} userId={} requestedSeatIds={} reason={}",
+                    LogEvents.RESERVATION_CREATE_REJECT, userId, sortedSeatIds, "SEAT_LOCK_TIMEOUT");
+            throw new IllegalStateException("다른 사용자가 선택 중인 좌석입니다. 잠시 후 다시 시도해주세요.");
+        }
     }
 
 }

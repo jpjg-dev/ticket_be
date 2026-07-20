@@ -17,6 +17,10 @@ spring:
   flyway:
     enabled: true
 
+app:
+  scheduling:
+    enabled: false
+
 logging:
   level:
     root: warn

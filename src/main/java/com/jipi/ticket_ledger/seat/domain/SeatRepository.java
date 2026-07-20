@@ -48,6 +48,9 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
     @Query("select s from Seat s where s.id in :seatIds order by s.id asc")
     List<Seat> findAllByIdInForUpdate(@Param("seatIds") Collection<Long> seatIds);
 
+    @Query("select s from Seat s where s.id in :seatIds order by s.id asc")
+    List<Seat> findAllByIdInOrderByIdAsc(@Param("seatIds") Collection<Long> seatIds);
+
     @Query("""
             select s.id as id,
                    s.seatNumber as seatNumber,

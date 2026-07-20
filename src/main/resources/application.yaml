@@ -110,6 +110,17 @@ resilience4j:
         permitted-number-of-calls-in-half-open-state: 1
         automatic-transition-from-open-to-half-open-enabled: true
         register-health-indicator: false
+      seatLockRedis:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+        ignore-exceptions:
+          - com.jipi.ticket_ledger.reservation.application.lock.SeatLockBusyException
 
 springdoc:
   api-docs:
@@ -163,3 +174,12 @@ queue:
     claim-ttl: 30s
     stream-timeout: 5m
     stream-interval: 1s
+
+seat-lock:
+  # 0ms keeps same-seat losers out of the DB instead of queueing them behind a seat already being held.
+  wait-time: ${SEAT_LOCK_WAIT_TIME}
+  # Redisson renews this ownership timeout while the holder is alive. This is not the acquisition wait time.
+  watchdog-timeout: ${SEAT_LOCK_WATCHDOG_TIMEOUT}
+  fallback-max-concurrent: ${SEAT_LOCK_FALLBACK_MAX_CONCURRENT}
+  fallback-wait-time: ${SEAT_LOCK_FALLBACK_WAIT_TIME}
+  retry-after-seconds: ${SEAT_LOCK_RETRY_AFTER_SECONDS}

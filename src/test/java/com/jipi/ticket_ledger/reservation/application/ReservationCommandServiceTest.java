@@ -25,7 +25,7 @@ class ReservationCommandServiceTest {
     private QueueAdmissionService queueAdmissionService;
 
     @Mock
-    private ReservationService reservationService;
+    private SeatReservationCoordinator seatReservationCoordinator;
 
     @InjectMocks
     private ReservationCommandService reservationCommandService;
@@ -34,7 +34,7 @@ class ReservationCommandServiceTest {
     void completesAdmissionAfterReservationCommit() {
         QueueAdmissionPermit permit = QueueAdmissionPermit.claimed(1L, 10L, "token");
         when(queueAdmissionService.claimForReservation(1L, 10L, "token")).thenReturn(permit);
-        when(reservationService.createReservation(1L, 10L, List.of(100L))).thenReturn(77L);
+        when(seatReservationCoordinator.createReservation(1L, 10L, List.of(100L))).thenReturn(77L);
 
         Long result = reservationCommandService.createReservation(1L, 10L, List.of(100L), "token");
 
@@ -47,7 +47,7 @@ class ReservationCommandServiceTest {
     void releasesAdmissionWhenReservationFails() {
         QueueAdmissionPermit permit = QueueAdmissionPermit.claimed(1L, 10L, "token");
         when(queueAdmissionService.claimForReservation(1L, 10L, "token")).thenReturn(permit);
-        when(reservationService.createReservation(1L, 10L, List.of(100L)))
+        when(seatReservationCoordinator.createReservation(1L, 10L, List.of(100L)))
                 .thenThrow(new IllegalStateException("좌석 선점 실패"));
 
         assertThrows(
@@ -62,7 +62,7 @@ class ReservationCommandServiceTest {
     void preservesReservationSuccessWhenQueueCleanupFails() {
         QueueAdmissionPermit permit = QueueAdmissionPermit.claimed(1L, 10L, "token");
         when(queueAdmissionService.claimForReservation(1L, 10L, "token")).thenReturn(permit);
-        when(reservationService.createReservation(1L, 10L, List.of(100L))).thenReturn(77L);
+        when(seatReservationCoordinator.createReservation(1L, 10L, List.of(100L))).thenReturn(77L);
         doThrow(new QueueTemporarilyUnavailableException(new RuntimeException("redis down")))
                 .when(queueAdmissionService).complete(permit);
 
@@ -78,7 +78,7 @@ class ReservationCommandServiceTest {
         QueueAdmissionPermit permit = QueueAdmissionPermit.claimed(1L, 10L, "token");
         IllegalStateException reservationFailure = new IllegalStateException("좌석 선점 실패");
         when(queueAdmissionService.claimForReservation(1L, 10L, "token")).thenReturn(permit);
-        when(reservationService.createReservation(1L, 10L, List.of(100L))).thenThrow(reservationFailure);
+        when(seatReservationCoordinator.createReservation(1L, 10L, List.of(100L))).thenThrow(reservationFailure);
         doThrow(new QueueTemporarilyUnavailableException(new RuntimeException("redis down")))
                 .when(queueAdmissionService).release(permit);
 

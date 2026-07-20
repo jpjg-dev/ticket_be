@@ -15,13 +15,13 @@ import java.util.List;
 public class ReservationCommandService {
 
     private final QueueAdmissionService queueAdmissionService;
-    private final ReservationService reservationService;
+    private final SeatReservationCoordinator seatReservationCoordinator;
 
     public Long createReservation(Long userId, Long scheduleId, List<Long> seatIds, String queueToken) {
         QueueAdmissionPermit permit = queueAdmissionService.claimForReservation(userId, scheduleId, queueToken);
         Long reservationGroupId;
         try {
-            reservationGroupId = reservationService.createReservation(userId, scheduleId, seatIds);
+            reservationGroupId = seatReservationCoordinator.createReservation(userId, scheduleId, seatIds);
         } catch (RuntimeException exception) {
             try {
                 queueAdmissionService.release(permit);

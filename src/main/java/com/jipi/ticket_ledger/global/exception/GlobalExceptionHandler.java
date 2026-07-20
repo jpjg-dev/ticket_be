@@ -4,6 +4,8 @@ import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayTemporarilyUnavailableException;
 import com.jipi.ticket_ledger.queue.application.QueueAdmissionRequiredException;
 import com.jipi.ticket_ledger.queue.application.QueueTemporarilyUnavailableException;
+import com.jipi.ticket_ledger.reservation.application.lock.SeatLockInfrastructureException;
+import com.jipi.ticket_ledger.reservation.application.lock.SeatLockTemporarilyUnavailableException;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
@@ -137,5 +139,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
                 .body(new ErrorResponse("QUEUE_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(SeatLockTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleSeatLockTemporarilyUnavailable(
+            SeatLockTemporarilyUnavailableException e
+    ) {
+        log.warn("event={} code=SEAT_LOCK_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("SEAT_LOCK_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(SeatLockInfrastructureException.class)
+    public ResponseEntity<ErrorResponse> handleSeatLockInfrastructure(SeatLockInfrastructureException e) {
+        log.error("event={} code=SEAT_LOCK_INFRASTRUCTURE_ERROR status=503", LogEvents.API_ERROR, e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(new ErrorResponse("SEAT_LOCK_TEMPORARILY_UNAVAILABLE", "잠시 후 다시 시도해 주세요."));
     }
 }
