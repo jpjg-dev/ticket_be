@@ -57,8 +57,22 @@ security:
       - https://ticketledger.dev
 
 cache:
+  featureflag:
+    queue:
+      mode:
+        ttl: 5s
   event:
     list:
       ttl: 60s
     detail:
       ttl: 5m
+
+queue:
+  admission:
+    batch-size: 20
+    fixed-delay-ms: 3000
+    entry-ttl: 15m
+    admission-ttl: 2m
+    claim-ttl: 30s
+    stream-timeout: 5m
+    stream-interval: 1s

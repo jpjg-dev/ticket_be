@@ -119,7 +119,7 @@ class ReservationConcurrencyTest extends PostgresTestContainerSupport {
             List<Long> requestSeatIds = useFirstPair
                     ? List.of(seatA1.getId(), seatA2.getId())
                     : List.of(seatA2.getId(), seatA3.getId());
-            requests.add(() -> reservationService.createReservation(user.getId(), requestSeatIds));
+            requests.add(() -> reservationService.createReservation(user.getId(), schedule.getId(), requestSeatIds));
             useFirstPair = !useFirstPair;
         }
 
