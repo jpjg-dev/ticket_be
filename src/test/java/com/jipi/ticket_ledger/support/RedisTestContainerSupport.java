@@ -8,6 +8,6 @@ public abstract class RedisTestContainerSupport extends PostgresTestContainerSup
 
     @Container
     @ServiceConnection(name = "redis")
-    static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine")
+    protected static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine")
             .withExposedPorts(6379);
 }
