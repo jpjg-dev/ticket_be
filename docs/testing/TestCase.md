@@ -228,6 +228,18 @@
 
 </details>
 
+<details>
+<summary>Queue</summary>
+
+- [x] Redis 중단 시 대기열을 우회하지 않고 `503`과 `Retry-After`를 반환합니다.
+- [x] SSE 연결 종료 후 작업과 활성 연결 지표를 회수합니다.
+- [x] 만료된 입장 토큰과 이미 claim된 토큰을 거부합니다.
+- [x] store 재생성 후에도 Redis backlog를 이어서 조회합니다.
+- [x] `ENFORCED -> OFF` 전환 시 기존 대기 요청을 즉시 `BYPASSED` 처리합니다.
+- [x] 회차별 `1,000`건과 `10,000`건 등록 기준선에서 예상 밖 오류가 발생하지 않았습니다.
+
+</details>
+
 ## 핵심 목표
 
 - 상태 전이 정합성을 보장합니다.
