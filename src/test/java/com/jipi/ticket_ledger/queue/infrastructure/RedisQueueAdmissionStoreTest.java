@@ -17,11 +17,20 @@ import org.testcontainers.DockerClientFactory;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 @SpringBootTest(properties = "queue.admission.fixed-delay-ms=60000")
@@ -140,6 +149,61 @@ class RedisQueueAdmissionStoreTest extends RedisTestContainerSupport {
         assertEquals(0L, queueAdmissionStore.countTotalWaiting());
         assertThrows(QueueAdmissionRequiredException.class,
                 () -> queueAdmissionStore.getStatus(USER_ID, SCHEDULE_ID, token));
+    }
+
+    @Test
+    @DisplayName("상태 조회와 승격이 겹쳐도 정상 대기 토큰을 잃지 않는다")
+    void concurrentStatusCheckAndPromotionPreserveTokens() throws Exception {
+        int userCount = properties.batchSize() * 5;
+        List<Long> userIds = new ArrayList<>(userCount);
+        List<String> tokens = new ArrayList<>(userCount);
+        for (long index = 0; index < userCount; index++) {
+            long userId = 1000L + index;
+            userIds.add(userId);
+            tokens.add(queueAdmissionStore.register(userId, SCHEDULE_ID));
+        }
+
+        CountDownLatch start = new CountDownLatch(1);
+        ConcurrentLinkedQueue<Throwable> failures = new ConcurrentLinkedQueue<>();
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<?>> statusTasks = new ArrayList<>(userCount);
+            for (int index = 0; index < userCount; index++) {
+                long userId = userIds.get(index);
+                String token = tokens.get(index);
+                statusTasks.add(executor.submit(() -> {
+                    start.await();
+                    try {
+                        while (queueAdmissionStore.getStatus(userId, SCHEDULE_ID, token).status()
+                                == QueueAdmissionStatus.WAITING) {
+                            Thread.yield();
+                        }
+                    } catch (Throwable failure) {
+                        failures.add(failure);
+                    }
+                    return null;
+                }));
+            }
+            Future<?> promotionTask = executor.submit(() -> {
+                start.await();
+                while (queueAdmissionStore.countWaiting(SCHEDULE_ID) > 0) {
+                    queueAdmissionStore.admitNextForActiveSchedules();
+                    Thread.yield();
+                }
+                return null;
+            });
+
+            start.countDown();
+            promotionTask.get(10, TimeUnit.SECONDS);
+            for (Future<?> statusTask : statusTasks) {
+                statusTask.get(10, TimeUnit.SECONDS);
+            }
+        }
+
+        assertTrue(failures.isEmpty(), () -> "정상 토큰이 상태 조회 중 유실되었습니다: " + failures);
+        for (int index = 0; index < userCount; index++) {
+            assertEquals(QueueAdmissionStatus.ADMITTED,
+                    queueAdmissionStore.getStatus(userIds.get(index), SCHEDULE_ID, tokens.get(index)).status());
+        }
     }
 
     private void awaitRedisAvailable() {

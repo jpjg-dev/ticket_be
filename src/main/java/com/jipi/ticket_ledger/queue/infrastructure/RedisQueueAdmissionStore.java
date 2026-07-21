@@ -50,6 +50,26 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
             return promoted
             """, Long.class);
 
+    private static final DefaultRedisScript<String> GET_STATUS_SCRIPT = new DefaultRedisScript<>("""
+            local owner = redis.call('GET', KEYS[1])
+            if owner ~= ARGV[1] then
+                return 'INVALID'
+            end
+            if redis.call('GET', KEYS[2]) == ARGV[1]
+                    or redis.call('GET', KEYS[3]) == ARGV[1] then
+                return 'ADMITTED'
+            end
+            local rank = redis.call('ZRANK', KEYS[4], ARGV[2])
+            if rank then
+                return 'WAITING:' .. rank
+            end
+            if redis.call('GET', KEYS[5]) == ARGV[2] then
+                redis.call('DEL', KEYS[5])
+            end
+            redis.call('DEL', KEYS[1], KEYS[2], KEYS[3])
+            return 'INVALID'
+            """, String.class);
+
     private static final DefaultRedisScript<Long> CLAIM_SCRIPT = new DefaultRedisScript<>("""
             local owner = redis.call('GET', KEYS[1])
             if not owner or owner ~= ARGV[1] then
@@ -123,26 +143,30 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
     @Override
     public QueueAdmissionSnapshot getStatus(Long userId, Long scheduleId, String queueToken) {
         String expectedOwner = ownerValue(userId, scheduleId);
-        if (!expectedOwner.equals(redisTemplate.opsForValue().get(ownerKey(queueToken)))) {
-            throw new QueueAdmissionRequiredException();
-        }
-        if (expectedOwner.equals(redisTemplate.opsForValue().get(admittedKey(queueToken)))) {
+        String result = redisTemplate.execute(
+                GET_STATUS_SCRIPT,
+                List.of(
+                        ownerKey(queueToken),
+                        admittedKey(queueToken),
+                        claimedKey(queueToken),
+                        waitingKey(scheduleId),
+                        userEntryKey(userId, scheduleId)
+                ),
+                expectedOwner,
+                queueToken
+        );
+        if ("ADMITTED".equals(result)) {
             return QueueAdmissionSnapshot.admitted(queueToken);
         }
-        if (expectedOwner.equals(redisTemplate.opsForValue().get(claimedKey(queueToken)))) {
-            return QueueAdmissionSnapshot.admitted(queueToken);
+        if (result != null && result.startsWith("WAITING:")) {
+            long rank = Long.parseLong(result.substring("WAITING:".length()));
+            long position = rank + 1;
+            long rounds = (position + properties.batchSize() - 1) / properties.batchSize();
+            long admissionIntervalSeconds = Math.max(1, (properties.fixedDelayMs() + 999) / 1000);
+            long estimatedSeconds = rounds * admissionIntervalSeconds;
+            return QueueAdmissionSnapshot.waiting(queueToken, position, estimatedSeconds);
         }
-
-        Long rank = redisTemplate.opsForZSet().rank(waitingKey(scheduleId), queueToken);
-        if (rank == null) {
-            cleanup(userId, scheduleId, queueToken);
-            throw new QueueAdmissionRequiredException();
-        }
-        long position = rank + 1;
-        long rounds = (position + properties.batchSize() - 1) / properties.batchSize();
-        long admissionIntervalSeconds = Math.max(1, (properties.fixedDelayMs() + 999) / 1000);
-        long estimatedSeconds = rounds * admissionIntervalSeconds;
-        return QueueAdmissionSnapshot.waiting(queueToken, position, estimatedSeconds);
+        throw new QueueAdmissionRequiredException();
     }
 
     @Override
@@ -249,13 +273,6 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
                 .map(Long::valueOf)
                 .mapToLong(this::countWaiting)
                 .sum();
-    }
-
-    private void cleanup(Long userId, Long scheduleId, String queueToken) {
-        redisTemplate.delete(List.of(
-                userEntryKey(userId, scheduleId), ownerKey(queueToken), admittedKey(queueToken), claimedKey(queueToken)
-        ));
-        redisTemplate.opsForZSet().remove(waitingKey(scheduleId), queueToken);
     }
 
     private String waitingKey(Long scheduleId) {
