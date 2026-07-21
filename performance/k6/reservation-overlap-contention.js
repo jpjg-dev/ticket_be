@@ -9,6 +9,7 @@ const vus = Number(__ENV.VUS || 10);
 const iterations = Number(__ENV.ITERATIONS || vus);
 const cookie = __ENV.COOKIE;
 const origin = __ENV.ORIGIN || "https://localhost:3000";
+const scheduleId = Number(__ENV.SCHEDULE_ID || 18);
 const seatPairs = (__ENV.SEAT_PAIRS || "")
   .split("|")
   .map((pair) =>
@@ -27,6 +28,10 @@ const overlapUnexpectedRate = new Rate("reservation_overlap_unexpected_rate");
 
 if (!cookie) {
   throw new Error("COOKIE is required because reservation overlap contention needs authentication.");
+}
+
+if (!Number.isInteger(scheduleId) || scheduleId <= 0) {
+  throw new Error("SCHEDULE_ID must be a positive integer.");
 }
 
 if (seatPairs.length < 2) {
@@ -57,7 +62,7 @@ export function createOverlapReservation() {
   const pair = seatPairs[exec.scenario.iterationInTest % seatPairs.length];
   const response = http.post(
     `${baseUrl}/api/v1/reservations`,
-    JSON.stringify({ seatIds: pair }),
+    JSON.stringify({ scheduleId, seatIds: pair }),
     {
       headers: {
         "Content-Type": "application/json",
