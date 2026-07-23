@@ -1,17 +1,19 @@
 package com.jipi.ticket_ledger.queue.infrastructure;
 
 import com.jipi.ticket_ledger.queue.domain.QueueAdmissionStatus;
+import com.github.dockerjava.api.model.Bind;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.DockerClientFactory;
 
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -29,8 +31,23 @@ class RedisQueueAofContinuityTest {
             Duration.ofSeconds(1)
     );
 
-    @TempDir
-    Path redisDataDirectory;
+    private String redisDataVolume;
+
+    @BeforeEach
+    void createRedisDataVolume() {
+        redisDataVolume = "ticketledger-aof-test-" + UUID.randomUUID();
+        DockerClientFactory.instance().client()
+                .createVolumeCmd()
+                .withName(redisDataVolume)
+                .exec();
+    }
+
+    @AfterEach
+    void removeRedisDataVolume() {
+        DockerClientFactory.instance().client()
+                .removeVolumeCmd(redisDataVolume)
+                .exec();
+    }
 
     @Test
     void restartsWithSameWaitingTokenFromAof() throws InterruptedException {
@@ -62,7 +79,8 @@ class RedisQueueAofContinuityTest {
     private GenericContainer<?> createRedisContainer() {
         return new GenericContainer<>("redis:7.4-alpine")
                 .withExposedPorts(6379)
-                .withFileSystemBind(redisDataDirectory.toString(), "/data", BindMode.READ_WRITE)
+                .withCreateContainerCmdModifier(command -> command.getHostConfig()
+                        .withBinds(Bind.parse(redisDataVolume + ":/data")))
                 .withCommand("redis-server", "--appendonly", "yes", "--appendfsync", "everysec")
                 .waitingFor(Wait.forLogMessage(".*Ready to accept connections.*\\n", 1));
     }
