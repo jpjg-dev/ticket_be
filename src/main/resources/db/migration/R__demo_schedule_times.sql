@@ -2,6 +2,7 @@
 -- versioned(V5/V7/V8/V9)로 데모 시각을 갱신하면 손볼 때마다 버전 번호가 누적된다.
 -- repeatable은 파일 체크섬이 바뀌면 재실행되므로, 이 파일을 고쳐 재빌드/재배포하면
 -- 그 시점 now() 기준으로 데모 시각이 다시 깔린다(버전 번호 누적 없음).
+-- refresh marker: 2026-07-23
 --
 -- 규칙(V9와 동일, DataInitializer와 항상 같은 offset 유지):
 --   base = date_trunc('day', now KST). 공연별 '연속 런'(인접 날짜/같은 날 다른 시각),
