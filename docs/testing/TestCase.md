@@ -32,6 +32,10 @@
 - [x] 환경 설정의 선점 유지 시간으로 `expiresAt`이 설정됩니다.
 - [x] 하나의 group과 group 안의 `Reservation`은 동일한 `expiresAt`을 공유합니다.
 - [x] 겹치는 좌석 묶음 동시 요청 시 하나의 group만 성공합니다.
+- [x] Redis 좌석 락은 좌석 ID 순서로 획득하고 역순으로 해제합니다.
+- [x] Redis 보호가 중간에 사라져도 `Seat.version` 충돌로 하나의 트랜잭션만 커밋됩니다.
+- [x] 낙관적 락 충돌은 자동 재시도하지 않고 즉시 좌석 충돌로 반환합니다.
+- [x] 일부 좌석 락 획득 후 Redis 장애가 발생하면 DB fallback 없이 fail-closed 합니다.
 
 실패 케이스:
 
@@ -53,6 +57,7 @@
 - [x] 만료된 group에 연결된 결제가 `READY`면 `FAILED`로 전이됩니다.
 - [x] 스케줄러용 전체 만료 처리와 좌석 조회용 회차별 만료 처리가 분리됩니다.
 - [x] 좌석 조회 시 현재 `scheduleId`의 만료 group만 먼저 정리합니다.
+- [x] 전역 만료 배치의 각 group은 독립 트랜잭션으로 처리됩니다.
 
 검증 포인트:
 
@@ -60,11 +65,12 @@
 - [x] 결제가 없거나 `READY`가 아니면 결제 상태는 변경하지 않습니다.
 - [x] 만료 처리 반환값(`expiredCount`)이 실제 만료 처리 reservation 건수와 일치합니다.
 - [x] `createReservation()`은 전체 만료 정리를 호출하지 않고 좌석 선점 생성만 담당합니다.
+- [x] 중간 group의 만료가 실패해도 해당 트랜잭션만 롤백되고 이후 group은 계속 만료됩니다.
 
 </details>
 
 <details>
-<summary>EventService</summary>
+<summary>EventQueryService / SeatQueryService</summary>
 
 ### `getEvents()`
 
@@ -73,6 +79,9 @@
 ### `getEvent()`
 
 - [x] 같은 공연 상세 조회는 캐시되어 DB 조회를 반복하지 않습니다.
+- [x] Redis 회로가 OPEN이면 Redis 호출을 생략하고 제한된 DB fallback 경로를 사용합니다.
+- [x] HALF_OPEN probe 성공 후 Redis 회로가 CLOSED로 복구됩니다.
+- [x] Redis 캐시 읽기·쓰기 회로는 분리되어 한쪽 OPEN이 정상 연산을 차단하지 않습니다.
 
 ### `getSeats()`
 
@@ -113,7 +122,11 @@
 - [x] 동일 `orderId` 동시 승인 요청은 같은 멱등키로 PG를 호출하고 내부 상태는 확정 상태로 수렴합니다.
 - [x] 동일 `orderId` 동시 승인 요청 후에도 승인 결제 row는 1건만 유지됩니다.
 - [x] 오래된 `CONFIRMING` 결제는 PG 조회 결과가 `DONE`이고 좌석이 `HELD`이면 승인 상태로 보정됩니다.
+- [x] PG 조회 결과가 `IN_PROGRESS`이면 `CONFIRMING/PENDING/HELD`를 유지하고, 다음 조회가 `DONE`이면 `APPROVED/CONFIRMED/BOOKED`로 수렴합니다.
 - [x] PG는 `DONE`이지만 예약/좌석이 유효하지 않으면 환불 후 실패 상태로 정리됩니다.
+- [x] 승인 회로가 OPEN이면 `READY`를 `CONFIRMING`으로 바꾸기 전에 `503`으로 거절합니다.
+- [x] 승인 permit 획득 후 결과가 불명이면 `CONFIRMING`을 유지해 보정 대상으로 남깁니다.
+- [x] PG 일반 4xx 거절은 Circuit Breaker 실패율에 포함하지 않습니다.
 
 실패 케이스:
 
@@ -134,13 +147,29 @@
 
 ### `cancelPayment()`
 
-- [x] `APPROVED` 결제만 취소 가능합니다.
+- [x] `APPROVED` 결제만 `CANCELING`으로 전이할 수 있습니다.
 - [x] PG 취소 성공 후 `Payment CANCELED / ReservationGroup CANCELED / Reservation CANCELED / Seat AVAILABLE`로 전이됩니다.
 - [x] PG cancel 응답을 받지 못해도 조회 결과가 `CANCELED`면 취소 상태를 확정합니다.
+- [x] PG cancel 실패 후 조회 결과가 아직 `DONE`이면 `CANCELING`을 유지합니다.
+- [x] PG cancel timeout과 조회 실패가 겹치면 `CANCELING`을 유지하고 보정 대상으로 남깁니다.
 - [x] 동일 `paymentId` 동시 취소 요청은 PG cancel을 1회만 호출하고 취소 상태를 재사용합니다.
-- [x] `APPROVED`가 아니면 `IllegalStateException`을 반환합니다.
+- [x] 이미 `CANCELED`인 결제는 멱등하게 `CANCELED`를 반환합니다.
+- [x] `APPROVED`/`CANCELING`이 아니면 `IllegalStateException`을 반환합니다.
 - [x] `paymentKey`가 없으면 `IllegalStateException`을 반환합니다.
-- [x] PG 취소 응답의 결제키/통화/상태가 불일치하면 `IllegalStateException`을 반환합니다.
+- [x] 결제 소유자가 아니면 `ForbiddenAccessException`(HTTP `403`)을 반환합니다.
+- [x] PG 응답의 결제키/원결제 금액/통화가 불일치하면 상태를 바꾸지 않고 `CANCELING` 수동 보류로 남깁니다.
+- [x] PG 상태가 `PARTIAL_CANCELED`이고 취소 가능 잔액이 남으면 `CANCELING / CONFIRMED / BOOKED`를 유지합니다.
+- [x] PG 상태명과 무관하게 `balanceAmount=0`인 전액 환불 결과만 내부 취소와 좌석 반환으로 확정합니다.
+
+### `recoverCanceling()`
+
+- [x] 조회 결과가 취소 상태이고 `balanceAmount=0`이면 취소를 확정합니다.
+- [x] 조회 결과가 `DONE`이면 같은 idempotency key로 PG 취소를 재요청한 뒤 확정합니다.
+- [x] 재취소 후에도 `DONE`이면 `CANCELING`을 유지합니다.
+- [x] 재취소와 재조회가 모두 실패하면 `CANCELING`을 유지합니다.
+- [x] 결제키 불일치면 상태를 바꾸지 않고 수동 보류로 남깁니다.
+- [x] 대상이 이미 `CANCELING`이 아니면 아무것도 하지 않습니다.
+- [x] 어떤 경로에서도 `CANCELING -> APPROVED` 되돌림은 발생하지 않습니다.
 
 ### `getPaymentStatus()`
 
@@ -203,8 +232,25 @@
 
 </details>
 
+<details>
+<summary>Queue</summary>
+
+- [x] Redis 중단 시 대기열을 우회하지 않고 `503`과 `Retry-After`를 반환합니다.
+- [x] Redis 연결 복구 후 기존 토큰과 대기 순번을 이어서 조회합니다.
+- [x] AOF `everysec` 내구성 구간 이후 Redis 재기동 시 기존 `WAITING` 상태를 복구합니다.
+- [x] 대기 상태가 유실되면 기존 토큰을 거부하고 새 토큰으로 재등록합니다.
+- [x] SSE 연결 종료 후 작업과 활성 연결 지표를 회수하고 동일 토큰 재연결을 허용합니다.
+- [x] 만료된 입장 토큰과 이미 claim된 토큰을 거부합니다.
+- [x] store 재생성 후에도 Redis backlog를 이어서 조회합니다.
+- [x] `ENFORCED -> OFF` 전환 시 기존 대기 요청을 즉시 `BYPASSED` 처리합니다.
+- [x] 회차별 `1,000`건과 `10,000`건 등록 기준선에서 예상 밖 오류가 발생하지 않았습니다.
+
+</details>
+
 ## 핵심 목표
 
 - 상태 전이 정합성을 보장합니다.
 - PG 호출 전후로 나뉜 트랜잭션에서도 `Seat`, `Reservation`, `Payment` 상태가 같은 결과로 수렴하는지 확인합니다.
 - 만료, 이탈, 취소 같은 예외 상황에서도 상태 불일치가 없도록 검증합니다.
+
+테스트 프로필에서는 운영 스케줄러를 자동 실행하지 않습니다. 각 스케줄러 테스트는 대상 메서드를 직접 호출해 검증하며, Testcontainers 종료 후 캐시된 Spring 컨텍스트가 종료된 DB나 Redis를 계속 조회하지 않도록 격리합니다.

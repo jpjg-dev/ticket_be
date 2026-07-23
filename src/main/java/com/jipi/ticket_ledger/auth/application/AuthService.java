@@ -2,10 +2,8 @@ package com.jipi.ticket_ledger.auth.application;
 
 import com.jipi.ticket_ledger.auth.domain.RefreshToken;
 import com.jipi.ticket_ledger.auth.domain.RefreshTokenRepository;
-import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
-import com.jipi.ticket_ledger.auth.infrastructure.TokenHasher;
-import com.jipi.ticket_ledger.auth.presentation.dto.AuthRequestLoginDTO;
-import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
+import com.jipi.ticket_ledger.auth.application.port.out.TokenHashEncoder;
+import com.jipi.ticket_ledger.auth.application.port.out.TokenProvider;
 import com.jipi.ticket_ledger.global.exception.AuthUnauthorizedException;
 import com.jipi.ticket_ledger.global.exception.InvalidCredentialsException;
 import com.jipi.ticket_ledger.global.log.LogEvents;
@@ -32,31 +30,31 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtTokenProvider jwtTokenProvider;
-    private final TokenHasher tokenHasher;
+    private final TokenProvider tokenProvider;
+    private final TokenHashEncoder tokenHashEncoder;
     private final RefreshTokenRepository refreshTokenRepository;
 
     // 로그인 요청을 검증하고 Access Token, Refresh Token을 발급한 뒤 Refresh Token 해시를 저장한다.
     @Transactional
-    public AuthResponseLoginDTO login(AuthRequestLoginDTO request) {
-        User user = userRepository.findByEmail(request.email())
+    public AuthTokens login(String email, String password) {
+        User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> {
-                    log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "USER_NOT_FOUND");
+                    log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, email, "USER_NOT_FOUND");
                     return new InvalidCredentialsException("아이디 또는 비밀번호를 확인해주세요.");
                 });
 
-        validateLoginUser(request, user);
+        validateLoginUser(email, password, user);
 
-        String accessToken = jwtTokenProvider.createAccessToken(user.getId());
+        String accessToken = tokenProvider.createAccessToken(user.getId());
         String jti = UUID.randomUUID().toString();
-        String refreshToken = jwtTokenProvider.createRefreshToken(user.getId(), jti);
-        String refreshTokenHash = tokenHasher.hash(refreshToken);
+        String refreshToken = tokenProvider.createRefreshToken(user.getId(), jti);
+        String refreshTokenHash = tokenHashEncoder.hash(refreshToken);
 
         refreshTokenRepository.save(new RefreshToken(
                 user,
                 refreshTokenHash,
                 jti,
-                jwtTokenProvider.getExpirationAsInstant(refreshToken),
+                tokenProvider.getExpirationAsInstant(refreshToken),
                 Instant.now()
         ));
 
@@ -65,13 +63,13 @@ public class AuthService {
         // (요청 종료 시 TraceIdFilter가 MDC 전체를 정리하므로 누수 없음.)
         MDC.put(TraceIdFilter.USER_ID, String.valueOf(user.getId()));
 
-        log.info("event={} userId={} email={} role={}", LogEvents.AUTH_LOGIN_SUCCESS, user.getId(), request.email(), user.getRole());
-        return new AuthResponseLoginDTO(accessToken, refreshToken);
+        log.info("event={} userId={} email={} role={}", LogEvents.AUTH_LOGIN_SUCCESS, user.getId(), email, user.getRole());
+        return new AuthTokens(accessToken, refreshToken);
     }
 
     // Refresh Token을 검증하고 기존 토큰을 폐기한 뒤 새 Access Token과 Refresh Token을 발급한다.
     @Transactional
-    public AuthResponseLoginDTO reissue(String refreshToken) {
+    public AuthTokens reissue(String refreshToken) {
         // 토큰이 비어있으면 인증 실패로 처리한다.
         if (refreshToken == null || refreshToken.isBlank()) {
             log.warn("event={} reason={}", LogEvents.AUTH_REISSUE_REJECT, "MISSING_REFRESH_TOKEN");
@@ -79,16 +77,16 @@ public class AuthService {
         }
 
         // 토큰이 유효하지 않거나 Refresh Token이 아니면 재발급을 허용하지 않는다.
-        if (!jwtTokenProvider.isValidToken(refreshToken) || !jwtTokenProvider.isRefreshToken(refreshToken)) {
+        if (!tokenProvider.isValidToken(refreshToken) || !tokenProvider.isRefreshToken(refreshToken)) {
             log.warn("event={} reason={}", LogEvents.AUTH_REISSUE_REJECT, "INVALID_REFRESH_TOKEN");
             throw new AuthUnauthorizedException();
         }
 
         // 토큰에서 사용자 식별자와 jti를 추출해 DB 조회 키로 사용한다.
-        Long userId = jwtTokenProvider.getUserId(refreshToken);
-        String jti = jwtTokenProvider.getJti(refreshToken);
+        Long userId = tokenProvider.getUserId(refreshToken);
+        String jti = tokenProvider.getJti(refreshToken);
         // 토큰 원문을 저장하지 않기 위해 해시값으로 비교한다.
-        String refreshTokenHash = tokenHasher.hash(refreshToken);
+        String refreshTokenHash = tokenHashEncoder.hash(refreshToken);
         // 이후 만료/사용 시각 비교에 사용할 현재 시각을 확보한다.
         Instant now = Instant.now();
 
@@ -106,26 +104,26 @@ public class AuthService {
         }
 
         // 새 Access Token을 발급한다.
-        String newAccessToken = jwtTokenProvider.createAccessToken(user.getId());
+        String newAccessToken = tokenProvider.createAccessToken(user.getId());
         // 새 Refresh Token의 jti를 생성한다.
         String newJti = UUID.randomUUID().toString();
         // 새 Refresh Token을 발급한다.
-        String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getId(), newJti);
+        String newRefreshToken = tokenProvider.createRefreshToken(user.getId(), newJti);
         // 새 Refresh Token을 해시로 저장한다.
-        String newRefreshTokenHash = tokenHasher.hash(newRefreshToken);
+        String newRefreshTokenHash = tokenHashEncoder.hash(newRefreshToken);
 
         // 새 Refresh Token 정보를 DB에 저장한다.
         refreshTokenRepository.save(new RefreshToken(
                 user,
                 newRefreshTokenHash,
                 newJti,
-                jwtTokenProvider.getExpirationAsInstant(newRefreshToken),
+                tokenProvider.getExpirationAsInstant(newRefreshToken),
                 now
         ));
 
         // 재발급 성공 로그를 남기고 새 토큰을 반환한다.
         log.info("event={} userId={}", LogEvents.AUTH_REISSUE_SUCCESS, user.getId());
-        return new AuthResponseLoginDTO(newAccessToken, newRefreshToken);
+        return new AuthTokens(newAccessToken, newRefreshToken);
     }
 
     // 로그아웃 요청의 Refresh Token을 찾으면 현재 토큰을 revoke 처리한다.
@@ -138,16 +136,16 @@ public class AuthService {
         }
 
         // 토큰이 유효하지 않거나 Refresh Token이 아니면 처리하지 않는다.
-        if (!jwtTokenProvider.isValidToken(refreshToken) || !jwtTokenProvider.isRefreshToken(refreshToken)) {
+        if (!tokenProvider.isValidToken(refreshToken) || !tokenProvider.isRefreshToken(refreshToken)) {
             log.warn("event={} reason={}", LogEvents.AUTH_REISSUE_REJECT, "INVALID_LOGOUT_REFRESH_TOKEN");
             return;
         }
 
         // 토큰에서 사용자 식별자와 jti를 추출해 DB 조회 키로 사용한다.
-        Long userId = jwtTokenProvider.getUserId(refreshToken);
-        String jti = jwtTokenProvider.getJti(refreshToken);
+        Long userId = tokenProvider.getUserId(refreshToken);
+        String jti = tokenProvider.getJti(refreshToken);
         // 토큰 원문을 그대로 저장하지 않기 위해 해시값으로 비교한다.
-        String refreshTokenHash = tokenHasher.hash(refreshToken);
+        String refreshTokenHash = tokenHashEncoder.hash(refreshToken);
 
         // DB에 저장된 토큰이 존재하고, 해시가 일치하며, 아직 폐기되지 않은 경우에만 폐기 처리한다.
         refreshTokenRepository.findByJtiAndUserId(jti, userId)
@@ -163,15 +161,15 @@ public class AuthService {
     }
 
     // 로그인 가능한 사용자 상태와 비밀번호 일치 여부를 검증한다.
-    private void validateLoginUser(AuthRequestLoginDTO request, User user) {
+    private void validateLoginUser(String email, String password, User user) {
         if (user.getStatus() != UserStatus.ACTIVE) {
-            log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "INACTIVE_USER");
+            log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, email, "INACTIVE_USER");
             // 응답은 제네릭으로 통일 — 계정 존재(비활성) 사실을 노출하지 않는다. 사유는 위 로그에만 남는다.
             throw new InvalidCredentialsException("아이디 또는 비밀번호를 확인해주세요.");
         }
 
-        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
-            log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, request.email(), "PASSWORD_MISMATCH");
+        if (!passwordEncoder.matches(password, user.getPassword())) {
+            log.warn("event={} email={} reason={}", LogEvents.AUTH_LOGIN_REJECT, email, "PASSWORD_MISMATCH");
             throw new InvalidCredentialsException("아이디 또는 비밀번호를 확인해주세요.");
         }
     }

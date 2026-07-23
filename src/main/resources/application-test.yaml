@@ -2,6 +2,9 @@ spring:
   config:
     import: optional:file:.env.test[.properties]
 
+  cache:
+    type: redis
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -14,6 +17,10 @@ spring:
   flyway:
     enabled: true
 
+app:
+  scheduling:
+    enabled: false
+
 logging:
   level:
     root: warn
@@ -24,25 +31,27 @@ logging:
     org.hibernate.orm.jdbc.bind: off
 
 server:
-  port: ${PORT:8080}
+  port: ${PORT}
 
 jwt:
-  secret: ${JWT_SECRET:q4mzk1bpyxvcr6atn2swe5ldjhfig3uo}
+  secret: ${JWT_SECRET}
 
 toss:
   payments:
     base-url: http://127.0.0.1:18080
-    secret-key: ${TOSS_SECRET_KEY:test_secret_key}
+    secret-key: ${TOSS_SECRET_KEY}
 
 reservation:
   hold-duration: 30s
   expire-scheduler:
     fixed-delay-ms: 60000
+    batch-size: 100
 
 payment:
   recovery-scheduler:
     grace-ms: 60000
     fixed-delay-ms: 60000
+    batch-size: 20
 
 security:
   csrf-origin:
@@ -52,10 +61,22 @@ security:
       - https://ticketledger.dev
 
 cache:
+  featureflag:
+    queue:
+      mode:
+        ttl: 5s
   event:
     list:
       ttl: 60s
-      max-size: 1
     detail:
       ttl: 5m
-      max-size: 100
+
+queue:
+  admission:
+    batch-size: 20
+    fixed-delay-ms: 3000
+    entry-ttl: 15m
+    admission-ttl: 2m
+    claim-ttl: 30s
+    stream-timeout: 5m
+    stream-interval: 1s

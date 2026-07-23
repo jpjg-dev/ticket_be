@@ -1,11 +1,18 @@
 package com.jipi.ticket_ledger.global.exception;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayTemporarilyUnavailableException;
+import com.jipi.ticket_ledger.queue.application.QueueAdmissionRequiredException;
+import com.jipi.ticket_ledger.queue.application.QueueTemporarilyUnavailableException;
+import com.jipi.ticket_ledger.reservation.application.lock.SeatLockInfrastructureException;
+import com.jipi.ticket_ledger.reservation.application.lock.SeatLockTemporarilyUnavailableException;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -80,5 +87,76 @@ public class GlobalExceptionHandler {
         log.warn("event={} code=AUTH_REQUIRED status=401 message={}", LogEvents.API_ERROR, e.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(new ErrorResponse("AUTH_REQUIRED", "인증이 필요합니다."));
+    }
+
+    // 인가(BOLA) 실패: 인증은 됐으나 본인 소유가 아닌 리소스 접근. 거부 사유는 호출부가 이미 warn 로그로 남긴다.
+    @ExceptionHandler(ForbiddenAccessException.class)
+    public ResponseEntity<ErrorResponse> handleForbiddenAccess(ForbiddenAccessException e) {
+        log.warn("event={} code=FORBIDDEN status=403 message={}", LogEvents.API_ERROR, e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse("FORBIDDEN", e.getMessage()));
+    }
+
+    @ExceptionHandler(CacheTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleCacheTemporarilyUnavailable(CacheTemporarilyUnavailableException e) {
+        log.warn("event={} code=CACHE_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("CACHE_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(PaymentGatewayTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handlePaymentGatewayTemporarilyUnavailable(
+            PaymentGatewayTemporarilyUnavailableException e
+    ) {
+        log.warn("event={} code=PAYMENT_GATEWAY_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("PAYMENT_GATEWAY_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(RedisConnectionFailureException.class)
+    public ResponseEntity<ErrorResponse> handleRedisConnectionFailure(RedisConnectionFailureException e) {
+        log.error("event={} code=REDIS_TEMPORARILY_UNAVAILABLE status=503", LogEvents.API_ERROR, e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(new ErrorResponse("REDIS_TEMPORARILY_UNAVAILABLE", "잠시 후 다시 시도해 주세요."));
+    }
+
+    @ExceptionHandler(QueueAdmissionRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleQueueAdmissionRequired(QueueAdmissionRequiredException e) {
+        log.warn("event={} code=QUEUE_ADMISSION_REQUIRED status=428", LogEvents.API_ERROR);
+        return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED)
+                .body(new ErrorResponse("QUEUE_ADMISSION_REQUIRED", e.getMessage()));
+    }
+
+    @ExceptionHandler(QueueTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleQueueTemporarilyUnavailable(QueueTemporarilyUnavailableException e) {
+        log.warn("event={} code=QUEUE_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("QUEUE_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(SeatLockTemporarilyUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleSeatLockTemporarilyUnavailable(
+            SeatLockTemporarilyUnavailableException e
+    ) {
+        log.warn("event={} code=SEAT_LOCK_TEMPORARILY_UNAVAILABLE status=503 retryAfter={}",
+                LogEvents.API_ERROR, e.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(new ErrorResponse("SEAT_LOCK_TEMPORARILY_UNAVAILABLE", e.getMessage()));
+    }
+
+    @ExceptionHandler(SeatLockInfrastructureException.class)
+    public ResponseEntity<ErrorResponse> handleSeatLockInfrastructure(SeatLockInfrastructureException e) {
+        log.error("event={} code=SEAT_LOCK_INFRASTRUCTURE_ERROR status=503", LogEvents.API_ERROR, e);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(new ErrorResponse("SEAT_LOCK_TEMPORARILY_UNAVAILABLE", "잠시 후 다시 시도해 주세요."));
     }
 }

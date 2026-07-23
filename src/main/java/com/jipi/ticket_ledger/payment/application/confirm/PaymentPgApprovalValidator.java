@@ -1,6 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.confirm;
 
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentStatus;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayState;
 
 import java.util.Objects;
 
@@ -26,13 +26,13 @@ final class PaymentPgApprovalValidator {
             throw new IllegalStateException("PG 승인 응답 주문번호가 일치하지 않습니다.");
         }
 
-        if (!TossPaymentStatus.isApproved(approval.status())) {
+        if (approval.state() != PaymentGatewayState.APPROVED) {
             throw new IllegalStateException("PG 승인 상태가 유효하지 않습니다.");
         }
     }
 
     static boolean isApprovedLookup(ConfirmingPayment confirmingPayment, PaymentPgApproval approval) {
-        return TossPaymentStatus.isApproved(approval.status())
+        return approval.state() == PaymentGatewayState.APPROVED
                 && confirmingPayment.orderId().equals(approval.orderId())
                 && confirmingPayment.totalAmountWithVat().equals(approval.totalAmount())
                 && confirmingPayment.currency().equals(approval.currency());

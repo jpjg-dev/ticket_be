@@ -1,5 +1,7 @@
 package com.jipi.ticket_ledger.auth.infrastructure;
 
+import com.jipi.ticket_ledger.auth.application.port.out.TokenProvider;
+
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -13,7 +15,7 @@ import java.time.Instant;
 import java.util.Date;
 
 @Component
-public class JwtTokenProvider {
+public class JwtTokenProvider implements TokenProvider {
     private static final String TOKEN_TYPE_CLAIM = "type";
     private static final String ACCESS_TOKEN_TYPE = "ACCESS";
     private static final String REFRESH_TOKEN_TYPE = "REFRESH";

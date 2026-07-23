@@ -15,9 +15,20 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
+  data:
+    redis:
+      host: ${CACHE_REDIS_HOST}
+      port: ${CACHE_REDIS_PORT}
+      connect-timeout: ${CACHE_REDIS_CONNECT_TIMEOUT}
+      timeout: ${CACHE_REDIS_TIMEOUT}
+
 server:
-  port: ${PORT:8080}
+  port: ${PORT}
   shutdown: graceful
+  tomcat:
+    mbeanregistry:
+      # Tomcat thread pool 사용량을 Micrometer 지표로 수집한다.
+      enabled: true
 
 jwt:
   secret: ${JWT_SECRET}
@@ -25,17 +36,91 @@ jwt:
   refresh-token-expiration: 86400000 # 24 hours
 
 management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true
   endpoints:
     web:
       exposure:
-        # health 만 노출한다. metrics/prometheus 등은 필요 시 프로필에서 추가로 연다.
-        include: health
+        # Prometheus 수집에 필요한 endpoint만 열고 env, metrics, heapdump 등은 노출하지 않는다.
+        include:
+          - health
+          - prometheus
   endpoint:
     health:
       probes:
-        # /actuator/health/liveness(프로세스 생존) 를 컨테이너 헬스체크에 쓴다.
-        # DB 상태를 포함하는 aggregate 대신 liveness 를 써 DB 블립에 컨테이너가 flap 하지 않게 한다.
+        # DB 상태를 포함하는 aggregate 대신 liveness를 컨테이너 헬스체크에 사용한다.
         enabled: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      payment-pg:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+        ignore-exceptions:
+          - com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayRejectedException
+    instances:
+      paymentConfirm:
+        base-config: payment-pg
+      paymentLookup:
+        base-config: payment-pg
+      paymentCancel:
+        base-config: payment-pg
+      eventRedisCacheRead:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+      eventRedisCacheWrite:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+      queueModeRedisCacheRead:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+      queueModeRedisCacheWrite:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+      seatLockRedis:
+        sliding-window-type: count_based
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 1
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: false
+        ignore-exceptions:
+          - com.jipi.ticket_ledger.reservation.application.lock.SeatLockBusyException
 
 springdoc:
   api-docs:
@@ -59,3 +144,62 @@ app:
     # 컨테이너 타임존에 의존하지 않도록 코드에서 명시적으로 사용한다.
     # 향후 해외 공연장을 지원하면 이 단일 존 대신 venue별 타임존으로 확장한다.
     service-zone: Asia/Seoul
+
+cache:
+  featureflag:
+    queue:
+      mode:
+        # 캐시 동기화 실패 시 오래된 운영 모드가 남는 시간을 제한한다.
+        ttl: 5s
+  event:
+    list:
+      ttl: 60s
+    detail:
+      ttl: 5m
+    policy:
+      max-concurrent-database-loads: 2
+      refresh-wait-timeout: 300ms
+      refresh-retry-interval: 20ms
+      refresh-lock-ttl: 2s
+      retry-after-seconds: 1
+      ttl-jitter-ratio: 0.1
+      schedule-boundary-safety-margin: 1s
+
+queue:
+  admission:
+    batch-size: 20
+    fixed-delay-ms: 3000
+    entry-ttl: 15m
+    admission-ttl: 2m
+    claim-ttl: 30s
+    stream-timeout: 5m
+    stream-interval: 1s
+  auto-activation:
+    # SHADOW mode observes load and can enforce the queue. OFF and ENFORCED remain manual overrides.
+    enabled: false
+    fixed-delay-ms: 1000
+    activate:
+      request-rate: 15
+      concurrent-requests: 8
+      process-cpu: 0.70
+      tomcat-busy-ratio: 0.70
+      hikari-pending: 1
+    deactivate:
+      request-rate: 6
+      concurrent-requests: 3
+      process-cpu: 0.50
+      tomcat-busy-ratio: 0.40
+      hikari-pending: 0
+    activation-samples: 3
+    deactivation-samples: 10
+    minimum-enforced-duration: 30s
+    cooldown: 30s
+
+seat-lock:
+  # 0ms keeps same-seat losers out of the DB instead of queueing them behind a seat already being held.
+  wait-time: ${SEAT_LOCK_WAIT_TIME}
+  # Redisson renews this ownership timeout while the holder is alive. This is not the acquisition wait time.
+  watchdog-timeout: ${SEAT_LOCK_WATCHDOG_TIMEOUT}
+  fallback-max-concurrent: ${SEAT_LOCK_FALLBACK_MAX_CONCURRENT}
+  fallback-wait-time: ${SEAT_LOCK_FALLBACK_WAIT_TIME}
+  retry-after-seconds: ${SEAT_LOCK_RETRY_AFTER_SECONDS}

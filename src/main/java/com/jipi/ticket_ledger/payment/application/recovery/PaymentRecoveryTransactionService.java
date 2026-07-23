@@ -3,23 +3,21 @@ package com.jipi.ticket_ledger.payment.application.recovery;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
-import com.jipi.ticket_ledger.reservation.domain.ReservationGroupStatus;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
-import com.jipi.ticket_ledger.reservation.domain.ReservationStatus;
-import com.jipi.ticket_ledger.seat.domain.SeatStatus;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClientException;
 
 import java.time.Clock;
 import java.util.List;
 
+/**
+ * 보정의 DB 트랜잭션 경계만 담당한다. 외부 PG 호출(환불 등)은 이 계층에 두지 않는다.
+ * (1) readonly 스냅샷 로드, (4) 락 하 결정 적용의 두 트랜잭션으로 분리한다.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -27,100 +25,77 @@ public class PaymentRecoveryTransactionService {
 
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
-    private final TossPaymentClient tossPaymentClient;
     private final Clock clock;
 
+    /**
+     * (1) readonly 트랜잭션에서 CONFIRMING 결제의 원시 스냅샷을 만든다.
+     * CONFIRMING 이 아니면 null. 엔티티/컬렉션은 트랜잭션 밖으로 흘리지 않는다.
+     */
     @Transactional(readOnly = true)
-    public ConfirmingPaymentCandidate loadConfirmingCandidate(Long paymentId) {
-        return paymentRepository.findById(paymentId)
-                .filter(payment -> payment.getStatus() == PaymentStatus.CONFIRMING)
-                .map(payment -> new ConfirmingPaymentCandidate(payment.getId(), payment.getOrderId()))
-                .orElse(null);
+    public RecoverySnapshot loadRecoverySnapshot(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId).orElse(null);
+        if (payment == null || payment.getStatus() != PaymentStatus.CONFIRMING) {
+            return null;
+        }
+
+        List<Reservation> reservations =
+                reservationRepository.findByReservationGroupIdWithSeat(payment.getReservationGroup().getId());
+        boolean reservationHeld =
+                RecoveryPolicy.isReservationStillHeld(payment.getReservationGroup(), reservations, clock.instant());
+
+        return new RecoverySnapshot(
+                payment.getId(),
+                payment.getOrderId(),
+                payment.totalAmountWithVat(),
+                payment.getCurrency(),
+                reservationHeld
+        );
     }
 
+    /**
+     * (4) write 트랜잭션에서 행 락을 다시 잡고 결정을 적용한다.
+     * 환불 호출은 이미 외부에서 끝난 상태로 진입한다(REFUND_THEN_FAIL 은 여기서 실패 처리만).
+     */
     @Transactional
-    public boolean applyLookupResult(Long paymentId, TossPaymentLookupResponse lookupResponse) {
+    public RecoveryOutcome applyDecision(Long paymentId, RecoveryDecision decision, PaymentGatewayPayment lookup) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId).orElse(null);
         if (payment == null || payment.getStatus() != PaymentStatus.CONFIRMING) {
-            return false;
+            return RecoveryOutcome.NOOP_NOT_CONFIRMING;
         }
 
-        List<Reservation> reservations = reservationRepository.findByReservationGroupIdWithSeat(payment.getReservationGroup().getId());
+        List<Reservation> reservations =
+                reservationRepository.findByReservationGroupIdWithSeat(payment.getReservationGroup().getId());
 
-        if (isApprovedLookup(payment, lookupResponse)) {
-            if (isReservationStillHeld(payment, reservations)) {
-                applyApproval(payment, reservations, lookupResponse.paymentKey(), lookupResponse.method(), lookupResponse.status());
+        switch (decision.action()) {
+            case APPROVE -> {
+                // 스냅샷 시점 이후 좌석이 유실됐을 수 있으므로 락 하에서 다시 검증한다.
+                if (!RecoveryPolicy.isReservationStillHeld(payment.getReservationGroup(), reservations, clock.instant())) {
+                    log.warn("Seat lost before approval apply, deferring to next cycle. paymentId={} orderId={}",
+                            payment.getId(), payment.getOrderId());
+                    return RecoveryOutcome.SEAT_LOST_DEFERRED;
+                }
+                applyApproval(payment, reservations, lookup.paymentKey(), lookup.method(), lookup.status());
                 log.info("Recovered CONFIRMING payment. paymentId={} orderId={} pgStatus={}",
-                        payment.getId(), payment.getOrderId(), lookupResponse.status());
-                return true;
+                        payment.getId(), payment.getOrderId(), lookup.status());
+                return RecoveryOutcome.APPROVED;
             }
-
-            if (!refundConfirmingPayment(payment, lookupResponse, "SEAT_UNAVAILABLE")) {
-                return false;
+            case FAIL -> {
+                failAndRelease(payment, reservations);
+                log.warn("Failed CONFIRMING payment after PG lookup. paymentId={} orderId={} pgStatus={}",
+                        payment.getId(), payment.getOrderId(), lookup.status());
+                return RecoveryOutcome.FAILED_RELEASED;
             }
-            failAndRelease(payment, reservations);
-            log.warn("Refunded CONFIRMING payment after seat loss. paymentId={} orderId={} pgStatus={}",
-                    payment.getId(), payment.getOrderId(), lookupResponse.status());
-            return true;
+            case REFUND_THEN_FAIL -> {
+                failAndRelease(payment, reservations);
+                log.warn("Refunded CONFIRMING payment then failed. paymentId={} orderId={} reason={} pgStatus={}",
+                        payment.getId(), payment.getOrderId(), decision.refundReason(), lookup.status());
+                return RecoveryOutcome.REFUNDED_FAILED;
+            }
+            default -> {
+                // HOLD_MANUAL 은 오케스트레이터가 applyDecision 을 호출하지 않는다. 방어적으로 무쓰기 반환.
+                return RecoveryOutcome.HELD_MANUAL;
+            }
         }
-
-        if (!TossPaymentStatus.isApproved(lookupResponse.status())) {
-            failAndRelease(payment, reservations);
-            log.warn("Failed CONFIRMING payment after PG lookup. paymentId={} orderId={} pgStatus={}",
-                    payment.getId(), payment.getOrderId(), lookupResponse.status());
-            return true;
-        }
-
-        // 여기 도달 = PG status는 DONE인데 orderId/금액/통화 중 하나가 불일치한 경우
-        if (!payment.getOrderId().equals(lookupResponse.orderId())) {
-            // orderId 불일치: 우리 결제건이 맞는지 의심스러우므로 자동 환불/실패를 하지 않고 알림 후 보류한다.
-            log.error("CONFIRMING payment lookup orderId mismatch, manual review required. paymentId={} ourOrderId={} pgOrderId={} pgStatus={}",
-                    payment.getId(), payment.getOrderId(), lookupResponse.orderId(), lookupResponse.status());
-            return false;
-        }
-
-        // orderId는 일치하지만 금액/통화 불일치: 우리 결제건은 맞으므로 고객 돈을 보호하기 위해 결제한 금액 그대로 환불 후 FAILED 처리한다.
-        log.error("CONFIRMING payment amount/currency mismatch, refunding. paymentId={} orderId={} expectedAmount={} pgAmount={} expectedCurrency={} pgCurrency={}",
-                payment.getId(), payment.getOrderId(), payment.totalAmountWithVat(), lookupResponse.totalAmount(),
-                payment.getCurrency(), lookupResponse.currency());
-        if (!refundConfirmingPayment(payment, lookupResponse, "PG_DATA_MISMATCH")) {
-            return false;
-        }
-        failAndRelease(payment, reservations);
-        log.warn("Refunded CONFIRMING payment after data mismatch. paymentId={} orderId={} pgStatus={}",
-                payment.getId(), payment.getOrderId(), lookupResponse.status());
-        return true;
-    }
-
-    private boolean refundConfirmingPayment(Payment payment, TossPaymentLookupResponse lookupResponse, String reason) {
-        try {
-            tossPaymentClient.cancel(
-                    lookupResponse.paymentKey(),
-                    reason,
-                    payment.getCurrency(),
-                    "cancel:" + payment.getId()
-            );
-            return true;
-        } catch (RestClientException e) {
-            // 취소(환불) 호출 실패 로그는 TossPaymentClient 가 남긴다. 여기선 다음 주기 재시도 결정만 남긴다.
-            log.error("Refund failed for CONFIRMING payment, will retry next cycle. paymentId={} orderId={}",
-                    payment.getId(), payment.getOrderId());
-            return false;
-        }
-    }
-
-    private boolean isApprovedLookup(Payment payment, TossPaymentLookupResponse lookupResponse) {
-        return TossPaymentStatus.isApproved(lookupResponse.status())
-                && payment.getOrderId().equals(lookupResponse.orderId())
-                && payment.totalAmountWithVat().equals(lookupResponse.totalAmount())
-                && payment.getCurrency().equals(lookupResponse.currency());
-    }
-
-    private boolean isReservationStillHeld(Payment payment, List<Reservation> reservations) {
-        return payment.getReservationGroup().getStatus() == ReservationGroupStatus.PENDING
-                && !payment.getReservationGroup().isExpiredAt(clock.instant())
-                && reservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.PENDING)
-                && reservations.stream().allMatch(reservation -> reservation.getSeat().getStatus() == SeatStatus.HELD);
     }
 
     private void applyApproval(Payment payment, List<Reservation> reservations, String paymentKey, String method, String pgStatus) {

@@ -1,9 +1,7 @@
-server:
-  tomcat:
-    mbeanregistry:
-      enabled: true
-
 spring:
+  cache:
+    type: redis
+
 #  datasource:
 #    hikari:
 #      maximum-pool-size: 30
@@ -47,7 +45,9 @@ cache:
   event:
     list:
       ttl: 60s
-      max-size: 1
     detail:
       ttl: 5m
-      max-size: 500
+
+queue:
+  auto-activation:
+    enabled: true

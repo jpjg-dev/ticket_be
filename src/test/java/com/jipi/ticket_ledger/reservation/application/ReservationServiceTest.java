@@ -56,6 +56,9 @@ class ReservationServiceTest {
     @Spy
     private Clock clock = Clock.systemDefaultZone();
 
+    @Spy
+    private ReservationCreationPolicy reservationCreationPolicy = new ReservationCreationPolicy();
+
     @InjectMocks
     private ReservationService reservationService;
 
@@ -73,13 +76,13 @@ class ReservationServiceTest {
         Seat seat = createSeat();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(seatRepository.findAllByIdInOrderByIdAsc(List.of(10L))).thenReturn(List.of(seat));
         when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
             ReservationGroup reservationGroup = invocation.getArgument(0);
             ReflectionTestUtils.setField(reservationGroup, "id", 77L);
             return reservationGroup;
         });
-        Long reservationGroupId = reservationService.createReservation(1L, List.of(10L));
+        Long reservationGroupId = reservationService.createReservation(1L, 1L, List.of(10L));
 
         assertEquals(77L, reservationGroupId);
         assertEquals(SeatStatus.HELD, seat.getStatus());
@@ -98,23 +101,23 @@ class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("createReservation: 다중 좌석은 정렬된 id 순서로 비관적 락 조회를 요청한다")
-    void createReservationSortsSeatIdsBeforeLockQuery() {
+    @DisplayName("createReservation: 다중 좌석은 정렬된 id 순서로 일반 조회한다")
+    void createReservationSortsSeatIdsBeforeQuery() {
         User user = createUser();
         Seat seat1 = createSeat();
         Seat seat2 = createSeat();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findAllByIdInForUpdate(List.of(10L, 20L))).thenReturn(List.of(seat1, seat2));
+        when(seatRepository.findAllByIdInOrderByIdAsc(List.of(10L, 20L))).thenReturn(List.of(seat1, seat2));
         when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
             ReservationGroup reservationGroup = invocation.getArgument(0);
             ReflectionTestUtils.setField(reservationGroup, "id", 77L);
             return reservationGroup;
         });
 
-        reservationService.createReservation(1L, List.of(20L, 10L));
+        reservationService.createReservation(1L, 1L, List.of(20L, 10L));
 
-        verify(seatRepository).findAllByIdInForUpdate(List.of(10L, 20L));
+        verify(seatRepository).findAllByIdInOrderByIdAsc(List.of(10L, 20L));
         verify(reservationRepository).saveAll(any());
     }
 
@@ -124,9 +127,9 @@ class ReservationServiceTest {
         when(userRepository.findById(anyLong())).thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class,
-                () -> reservationService.createReservation(1L, List.of(10L)));
+                () -> reservationService.createReservation(1L, 1L, List.of(10L)));
 
-        verify(seatRepository, never()).findAllByIdInForUpdate(any());
+        verify(seatRepository, never()).findAllByIdInOrderByIdAsc(any());
         verify(reservationRepository, never()).saveAll(any());
     }
 
@@ -134,10 +137,10 @@ class ReservationServiceTest {
     @DisplayName("createReservation: 좌석이 없으면 예외가 발생한다")
     void createReservationSeatNotFound() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(createUser()));
-        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of());
+        when(seatRepository.findAllByIdInOrderByIdAsc(List.of(10L))).thenReturn(List.of());
 
         assertThrows(EntityNotFoundException.class,
-                () -> reservationService.createReservation(1L, List.of(10L)));
+                () -> reservationService.createReservation(1L, 1L, List.of(10L)));
 
         verify(reservationRepository, never()).saveAll(any());
     }
@@ -150,7 +153,7 @@ class ReservationServiceTest {
         seat.hold();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(seatRepository.findAllByIdInOrderByIdAsc(List.of(10L))).thenReturn(List.of(seat));
         when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
             ReservationGroup reservationGroup = invocation.getArgument(0);
             ReflectionTestUtils.setField(reservationGroup, "id", 77L);
@@ -158,7 +161,7 @@ class ReservationServiceTest {
         });
 
         assertThrows(IllegalStateException.class,
-                () -> reservationService.createReservation(1L, List.of(10L)));
+                () -> reservationService.createReservation(1L, 1L, List.of(10L)));
 
         verify(reservationRepository, never()).save(any());
     }
@@ -170,7 +173,7 @@ class ReservationServiceTest {
         Seat seat = createSeatWithBookingOpenAt(LocalDateTime.now().plusMinutes(10));
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(seatRepository.findAllByIdInOrderByIdAsc(List.of(10L))).thenReturn(List.of(seat));
         lenient().when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
             ReservationGroup reservationGroup = invocation.getArgument(0);
             ReflectionTestUtils.setField(reservationGroup, "id", 77L);
@@ -178,7 +181,7 @@ class ReservationServiceTest {
         });
 
         assertThrows(IllegalStateException.class,
-                () -> reservationService.createReservation(1L, List.of(10L)));
+                () -> reservationService.createReservation(1L, 1L, List.of(10L)));
 
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
         verify(reservationGroupRepository, never()).save(any());
@@ -192,7 +195,7 @@ class ReservationServiceTest {
         Seat seat = createSeatWithStartAt(LocalDateTime.now().minusMinutes(1));
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(seatRepository.findAllByIdInOrderByIdAsc(List.of(10L))).thenReturn(List.of(seat));
         lenient().when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
             ReservationGroup reservationGroup = invocation.getArgument(0);
             ReflectionTestUtils.setField(reservationGroup, "id", 77L);
@@ -200,7 +203,7 @@ class ReservationServiceTest {
         });
 
         assertThrows(IllegalStateException.class,
-                () -> reservationService.createReservation(1L, List.of(10L)));
+                () -> reservationService.createReservation(1L, 1L, List.of(10L)));
 
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
         verify(reservationGroupRepository, never()).save(any());
@@ -214,14 +217,14 @@ class ReservationServiceTest {
         Seat seat = createSeatWithStartAt(LocalDateTime.now().plusHours(1));
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(seatRepository.findAllByIdInForUpdate(List.of(10L))).thenReturn(List.of(seat));
+        when(seatRepository.findAllByIdInOrderByIdAsc(List.of(10L))).thenReturn(List.of(seat));
         when(reservationGroupRepository.save(any(ReservationGroup.class))).thenAnswer(invocation -> {
             ReservationGroup reservationGroup = invocation.getArgument(0);
             ReflectionTestUtils.setField(reservationGroup, "id", 77L);
             return reservationGroup;
         });
 
-        Long reservationGroupId = reservationService.createReservation(1L, List.of(10L));
+        Long reservationGroupId = reservationService.createReservation(1L, 1L, List.of(10L));
 
         assertEquals(77L, reservationGroupId);
         assertEquals(SeatStatus.HELD, seat.getStatus());
@@ -235,12 +238,14 @@ class ReservationServiceTest {
     private Seat createSeatWithBookingOpenAt(LocalDateTime bookingOpenAt) {
         Event event = new Event("공연", "설명", "장소", bookingOpenAt, LocalDateTime.now());
         Schedule schedule = new Schedule(event, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(1).plusHours(2), LocalDateTime.now());
+        ReflectionTestUtils.setField(schedule, "id", 1L);
         return new Seat(schedule, "A-1", "VIP", 100000, LocalDateTime.now());
     }
 
     private Seat createSeatWithStartAt(LocalDateTime startAt) {
         Event event = new Event("공연", "설명", "장소", LocalDateTime.now().minusDays(1), LocalDateTime.now());
         Schedule schedule = new Schedule(event, startAt, startAt.plusHours(2), LocalDateTime.now());
+        ReflectionTestUtils.setField(schedule, "id", 1L);
         return new Seat(schedule, "A-1", "VIP", 100000, LocalDateTime.now());
     }
 
@@ -248,4 +253,3 @@ class ReservationServiceTest {
         return new User("user@test.com", "password", "테스터", LocalDateTime.now());
     }
 }
-

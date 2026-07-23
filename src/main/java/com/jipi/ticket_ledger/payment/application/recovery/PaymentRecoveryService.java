@@ -1,19 +1,24 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
+import com.jipi.ticket_ledger.payment.application.cancel.PaymentCancelService;
+import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentClient;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClientException;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Predicate;
 
 @Service
 @RequiredArgsConstructor
@@ -21,9 +26,74 @@ import java.util.List;
 public class PaymentRecoveryService {
 
     private final PaymentRepository paymentRepository;
-    private final TossPaymentClient tossPaymentClient;
+    private final PaymentGateway paymentGateway;
+    private final PaymentGatewayCircuitState paymentGatewayCircuitState;
     private final PaymentRecoveryTransactionService paymentRecoveryTransactionService;
+    private final PaymentCancelService paymentCancelService;
+    private final PaymentRecoveryMetrics paymentRecoveryMetrics;
     private final Clock clock;
+
+    /**
+     * CONFIRMING 회색지대 보정 1회. 배치·동기 경로가 공유한다.
+     * (1) readonly 스냅샷 → (외부) PG 조회 → (2) 순수 결정 → (3) 필요 시 환불(락 밖) → (4) 락 하 적용 → metric.
+     * <p>
+     * PG 조회/환불의 RestClientException 은 내부에서 흡수해 CONFIRMING 을 유지하고(LOOKUP_UNRESOLVED/REFUND_PENDING)
+     * 다음 주기에 재시도한다. 그 외 예외는 호출자(배치 격리/동기 전파)로 전파한다.
+     */
+    RecoveryOutcome recover(Long paymentId) {
+        RecoverySnapshot snapshot = paymentRecoveryTransactionService.loadRecoverySnapshot(paymentId);
+        if (snapshot == null) {
+            return record(RecoveryOutcome.NOOP_NOT_CONFIRMING);
+        }
+
+        PaymentGatewayPayment lookup;
+        try {
+            lookup = paymentGateway.getPaymentByOrderId(snapshot.orderId());
+        } catch (PaymentGatewayException e) {
+            // 조회 실패 로그는 PG 어댑터가 남긴다. 여기선 다음 주기 위임 결정만 남긴다.
+            log.warn("Recovery lookup failed, leaving CONFIRMING for next cycle. paymentId={} orderId={}",
+                    paymentId, snapshot.orderId());
+            return record(RecoveryOutcome.LOOKUP_UNRESOLVED);
+        }
+
+        RecoveryDecision decision = RecoveryPolicy.decide(snapshot, lookup);
+
+        if (decision.action() == RecoveryAction.RETRY_LATER) {
+            log.info("PG payment is still processing, leaving CONFIRMING for next cycle. paymentId={} orderId={} pgStatus={}",
+                    paymentId, snapshot.orderId(), lookup.status());
+            return record(RecoveryOutcome.PG_PROCESSING);
+        }
+
+        if (decision.action() == RecoveryAction.HOLD_MANUAL) {
+            // 주문 불일치나 알 수 없는 PG 상태는 자동 변경하지 않고 운영 확인 대상으로 남긴다.
+            log.error("CONFIRMING payment requires manual review. paymentId={} ourOrderId={} pgOrderId={} pgStatus={}",
+                    paymentId, snapshot.orderId(), lookup.orderId(), lookup.status());
+            return record(RecoveryOutcome.HELD_MANUAL);
+        }
+
+        if (decision.action() == RecoveryAction.REFUND_THEN_FAIL) {
+            try {
+                paymentGateway.cancel(
+                        lookup.paymentKey(),
+                        decision.refundReason(),
+                        snapshot.currency(),
+                        "cancel:" + paymentId
+                );
+            } catch (PaymentGatewayException e) {
+                // 취소(환불) 호출 실패 로그는 PG 어댑터가 남긴다. CONFIRMING 유지 → 다음 주기 재시도.
+                log.error("Refund failed for CONFIRMING payment, will retry next cycle. paymentId={} orderId={}",
+                        paymentId, snapshot.orderId());
+                return record(RecoveryOutcome.REFUND_PENDING);
+            }
+        }
+
+        return record(paymentRecoveryTransactionService.applyDecision(paymentId, decision, lookup));
+    }
+
+    private RecoveryOutcome record(RecoveryOutcome outcome) {
+        paymentRecoveryMetrics.record(outcome);
+        return outcome;
+    }
 
     /**
      * 컨트롤러 confirm 실패 시 호출하는 단건 동기 재조회.
@@ -36,24 +106,18 @@ public class PaymentRecoveryService {
     public SyncReconcileResult reconcileConfirmingPaymentByOrderId(String orderId) {
         Payment payment = paymentRepository.findByOrderId(orderId).orElse(null);
         if (payment == null || payment.getStatus() != PaymentStatus.CONFIRMING) {
-            return new SyncReconcileResult(payment, false);
+            return new SyncReconcileResult(payment == null ? null : payment.getId(), false);
         }
 
-        try {
-            paymentRecoveryTransactionService.applyLookupResult(
-                    payment.getId(),
-                    tossPaymentClient.getPaymentByOrderId(orderId)
-            );
-        } catch (RestClientException e) {
-            // 조회 실패 로그는 TossPaymentClient 가 남긴다. 여기선 보정 스케줄러 위임 결정만 남긴다.
-            log.warn("Synchronous reconcile lookup failed, leaving CONFIRMING for scheduler. orderId={}", orderId);
-        }
+        // 조회/환불 RestClientException 은 recover 내부에서 흡수(CONFIRMING 유지)하므로 여기서 잡을 필요가 없다.
+        // 그 외 예외만 전파된다(기존 동기 시맨틱 보존).
+        recover(payment.getId());
 
         Payment resolved = paymentRepository.findByOrderId(orderId).orElse(payment);
-        return new SyncReconcileResult(resolved, true);
+        return new SyncReconcileResult(resolved.getId(), true);
     }
 
-    public record SyncReconcileResult(Payment payment, boolean handled) {
+    public record SyncReconcileResult(Long paymentId, boolean handled) {
     }
 
     @Transactional(readOnly = true)
@@ -64,38 +128,64 @@ public class PaymentRecoveryService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public List<Long> findStaleCancelingPaymentIds(Duration grace, int batchSize) {
+        return paymentRepository.findStaleCancelingIds(
+                clock.instant().minus(grace),
+                PageRequest.of(0, batchSize)
+        );
+    }
+
     public int reconcileStaleConfirmingPayments(Duration grace, int batchSize) {
+        return runRecoveryBatch("confirm", findStaleConfirmingPaymentIds(grace, batchSize),
+                paymentId -> recover(paymentId).isRecovered());
+    }
+
+    public int reconcileStaleCancelingPayments(Duration grace, int batchSize) {
+        return runRecoveryBatch("cancel", findStaleCancelingPaymentIds(grace, batchSize),
+                paymentId -> paymentCancelService.recoverCanceling(paymentId).isRecovered());
+    }
+
+    /** 스케줄러 주기마다 CONFIRMING/CANCELING 잔량을 세어 backlog gauge 를 갱신한다(스크레이프마다 DB 조회 회피). */
+    public void updateBacklogGauges() {
+        long confirming = paymentRepository.countByStatus(PaymentStatus.CONFIRMING);
+        long canceling = paymentRepository.countByStatus(PaymentStatus.CANCELING);
+        paymentRecoveryMetrics.updateBacklog(confirming, canceling);
+    }
+
+    /**
+     * 회색지대 보정 배치 공용 루프. (id 리스트, per-item 보정 함수) → per-item 예외격리 + recovered 집계.
+     * 한 건의 실패(예상 못 한 오류 등)가 배치 전체를 멈추지 않도록 건별로 감싸고, 실패 건은 다음 주기에 재시도된다.
+     * confirm/cancel 두 배치가 공유한다(제네릭 프레임워크가 아니라 private 메서드 하나).
+     *
+     * @param recoverFn per-item 보정 함수, 반환값은 터미널 수렴 여부(recoveredCount 집계용)
+     */
+    private int runRecoveryBatch(String operation, List<Long> paymentIds, Predicate<Long> recoverFn) {
         int recoveredCount = 0;
-        List<Long> paymentIds = findStaleConfirmingPaymentIds(grace, batchSize);
         int failedCount = 0;
+        int processedCount = 0;
         for (Long paymentId : paymentIds) {
+            if (paymentGatewayCircuitState.isLookupCircuitOpen()) {
+                log.debug("Stopping {} gray-zone recovery batch because PG lookup circuit opened. remainingCount={}",
+                        operation, paymentIds.size() - processedCount);
+                break;
+            }
+            processedCount++;
             try {
-                if (reconcileConfirmingPayment(paymentId)) {
+                if (recoverFn.test(paymentId)) {
                     recoveredCount++;
                 }
             } catch (Exception e) {
                 failedCount++;
-                // 한 건의 실패(PG 오류·데이터 이상 등)가 배치 전체를 멈추지 않도록 격리한다.
-                // 실패 건은 CONFIRMING으로 남아 다음 주기에 재시도되며, 매번 노출되도록 크게 로깅한다.
-                log.error("Failed to reconcile CONFIRMING payment, skipping to next. paymentId={}", paymentId, e);
+                paymentRecoveryMetrics.recordBatchException(operation);
+                // 실패 건은 회색지대로 남아 다음 주기에 재시도되며, 매번 노출되도록 크게 로깅한다.
+                log.error("Failed to reconcile {} gray-zone payment, skipping to next. paymentId={}", operation, paymentId, e);
             }
         }
         if (!paymentIds.isEmpty()) {
-            log.info("Reconcile CONFIRMING payment batch finished. candidateCount={} recoveredCount={} failedCount={}",
-                    paymentIds.size(), recoveredCount, failedCount);
+            log.info("Reconcile {} gray-zone payment batch finished. candidateCount={} recoveredCount={} failedCount={}",
+                    operation, paymentIds.size(), recoveredCount, failedCount);
         }
         return recoveredCount;
-    }
-
-    private boolean reconcileConfirmingPayment(Long paymentId) {
-        ConfirmingPaymentCandidate candidate = paymentRecoveryTransactionService.loadConfirmingCandidate(paymentId);
-        if (candidate == null) {
-            return false;
-        }
-
-        return paymentRecoveryTransactionService.applyLookupResult(
-                paymentId,
-                tossPaymentClient.getPaymentByOrderId(candidate.orderId())
-        );
     }
 }

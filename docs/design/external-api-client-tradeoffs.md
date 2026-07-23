@@ -70,11 +70,30 @@ PaymentService.confirmPayment()
 | 선택 | 얻은 점 | 감수한 점 |
 | --- | --- | --- |
 | 동기 `RestClient` | 결제 승인 후 상태 전이 순서를 설명하기 쉽습니다. | 외부 API 응답 시간 동안 요청 thread가 대기합니다. |
-| PG 호출 timeout 명시 | 외부 응답 지연이 서버 thread를 무한 점유하지 않습니다. | timeout은 실패 확정이 아니므로 `CONFIRMING` 보정 흐름과 함께 해석해야 합니다. |
-| PG 호출을 DB 트랜잭션 밖에서 수행 | 외부 호출 시간만큼 DB 락을 오래 잡지 않습니다. | 중간 상태 `CONFIRMING`과 보정 스케줄러가 필요합니다. |
+| PG 호출 timeout 명시 | 외부 응답 지연이 서버 thread를 무한 점유하지 않습니다. | timeout은 실패 확정이 아니므로 `CONFIRMING`/`CANCELING` 보정 흐름과 함께 해석해야 합니다. |
+| PG 호출을 DB 트랜잭션 밖에서 수행 | 외부 호출 시간만큼 DB 락을 오래 잡지 않습니다. 승인·취소·보정 전 경로에 예외 없이 적용합니다. | 중간 상태 `CONFIRMING`/`CANCELING`과 보정 스케줄러가 필요합니다. |
 | WebFlux 미도입 | 구현 범위와 학습 비용을 줄였습니다. | 다량 외부 API 병렬 호출에는 적합하지 않습니다. |
 | OpenFeign 보류 | 단일 PG 연동에 필요한 의존성을 줄였습니다. | 외부 API가 늘어나면 인터페이스 기반 정리가 필요할 수 있습니다. |
-| Retry/Circuit Breaker 보류 | 현재 실패 모드에는 `CONFIRMING` 마커, PG 조회, 보정 스케줄러가 직접 대응합니다. | 외부 장애율·알림 체계·연동 대상 증가 시 별도 도입 검토가 필요합니다. |
+| 연산별 Circuit Breaker 적용 | 승인·조회·취소 장애가 서로의 회로를 열지 않고, 장애 중 반복 외부 호출을 빠르게 차단합니다. | 임계값과 OPEN 시간을 운영 지표로 조정해야 하며, OPEN 중 요청은 `503`으로 거절됩니다. |
+| 자동 Retry 제외 | 승인·취소 중복 호출과 사용자 응답 지연을 늘리지 않습니다. 결과 불명은 기존 중간 상태와 보정 흐름이 담당합니다. | 일시 오류를 같은 요청에서 즉시 회복할 가능성은 포기합니다. |
+
+## Circuit Breaker 경계
+
+승인은 회로 permit을 먼저 확보한 요청만 `READY -> CONFIRMING` 트랜잭션에 진입합니다. 단순 상태 조회 후 트랜잭션에 들어가면 그 사이 회로가 열리는 경쟁 조건이 생길 수 있어, 실제 호출 권한 확보와 PG 호출 결과 기록을 하나의 permit으로 묶었습니다.
+
+```text
+confirm permit 확보
+-> Tx1: READY -> CONFIRMING
+-> PG 승인 호출
+-> permit에 성공/실패 기록
+-> Tx2: 내부 상태 확정
+```
+
+PG 회로는 `confirm`, `lookup`, `cancel`로 분리합니다. timeout·5xx·408·429는 외부 장애로 집계하고, 금액 오류나 잘못된 요청처럼 PG가 명확히 거절한 일반 4xx는 회로 실패율에서 제외합니다. 회로가 OPEN이면 `503 Service Unavailable`과 `Retry-After`를 반환합니다.
+
+PG 조회가 성공해도 상태가 `READY`·`IN_PROGRESS`·`WAITING_FOR_DEPOSIT`이면 실패로 확정하지 않고 `CONFIRMING`을 유지합니다. `ABORTED`·`EXPIRED`·`CANCELED`처럼 최종 상태일 때만 내부 실패와 좌석 반환을 적용하며, 알 수 없는 신규 상태는 자동 변경하지 않고 수동 확인 대상으로 남깁니다.
+
+보정 스케줄러는 PG 상태 조회가 선행 조건이므로 lookup 회로가 OPEN이면 신규 배치를 시작하지 않습니다. 처리 중 lookup 회로가 열려도 남은 건을 중단하고 다음 주기로 넘깁니다. 반면 cancel 회로만 OPEN인 경우에는 조회 결과가 이미 취소 완료일 수 있으므로 조회·내부 확정 기회까지 막지 않습니다.
 
 ## 외부 호출 실패 로그 표준화
 
@@ -100,12 +119,14 @@ idempotencyKey=confirm:... outcome=... httpStatus=... exceptionClass=... message
 
 원칙:
 
-- `TossPaymentClient`가 실패를 로깅하고 **원래 예외를 그대로 재전파**합니다. 서비스 계층은 같은 예외를 다시 덤프하지 않고 **비즈니스 결정**(조회 fallback, 보정 위임, 다음 주기 재시도)만 남겨 중복 로그를 없앱니다.
+- `TossPaymentClient`가 실패를 로깅하고 Spring HTTP 예외를 `PaymentGatewayException`으로 변환합니다. 서비스 계층은 HTTP 구현 예외를 알지 않고 **비즈니스 결정**(조회 fallback, 보정 위임, 다음 주기 재시도)만 남겨 중복 로그를 없앱니다.
 - `raw secret`, `Authorization` 헤더는 로그에 남기지 않습니다. `paymentKey`는 앞 6자만 노출하고 나머지는 마스킹합니다(`PaymentLogFormatter`, infrastructure 배치로 계층 역참조 방지).
 - `TIMEOUT`은 실패 확정이 아니라 결과 불명이므로 `CONFIRMING` 보정 흐름과 함께 해석합니다.
 
 ## 참고 기준
 
 - Spring Framework REST Clients: https://docs.spring.io/spring-framework/reference/integration/rest-clients.html
+- Resilience4j CircuitBreaker: https://resilience4j.readme.io/docs/circuitbreaker
+- Resilience4j Spring Boot 3: https://resilience4j.readme.io/docs/getting-started-3
 - Toss Payments 결제 흐름: https://docs.tosspayments.com/guides/v2/get-started/payment-flow
 - Toss Payments 멱등성 설명: https://docs.tosspayments.com/blog/what-is-idempotency

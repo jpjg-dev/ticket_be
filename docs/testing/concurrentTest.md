@@ -13,7 +13,7 @@
 | `ReservationService.createReservation()` | 결제 승인 |
 | 겹치는 `seatIds` 동시 요청 | 중복 결제 |
 | 좌석 ID 정렬 | 결제 실패 |
-| `PESSIMISTIC_WRITE` 좌석 조회 | 환불/취소 정책 |
+| Redis 좌석 락과 `Seat.version` | 환불/취소 정책 |
 | `ReservationGroup` 단위 원자성 | 외부 PG 연동 |
 
 ## 테스트 시나리오
@@ -55,7 +55,7 @@
 
 - 겹치는 좌석 묶음 동시 요청에서 하나의 `ReservationGroup`만 전체 성공합니다.
 - 실패 요청은 부분 reservation을 남기지 않습니다.
-- `Seat` 비관적 락과 ID 정렬 정책이 group 단위 원자성 보장에 유효하게 동작했습니다.
+- Redis 보호가 사라진 조건에서도 `Seat.version` 충돌로 하나의 group만 커밋되어 group 단위 원자성이 유지됐습니다.
 
 ## 락 순서 정책
 
@@ -73,7 +73,9 @@ B 요청: [2, 1]
 | 계층 | 정책 |
 | --- | --- |
 | 애플리케이션 | `seatIds.distinct().sorted()` 적용 |
-| DB 조회 | `order by s.id asc` 기준으로 `PESSIMISTIC_WRITE` 조회 |
+| 정상 경로 | Redis `RLock`을 좌석 ID 오름차순으로 획득한 뒤 일반 조회 |
+| 최종 방어 | `Seat.version` 조건이 일치한 트랜잭션만 커밋 |
+| Redis 장애 fallback | `order by s.id asc` 기준 `PESSIMISTIC_WRITE` 조회 |
 
 ## 결제·만료 경로 락 순서 점검
 
@@ -82,16 +84,19 @@ B 요청: [2, 1]
 
 | 경로 | 명시적 락 획득 순서 | 비고 |
 | --- | --- | --- |
-| 좌석 선점 | `Seat(id asc)` | 좌석 ID 정렬 후 `PESSIMISTIC_WRITE` 조회 |
+| 좌석 선점 정상 경로 | Redis `Seat(id asc)` | 이후 일반 조회와 `@Version` commit |
+| 좌석 선점 fallback | DB `Seat(id asc)` | Redis 장애 시 제한된 `PESSIMISTIC_WRITE` 조회 |
 | 예약 만료 | `Payment -> ReservationGroup` | 이후 `Reservation`, `Seat` 상태 변경 |
 | 결제 승인 Tx1 | `Payment` | `READY -> CONFIRMING` 마커 저장 |
 | 결제 승인 Tx2 | `Payment` | 이후 `ReservationGroup`, `Reservation`, `Seat` 확정 |
-| 결제 취소 | `Payment` | 이후 `ReservationGroup`, `Reservation`, `Seat` 취소/해제 |
-| 결제 보정 | `Payment` | 이후 승인 확정 또는 실패/좌석 해제 |
+| 결제 취소 Tx1 | `Payment` | `APPROVED -> CANCELING` 마커 저장 |
+| 결제 취소 Tx2 | `Payment` | 이후 `ReservationGroup`, `Reservation`, `Seat` 취소/해제 |
+| 결제 보정 | `Payment` | 이후 승인 확정 또는 실패/좌석 해제, 취소 확정 |
 
 현재 코드에서 `ReservationGroup -> Payment`처럼 위 순서를 거꾸로 잡는 명시적 비관 락 경로는 확인되지 않았습니다.
-좌석 묶음은 항상 `Seat(id asc)` 순서로 잠그므로 `Seat 1 -> Seat 2`와 `Seat 2 -> Seat 1`이 서로 기다리는 형태의 좌석 간 데드락도 방어합니다.
-또한 예약 만료는 `PENDING` group만 대상으로 하고, 결제 취소는 `APPROVED` payment만 대상으로 하므로 정상 상태 전이에서는 같은 group을 동시에 만료·취소 처리하지 않습니다.
+좌석 묶음은 Redis와 DB fallback 모두 `Seat(id asc)` 순서를 유지하고, 부분 획득 실패 시 역순 해제하므로 `Seat 1 -> Seat 2`와 `Seat 2 -> Seat 1`이 서로 기다리는 형태를 방어합니다.
+또한 예약 만료는 `PENDING` group만 대상으로 하고, 결제 취소 진입은 `APPROVED` payment만 대상으로 하므로 정상 상태 전이에서는 같은 group을 동시에 만료·취소 처리하지 않습니다.
+`CANCELING` 결제는 group이 이미 `CONFIRMED`라 만료 대상에서 자연히 제외됩니다.
 
 다만 `Reservation`, `Seat` 변경은 명시적 `for update`가 아니라 엔티티 변경 후 flush 시점의 writer lock으로 반영됩니다.
 따라서 이후 상태 전이 경로를 추가할 때는 다음 순서를 유지합니다.
@@ -100,8 +105,8 @@ B 요청: [2, 1]
 Payment -> ReservationGroup -> Reservation -> Seat(id asc)
 ```
 
-현재 남은 리스크는 데드락보다 결제 취소·보정 환불에서 `Payment` 락을 잡은 상태로 외부 PG 취소 API를 호출해 락 대기 시간이 길어질 수 있다는 점입니다.
-이 항목은 데드락 이슈가 아니라 트랜잭션 경계 최적화 후보로 별도 관리합니다.
+이전에 남아 있던 리스크는 결제 취소·보정 환불에서 `Payment` 락을 잡은 채 외부 PG API를 호출해 락 대기 시간이 길어지는 점이었습니다.
+현재는 취소와 보정 모두 `mark/snapshot -> 락 밖 PG 호출 -> 재락 후 apply` 3단계로 분리해 락 보유 구간에서 외부 호출을 하지 않습니다.
 
 ## 사용한 테스트 도구
 
@@ -113,5 +118,6 @@ Payment -> ReservationGroup -> Reservation -> Seat(id asc)
 ## 관련 문서
 
 - [상태 전이 설계](../design/state-design.md)
+- [좌석 분산 락 전략](../design/seat-lock-strategy.md)
 - [테스트 체크리스트](TestCase.md)
 - [성능 테스트 전략](../performance/performance-test-strategy.md)

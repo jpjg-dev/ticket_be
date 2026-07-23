@@ -1,7 +1,7 @@
 package com.jipi.ticket_ledger.payment.application.confirm;
 
-import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
-import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayState;
 
 record PaymentPgApproval(
         String paymentKey,
@@ -9,27 +9,18 @@ record PaymentPgApproval(
         String status,
         String method,
         Integer totalAmount,
-        String currency
+        String currency,
+        PaymentGatewayState state
 ) {
-    static PaymentPgApproval from(TossConfirmResponse response) {
+    static PaymentPgApproval from(PaymentGatewayPayment response) {
         return new PaymentPgApproval(
                 response.paymentKey(),
                 response.orderId(),
                 response.status(),
                 response.method(),
                 response.totalAmount(),
-                response.currency()
-        );
-    }
-
-    static PaymentPgApproval from(TossPaymentLookupResponse response) {
-        return new PaymentPgApproval(
-                response.paymentKey(),
-                response.orderId(),
-                response.status(),
-                response.method(),
-                response.totalAmount(),
-                response.currency()
+                response.currency(),
+                response.state()
         );
     }
 }

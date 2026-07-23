@@ -76,7 +76,7 @@
 | 단계 | 핵심 변경 | 전체 여정 RPS | 전체 여정 p95 | dropped iteration | 완료 결제 | 예상 밖 오류 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 초기 관찰 | 캐시/SoldOut 정책 전 | `223.06 RPS` | `15.60s` | `5,694` | `1,000` | `0` |
-| 공연 캐시 | 목록/상세 Caffeine 캐시 | `311.46 RPS` | `2.93s` | `1,274` | `1,000` | `0` |
+| 공연 캐시 | 목록/상세 로컬 캐시(당시 Caffeine) | `311.46 RPS` | `2.93s` | `1,274` | `1,000` | `0` |
 | 트랜잭션 분리 | 만료 처리 쓰기 트랜잭션과 좌석 조회 분리 | `314.78 RPS` | `2.66s` | `1,108` | `1,000` | `0` |
 | SoldOut 정책 | 가용 상태 기반 좌석 목록 조회 생략 | `336.94 RPS` | `244ms` | `0` | `1,000` | `0` |
 
@@ -103,6 +103,25 @@ RPS 개선율:
 | 예약 만료 처리 트랜잭션이 병목입니다. | 만료 처리 제거/트랜잭션 범위 분리 후 재측정했습니다. | 일부 개선은 있었지만 전체 병목을 단독으로 설명하지 못했습니다. | 단독 원인으로 보지 않았습니다. |
 | DB 커넥션 풀이 부족합니다. | Hikari pool 크기 조정 후 재측정했습니다. | p95와 완료 처리량 차이가 크지 않았습니다. | 단독 원인으로 보지 않았습니다. |
 | 매진 이후에도 좌석 목록 조회가 반복됩니다. | 회차별 가용 상태를 먼저 집계하고, `soldOut=true`이면 좌석 목록 조회 없이 빈 `seats`를 반환했습니다. | 완료 결제 `1,000`, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 유지했습니다. 응답 크기 감소는 부가 효과로 봤습니다. | SoldOut 정책으로 채택했습니다. |
+
+## 스레드 풀·커넥션 풀 증설을 보류한 이유
+
+운영 서버와 같은 `2 vCPU / 8GB` 제한을 두고, 백엔드·PostgreSQL·Redis·Prometheus·Grafana가 두 CPU를 공유하게 구성했습니다. k6와 Mock PG는 별도 CPU 영역에서 실행했습니다. 이 조건의 인기 공연 전체 여정 스파이크에서 결제 `1,000`건과 정합성 오류 `0`을 유지했지만 다음 포화 신호를 확인했습니다.
+
+| 지표 | 최대 관측값 |
+| --- | ---: |
+| 서버 공유 CPU | `100%` |
+| 백엔드 process CPU | `85.38%` |
+| Tomcat busy thread | `200` |
+| Hikari pending connection | `183` |
+| JVM Heap 사용률 | `24.86%` |
+| Redis 공연 캐시 적중률 | `99.96%` |
+
+Tomcat `maxThreads`를 `200 -> 250`으로 늘리면 동시에 실행되는 요청은 늘지만, 이미 CPU가 포화되고 Hikari connection을 기다리는 요청이 많아 추가 스레드도 같은 자원을 두고 경쟁합니다. 이 경우 스레드 스택 메모리와 컨텍스트 스위칭 비용이 증가하고, DB 대기가 더 길어질 수 있어 증설하지 않았습니다.
+
+Hikari pool도 기본값 `10`을 유지했습니다. 커넥션 수를 늘리면 pending은 일시적으로 줄 수 있지만, 백엔드와 PostgreSQL이 같은 두 CPU를 공유하는 조건에서는 더 많은 쿼리가 동시에 실행되어 DB 내부 CPU·락·버퍼 경쟁으로 대기 위치만 이동할 수 있습니다. Hikari 공식 가이드의 `((physical core * 2) + effective spindle count)`는 시작점일 뿐이며, 현재 관측값은 커넥션 부족보다 전체 CPU 포화가 먼저 나타난 상태입니다.
+
+따라서 제한된 서버 자원 안에서는 풀 크기를 키워 유입량을 모두 내부로 받아들이기보다, Redis 대기열로 좌석 선택·예약 경로의 동시 진입량을 제한하는 방식을 우선합니다. 목표는 최대 요청을 동시에 실행하는 것이 아니라 서버 공유 CPU를 `50~70%` 범위로 유지하면서 Tomcat·Hikari가 포화되기 전에 감당 가능한 요청만 입장시키는 것입니다. 대기열 적용 후 DB CPU에 여유가 있는데 Hikari pending만 지속될 때 pool 크기를 다시 A/B 테스트합니다.
 
 ## 마이페이지 N+1 검증
 
@@ -146,6 +165,26 @@ RPS 개선율:
 - 동일 `paymentId` 결제 취소 동시 요청은 PG cancel Mock을 1회만 호출했습니다.
 - 동일 Refresh Token 동시 재발급 요청 `20`개 중 하나만 성공했습니다.
 
+## 대기열 자동 활성화 교정
+
+대기열을 항상 강제하지 않고 `SHADOW`에서 부하가 임계값을 넘을 때만 자동 활성화하도록, `5 -> 10 -> 15 -> 20 -> 30 -> 5 req/s` 도착률로 전체 결제 여정을 실행했습니다.
+
+| 지표 | 결과 |
+| --- | ---: |
+| 전체 여정 / 결제 완료 | `999 / 999` |
+| 예상 밖 오류 | `0` |
+| 활성화 시점의 요청률 | 약 `16.98 req/s` |
+| 전체 여정 p95 | `13.25s` |
+| 대기시간 p95 | `13.01s` |
+| 최대 대기 인원 | `178` |
+| Hikari pending 최대 | `0` |
+| Tomcat busy 최대 | `8` |
+| 예약 동시 실행 최대 | `6` |
+
+활성화는 3회 연속 초과, 해제는 모든 하한 조건 10회 연속 충족과 backlog `0`을 요구했습니다. 전환 직전에 `SHADOW`로 통과한 요청은 사용자·회차별 일회성 permit으로 보호해 모드 변경 때문에 정상 요청이 거부되지 않도록 했습니다.
+
+`15 req/s`는 최대 처리량이 아니라 현재 입장률과 제한 자원 조건의 최초 교정값입니다. 운영 환경에서는 Prometheus의 CPU, Tomcat, Hikari, 대기 인원과 tail wait를 함께 보고 재조정합니다.
+
 ## 실행 명령
 
 성능 테스트 전제:
@@ -176,5 +215,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 - Spring Data JPA Modifying Queries: https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.modifying-queries
 - Hibernate ORM User Guide, fetching and N+1: https://docs.jboss.org/hibernate/orm/7.0/userguide/html_single/Hibernate_User_Guide.html
 - PostgreSQL Explicit Locking: https://www.postgresql.org/docs/17/explicit-locking.html
+- Apache Tomcat HTTP Connector, maxThreads: https://tomcat.apache.org/tomcat-10.1-doc/config/http.html
+- HikariCP Pool Sizing: https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing
 - Toss Payments 결제 흐름: https://docs.tosspayments.com/guides/v2/get-started/payment-flow
 - Toss Payments 멱등성 설명: https://docs.tosspayments.com/blog/what-is-idempotency

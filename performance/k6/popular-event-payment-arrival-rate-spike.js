@@ -159,7 +159,7 @@ export function completePopularEventPaymentJourney() {
     const selectedSeat = availablePopularSeats[Math.floor(Math.random() * availablePopularSeats.length)];
     const reservationResponse = timedPost(
       "/api/v1/reservations",
-      { seatIds: [selectedSeat.id] },
+      { scheduleId, seatIds: [selectedSeat.id] },
       reservationDuration,
       "reservation",
       user.cookie

@@ -1,4 +1,7 @@
 spring:
+  cache:
+    type: redis
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -48,12 +51,3 @@ security:
       - https://localhost:3000
       - http://localhost:3000
       - http://127.0.0.1:3000
-
-#cache:
-#  event:
-#    list:
-#      ttl: 10s
-#      max-size: 1
-#    detail:
-#      ttl: 30s
-#      max-size: 100

@@ -6,7 +6,7 @@ import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.auth.infrastructure.TokenHasher;
 import com.jipi.ticket_ledger.auth.presentation.dto.AuthRequestLoginDTO;
 import com.jipi.ticket_ledger.global.exception.InvalidCredentialsException;
-import com.jipi.ticket_ledger.auth.presentation.dto.AuthResponseLoginDTO;
+
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.domain.UserStatus;
@@ -71,7 +71,7 @@ class AuthServiceTest {
         when(tokenHasher.hash("refresh-token")).thenReturn("refresh-hash");
         when(jwtTokenProvider.getExpirationAsInstant("refresh-token")).thenReturn(expiresAt);
 
-        AuthResponseLoginDTO response = authService.login(new AuthRequestLoginDTO("user@test.com", "password"));
+        AuthTokens response = authService.login("user@test.com", "password");
 
         assertEquals("access-token", response.accessToken());
         assertEquals("refresh-token", response.refreshToken());
@@ -96,7 +96,7 @@ class AuthServiceTest {
         when(passwordEncoder.matches("password", "encoded")).thenReturn(false);
 
         InvalidCredentialsException exception = assertThrows(InvalidCredentialsException.class,
-                () -> authService.login(new AuthRequestLoginDTO("user@test.com", "password")));
+                () -> authService.login("user@test.com", "password"));
 
         assertEquals("아이디 또는 비밀번호를 확인해주세요.", exception.getMessage());
         verify(refreshTokenRepository, never()).save(org.mockito.Mockito.any());
@@ -123,7 +123,7 @@ class AuthServiceTest {
         when(tokenHasher.hash("new-refresh")).thenReturn("new-hash");
         when(jwtTokenProvider.getExpirationAsInstant("new-refresh")).thenReturn(expiresAt.plus(Duration.ofMinutes(30)));
 
-        AuthResponseLoginDTO response = authService.reissue("old-refresh");
+        AuthTokens response = authService.reissue("old-refresh");
 
         assertEquals("new-access", response.accessToken());
         assertEquals("new-refresh", response.refreshToken());

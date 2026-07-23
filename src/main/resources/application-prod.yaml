@@ -1,4 +1,7 @@
 spring:
+  cache:
+    type: redis
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -49,7 +52,9 @@ cache:
   event:
     list:
       ttl: 60s
-      max-size: 1
     detail:
       ttl: 5m
-      max-size: 500
+
+queue:
+  auto-activation:
+    enabled: true
