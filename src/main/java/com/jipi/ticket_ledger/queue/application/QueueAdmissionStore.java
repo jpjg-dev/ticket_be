@@ -6,6 +6,8 @@ import com.jipi.ticket_ledger.queue.domain.QueueAdmissionClaimResult;
 public interface QueueAdmissionStore {
     String register(Long userId, Long scheduleId);
 
+    String issueBypassPermit(Long userId, Long scheduleId);
+
     QueueAdmissionSnapshot getStatus(Long userId, Long scheduleId, String queueToken);
 
     QueueAdmissionClaimResult claim(Long userId, Long scheduleId, String queueToken);

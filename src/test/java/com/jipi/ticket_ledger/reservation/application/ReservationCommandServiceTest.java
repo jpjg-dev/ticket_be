@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.reservation.application;
 import com.jipi.ticket_ledger.queue.application.QueueAdmissionPermit;
 import com.jipi.ticket_ledger.queue.application.QueueAdmissionService;
 import com.jipi.ticket_ledger.queue.application.QueueTemporarilyUnavailableException;
+import com.jipi.ticket_ledger.queue.application.QueueLoadMonitor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -27,6 +28,9 @@ class ReservationCommandServiceTest {
     @Mock
     private SeatReservationCoordinator seatReservationCoordinator;
 
+    @Mock
+    private QueueLoadMonitor queueLoadMonitor;
+
     @InjectMocks
     private ReservationCommandService reservationCommandService;
 
@@ -39,6 +43,8 @@ class ReservationCommandServiceTest {
         Long result = reservationCommandService.createReservation(1L, 10L, List.of(100L), "token");
 
         assertEquals(77L, result);
+        verify(queueLoadMonitor).reservationStarted();
+        verify(queueLoadMonitor).reservationFinished();
         verify(queueAdmissionService).complete(permit);
         verify(queueAdmissionService, never()).release(permit);
     }
@@ -55,6 +61,7 @@ class ReservationCommandServiceTest {
                 () -> reservationCommandService.createReservation(1L, 10L, List.of(100L), "token")
         );
         verify(queueAdmissionService).release(permit);
+        verify(queueLoadMonitor).reservationFinished();
         verify(queueAdmissionService, never()).complete(permit);
     }
 

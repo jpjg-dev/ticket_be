@@ -19,10 +19,13 @@ public class QueueAdmissionService {
     private final FeatureFlagService featureFlagService;
     private final QueueAdmissionStore queueAdmissionStore;
     private final QueueAdmissionMetrics metrics;
+    private final QueueAutoActivationManager autoActivationManager;
+    private final QueueLoadMonitor queueLoadMonitor;
 
     public QueueAdmissionSnapshot enter(Long userId, Long scheduleId) {
+        queueLoadMonitor.arrivalObserved();
         return withAvailableQueue(() -> {
-            QueueMode mode = featureFlagService.getQueueModeForRuntime();
+            QueueMode mode = effectiveQueueMode();
             if (mode == QueueMode.OFF) {
                 metrics.record(mode.name(), "bypassed");
                 return QueueAdmissionSnapshot.bypassed();
@@ -32,6 +35,9 @@ public class QueueAdmissionService {
                 metrics.record(mode.name(), waiting > 0 ? "would_wait" : "would_admit");
                 log.info("queue shadow decision userId={} scheduleId={} waiting={} outcome={}",
                         userId, scheduleId, waiting, waiting > 0 ? "WOULD_WAIT" : "WOULD_ADMIT");
+                if (autoActivationManager.isAutomaticControlEnabled()) {
+                    return QueueAdmissionSnapshot.bypassed(queueAdmissionStore.issueBypassPermit(userId, scheduleId));
+                }
                 return QueueAdmissionSnapshot.bypassed();
             }
 
@@ -43,14 +49,14 @@ public class QueueAdmissionService {
     }
 
     public QueueAdmissionSnapshot getStatus(Long userId, Long scheduleId, String queueToken) {
-        if (featureFlagService.getQueueModeForRuntime() != QueueMode.ENFORCED) {
+        if (effectiveQueueMode() != QueueMode.ENFORCED) {
             return QueueAdmissionSnapshot.bypassed();
         }
         return withAvailableQueue(() -> queueAdmissionStore.getStatus(userId, scheduleId, queueToken));
     }
 
     public QueueAdmissionPermit claimForReservation(Long userId, Long scheduleId, String queueToken) {
-        QueueMode mode = featureFlagService.getQueueModeForRuntime();
+        QueueMode mode = effectiveQueueMode();
         if (mode != QueueMode.ENFORCED) {
             return QueueAdmissionPermit.bypassed(userId, scheduleId);
         }
@@ -103,5 +109,9 @@ public class QueueAdmissionService {
             operation.run();
             return null;
         });
+    }
+
+    private QueueMode effectiveQueueMode() {
+        return autoActivationManager.resolve(featureFlagService.getQueueModeForRuntime());
     }
 }

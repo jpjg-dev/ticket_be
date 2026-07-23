@@ -10,6 +10,10 @@ public record QueueAdmissionSnapshot(
         return new QueueAdmissionSnapshot(QueueAdmissionStatus.BYPASSED, null, null, null);
     }
 
+    public static QueueAdmissionSnapshot bypassed(String queueToken) {
+        return new QueueAdmissionSnapshot(QueueAdmissionStatus.BYPASSED, queueToken, null, null);
+    }
+
     public static QueueAdmissionSnapshot waiting(String queueToken, long position, long estimatedWaitSeconds) {
         return new QueueAdmissionSnapshot(QueueAdmissionStatus.WAITING, queueToken, position, estimatedWaitSeconds);
     }

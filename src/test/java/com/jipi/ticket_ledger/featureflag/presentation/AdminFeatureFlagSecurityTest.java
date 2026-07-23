@@ -7,6 +7,7 @@ import com.jipi.ticket_ledger.featureflag.domain.QueueMode;
 import com.jipi.ticket_ledger.featureflag.domain.QueueModeSnapshot;
 import com.jipi.ticket_ledger.global.config.SecurityConfig;
 import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
+import com.jipi.ticket_ledger.queue.application.QueueAutoActivationManager;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,9 @@ class AdminFeatureFlagSecurityTest {
     private FeatureFlagService featureFlagService;
 
     @MockitoBean
+    private QueueAutoActivationManager queueAutoActivationManager;
+
+    @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
 
     @MockitoBean
@@ -64,10 +68,13 @@ class AdminFeatureFlagSecurityTest {
     @DisplayName("관리자 feature flag API는 기존 /admin 권한 규칙으로 접근을 허용한다")
     void adminRequestIsAllowed() throws Exception {
         when(featureFlagService.getCurrentQueueMode()).thenReturn(new QueueModeSnapshot(QueueMode.OFF, 0L));
+        when(queueAutoActivationManager.resolve(QueueMode.OFF)).thenReturn(QueueMode.OFF);
 
         mockMvc.perform(get("/api/v1/admin/feature-flags"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.queueMode").exists())
+                .andExpect(jsonPath("$.effectiveQueueMode").value("OFF"))
+                .andExpect(jsonPath("$.automaticallyEnforced").value(false))
                 .andExpect(jsonPath("$.version").isNumber());
     }
 }

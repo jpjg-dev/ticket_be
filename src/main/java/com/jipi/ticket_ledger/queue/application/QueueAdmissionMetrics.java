@@ -66,6 +66,10 @@ public class QueueAdmissionMetrics {
         waitingUsers.set(Math.max(0L, count));
     }
 
+    public long waitingUsers() {
+        return waitingUsers.get();
+    }
+
     public void streamOpened() {
         activeSseConnections.incrementAndGet();
     }

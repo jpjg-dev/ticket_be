@@ -5,6 +5,7 @@ import com.jipi.ticket_ledger.featureflag.application.FeatureFlagService;
 import com.jipi.ticket_ledger.featureflag.domain.QueueMode;
 import com.jipi.ticket_ledger.featureflag.domain.QueueModeSnapshot;
 import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
+import com.jipi.ticket_ledger.queue.application.QueueAutoActivationManager;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,9 @@ class AdminFeatureFlagControllerTest {
     private FeatureFlagService featureFlagService;
 
     @MockitoBean
+    private QueueAutoActivationManager queueAutoActivationManager;
+
+    @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
 
     @MockitoBean
@@ -44,10 +48,14 @@ class AdminFeatureFlagControllerTest {
     @DisplayName("GET은 현재 queueMode 계약을 반환한다")
     void getFeatureFlagsReturnsCurrentQueueMode() throws Exception {
         when(featureFlagService.getCurrentQueueMode()).thenReturn(new QueueModeSnapshot(QueueMode.SHADOW, 3L));
+        when(queueAutoActivationManager.resolve(QueueMode.SHADOW)).thenReturn(QueueMode.ENFORCED);
+        when(queueAutoActivationManager.isAutoEnforced()).thenReturn(true);
 
         mockMvc.perform(get("/api/v1/admin/feature-flags"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.queueMode").value("SHADOW"))
+                .andExpect(jsonPath("$.effectiveQueueMode").value("ENFORCED"))
+                .andExpect(jsonPath("$.automaticallyEnforced").value(true))
                 .andExpect(jsonPath("$.version").value(3));
     }
 
@@ -56,12 +64,15 @@ class AdminFeatureFlagControllerTest {
     void updateQueueModeReturnsCurrentQueueMode() throws Exception {
         when(featureFlagService.updateQueueMode(QueueMode.ENFORCED, 3L))
                 .thenReturn(new QueueModeSnapshot(QueueMode.ENFORCED, 4L));
+        when(queueAutoActivationManager.resolve(QueueMode.ENFORCED)).thenReturn(QueueMode.ENFORCED);
 
         mockMvc.perform(put("/api/v1/admin/feature-flags/queue-mode")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mode\":\"ENFORCED\",\"expectedVersion\":3}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.queueMode").value("ENFORCED"))
+                .andExpect(jsonPath("$.effectiveQueueMode").value("ENFORCED"))
+                .andExpect(jsonPath("$.automaticallyEnforced").value(false))
                 .andExpect(jsonPath("$.version").value(4));
     }
 }

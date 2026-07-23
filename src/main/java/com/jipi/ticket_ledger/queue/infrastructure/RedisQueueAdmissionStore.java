@@ -33,7 +33,19 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
             return ARGV[1]
             """, String.class);
 
+    private static final DefaultRedisScript<String> BYPASS_PERMIT_SCRIPT = new DefaultRedisScript<>("""
+            local existing = redis.call('GET', KEYS[1])
+            if existing then
+                return existing
+            end
+            redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[3])
+            redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3])
+            redis.call('SET', KEYS[3], ARGV[2], 'PX', ARGV[3])
+            return ARGV[1]
+            """, String.class);
+
     private static final DefaultRedisScript<Long> PROMOTE_SCRIPT = new DefaultRedisScript<>("""
+            redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[6])
             local tokens = redis.call('ZRANGE', KEYS[1], 0, tonumber(ARGV[1]) - 1)
             local promoted = 0
             for _, token in ipairs(tokens) do
@@ -48,6 +60,15 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
                 redis.call('SREM', KEYS[2], ARGV[5])
             end
             return promoted
+            """, Long.class);
+
+    private static final DefaultRedisScript<Long> PURGE_AND_COUNT_SCRIPT = new DefaultRedisScript<>("""
+            redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+            local count = redis.call('ZCARD', KEYS[1])
+            if count == 0 then
+                redis.call('SREM', KEYS[2], ARGV[2])
+            end
+            return count
             """, Long.class);
 
     private static final DefaultRedisScript<String> GET_STATUS_SCRIPT = new DefaultRedisScript<>("""
@@ -137,6 +158,19 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
                 scheduleId.toString(),
                 Long.toString(clock.millis()),
                 Long.toString(properties.entryTtl().toMillis())
+        );
+    }
+
+    @Override
+    public String issueBypassPermit(Long userId, Long scheduleId) {
+        String token = UUID.randomUUID().toString();
+        String owner = ownerValue(userId, scheduleId);
+        return redisTemplate.execute(
+                BYPASS_PERMIT_SCRIPT,
+                List.of(userEntryKey(userId, scheduleId), ownerKey(token), admittedKey(token)),
+                token,
+                owner,
+                Long.toString(properties.admissionTtl().toMillis())
         );
     }
 
@@ -250,7 +284,8 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
                     PREFIX + "owner:",
                     PREFIX + "admitted:",
                     Long.toString(properties.admissionTtl().toMillis()),
-                    scheduleId
+                    scheduleId,
+                    Long.toString(expiredEntryCutoffMillis())
             );
             admitted += result == null ? 0 : result.intValue();
         }
@@ -259,7 +294,12 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
 
     @Override
     public long countWaiting(Long scheduleId) {
-        Long count = redisTemplate.opsForZSet().size(waitingKey(scheduleId));
+        Long count = redisTemplate.execute(
+                PURGE_AND_COUNT_SCRIPT,
+                List.of(waitingKey(scheduleId), ACTIVE_SCHEDULES_KEY),
+                Long.toString(expiredEntryCutoffMillis()),
+                scheduleId.toString()
+        );
         return count == null ? 0L : count;
     }
 
@@ -297,5 +337,9 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
 
     private String ownerValue(Long userId, Long scheduleId) {
         return userId + ":" + scheduleId;
+    }
+
+    private long expiredEntryCutoffMillis() {
+        return clock.millis() - properties.entryTtl().toMillis();
     }
 }

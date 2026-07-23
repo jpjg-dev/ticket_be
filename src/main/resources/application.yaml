@@ -174,6 +174,26 @@ queue:
     claim-ttl: 30s
     stream-timeout: 5m
     stream-interval: 1s
+  auto-activation:
+    # SHADOW mode observes load and can enforce the queue. OFF and ENFORCED remain manual overrides.
+    enabled: false
+    fixed-delay-ms: 1000
+    activate:
+      request-rate: 15
+      concurrent-requests: 8
+      process-cpu: 0.70
+      tomcat-busy-ratio: 0.70
+      hikari-pending: 1
+    deactivate:
+      request-rate: 6
+      concurrent-requests: 3
+      process-cpu: 0.50
+      tomcat-busy-ratio: 0.40
+      hikari-pending: 0
+    activation-samples: 3
+    deactivation-samples: 10
+    minimum-enforced-duration: 30s
+    cooldown: 30s
 
 seat-lock:
   # 0ms keeps same-seat losers out of the DB instead of queueing them behind a seat already being held.

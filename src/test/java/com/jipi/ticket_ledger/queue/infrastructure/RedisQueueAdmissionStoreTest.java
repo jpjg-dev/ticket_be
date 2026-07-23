@@ -78,6 +78,33 @@ class RedisQueueAdmissionStoreTest extends RedisTestContainerSupport {
     }
 
     @Test
+    @DisplayName("SHADOW bypass permit은 자동 전환 후 한 번만 claim할 수 있다")
+    void shadowBypassPermitCanBeClaimedAfterAutomaticTransition() {
+        String token = queueAdmissionStore.issueBypassPermit(USER_ID, SCHEDULE_ID);
+
+        assertEquals(QueueAdmissionClaimResult.CLAIMED,
+                queueAdmissionStore.claim(USER_ID, SCHEDULE_ID, token));
+        assertEquals(QueueAdmissionClaimResult.ALREADY_CLAIMED,
+                queueAdmissionStore.claim(USER_ID, SCHEDULE_ID, token));
+        assertEquals(0L, queueAdmissionStore.countTotalWaiting());
+    }
+
+    @Test
+    @DisplayName("TTL이 지난 대기 멤버는 순번 집계 전에 ZSET에서 제거한다")
+    void expiredWaitingMemberIsPurgedBeforeCounting() {
+        String token = queueAdmissionStore.register(USER_ID, SCHEDULE_ID);
+        redisTemplate.opsForZSet().add(
+                "ticketledger:queue:waiting:" + SCHEDULE_ID,
+                token,
+                clock.millis() - properties.entryTtl().toMillis() - 1
+        );
+
+        assertEquals(0L, queueAdmissionStore.countWaiting(SCHEDULE_ID));
+        assertEquals(false, redisTemplate.opsForSet()
+                .isMember("ticketledger:queue:active-schedules", SCHEDULE_ID.toString()));
+    }
+
+    @Test
     @DisplayName("입장 허용 키가 만료되면 예약 진입을 거부한다")
     void expiredAdmissionIsRejected() {
         String token = queueAdmissionStore.register(USER_ID, SCHEDULE_ID);

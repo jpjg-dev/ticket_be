@@ -47,3 +47,7 @@ cache:
       ttl: 60s
     detail:
       ttl: 5m
+
+queue:
+  auto-activation:
+    enabled: true

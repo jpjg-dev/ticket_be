@@ -54,7 +54,28 @@ export const options = {
             tags: { case: caseName, profile: loadProfile },
           },
         }
-    : {
+      : loadProfile === "calibration"
+        ? {
+            calibration: {
+              executor: "ramping-arrival-rate",
+              startRate: 5,
+              timeUnit: "1s",
+              preAllocatedVUs: 500,
+              maxVUs: 1000,
+              stages: [
+                { target: 5, duration: "10s" },
+                { target: 10, duration: "10s" },
+                { target: 15, duration: "15s" },
+                { target: 20, duration: "15s" },
+                { target: 30, duration: "10s" },
+                { target: 5, duration: "10s" },
+              ],
+              gracefulStop: "2m",
+              exec: "completeQueuedPaymentJourney",
+              tags: { case: caseName, profile: loadProfile },
+            },
+          }
+        : {
         arrival: {
           executor: "ramping-arrival-rate",
           startRate: 10,

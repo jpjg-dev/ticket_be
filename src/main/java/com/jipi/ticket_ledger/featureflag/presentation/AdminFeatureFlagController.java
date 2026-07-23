@@ -1,8 +1,11 @@
 package com.jipi.ticket_ledger.featureflag.presentation;
 
 import com.jipi.ticket_ledger.featureflag.application.FeatureFlagService;
+import com.jipi.ticket_ledger.featureflag.domain.QueueMode;
+import com.jipi.ticket_ledger.featureflag.domain.QueueModeSnapshot;
 import com.jipi.ticket_ledger.featureflag.presentation.dto.QueueModeResponse;
 import com.jipi.ticket_ledger.featureflag.presentation.dto.UpdateQueueModeRequest;
+import com.jipi.ticket_ledger.queue.application.QueueAutoActivationManager;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,16 +23,25 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminFeatureFlagController {
 
     private final FeatureFlagService featureFlagService;
+    private final QueueAutoActivationManager queueAutoActivationManager;
 
     @Operation(summary = "현재 큐 모드 조회")
     @GetMapping
     public QueueModeResponse getFeatureFlags() {
-        return QueueModeResponse.from(featureFlagService.getCurrentQueueMode());
+        return toResponse(featureFlagService.getCurrentQueueMode());
     }
 
     @Operation(summary = "큐 모드 변경")
     @PutMapping("/queue-mode")
     public QueueModeResponse updateQueueMode(@Valid @RequestBody UpdateQueueModeRequest request) {
-        return QueueModeResponse.from(featureFlagService.updateQueueMode(request.mode(), request.expectedVersion()));
+        return toResponse(featureFlagService.updateQueueMode(request.mode(), request.expectedVersion()));
+    }
+
+    private QueueModeResponse toResponse(QueueModeSnapshot snapshot) {
+        QueueMode effectiveQueueMode = queueAutoActivationManager.resolve(snapshot.queueMode());
+        boolean automaticallyEnforced = snapshot.queueMode() == QueueMode.SHADOW
+                && effectiveQueueMode == QueueMode.ENFORCED
+                && queueAutoActivationManager.isAutoEnforced();
+        return QueueModeResponse.from(snapshot, effectiveQueueMode, automaticallyEnforced);
     }
 }

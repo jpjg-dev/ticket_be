@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.queue.domain.QueueAdmissionSnapshot;
 import com.jipi.ticket_ledger.queue.domain.QueueAdmissionClaimResult;
 import com.jipi.ticket_ledger.queue.domain.QueueAdmissionStatus;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -17,6 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.ArgumentMatchers.any;
 
 @ExtendWith(MockitoExtension.class)
 class QueueAdmissionServiceTest {
@@ -30,8 +33,20 @@ class QueueAdmissionServiceTest {
     @Mock
     private QueueAdmissionMetrics metrics;
 
+    @Mock
+    private QueueAutoActivationManager autoActivationManager;
+
+    @Mock
+    private QueueLoadMonitor queueLoadMonitor;
+
     @InjectMocks
     private QueueAdmissionService queueAdmissionService;
+
+    @BeforeEach
+    void keepConfiguredModeWhenAutomaticActivationIsInactive() {
+        lenient().when(autoActivationManager.resolve(any(QueueMode.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
 
     @Test
     void offModeBypassesQueue() {
@@ -40,6 +55,7 @@ class QueueAdmissionServiceTest {
         QueueAdmissionSnapshot result = queueAdmissionService.enter(1L, 10L);
 
         assertEquals(QueueAdmissionStatus.BYPASSED, result.status());
+        verify(queueLoadMonitor).arrivalObserved();
         verify(queueAdmissionStore, never()).register(1L, 10L);
     }
 
@@ -53,6 +69,18 @@ class QueueAdmissionServiceTest {
         assertEquals(QueueAdmissionStatus.BYPASSED, result.status());
         verify(metrics).record("SHADOW", "would_wait");
         verify(queueAdmissionStore, never()).register(1L, 10L);
+    }
+
+    @Test
+    void automaticShadowModeIssuesPermitForInFlightTransition() {
+        when(featureFlagService.getQueueModeForRuntime()).thenReturn(QueueMode.SHADOW);
+        when(autoActivationManager.isAutomaticControlEnabled()).thenReturn(true);
+        when(queueAdmissionStore.issueBypassPermit(1L, 10L)).thenReturn("bypass-token");
+
+        QueueAdmissionSnapshot result = queueAdmissionService.enter(1L, 10L);
+
+        assertEquals(QueueAdmissionStatus.BYPASSED, result.status());
+        assertEquals("bypass-token", result.queueToken());
     }
 
     @Test
