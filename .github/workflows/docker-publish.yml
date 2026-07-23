@@ -39,7 +39,13 @@ jobs:
           TOSS_SECRET_KEY: ci-test-toss-secret
           CACHE_REDIS_HOST: localhost
           CACHE_REDIS_PORT: "6379"
+          CACHE_REDIS_CONNECT_TIMEOUT: 1s
           CACHE_REDIS_TIMEOUT: 2s
+          SEAT_LOCK_WAIT_TIME: 0ms
+          SEAT_LOCK_WATCHDOG_TIMEOUT: 30s
+          SEAT_LOCK_FALLBACK_MAX_CONCURRENT: "2"
+          SEAT_LOCK_FALLBACK_WAIT_TIME: 100ms
+          SEAT_LOCK_RETRY_AFTER_SECONDS: "1"
         run: |
           chmod +x ./gradlew
           ./gradlew build
