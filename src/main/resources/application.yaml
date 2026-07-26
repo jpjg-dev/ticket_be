@@ -167,13 +167,16 @@ cache:
 
 queue:
   admission:
-    batch-size: 20
-    fixed-delay-ms: 3000
-    entry-ttl: 15m
+    batch-size: 15
+    fixed-delay-ms: 1000
+    entry-ttl: 30m
     admission-ttl: 2m
     claim-ttl: 30s
     stream-timeout: 5m
     stream-interval: 1s
+    max-expected-backlog: 10000
+    minimum-admission-rate-per-second: 10
+    safety-margin: 5m
   auto-activation:
     # SHADOW mode observes load and can enforce the queue. OFF and ENFORCED remain manual overrides.
     enabled: false

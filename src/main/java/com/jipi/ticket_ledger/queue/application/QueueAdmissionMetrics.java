@@ -17,13 +17,30 @@ public class QueueAdmissionMetrics {
     private final AtomicLong waitingUsers = new AtomicLong();
     private final AtomicInteger activeSseConnections = new AtomicInteger();
 
-    public QueueAdmissionMetrics(MeterRegistry meterRegistry) {
+    public QueueAdmissionMetrics(
+            MeterRegistry meterRegistry,
+            QueueAdmissionCapacityPolicy capacityPolicy
+    ) {
         this.meterRegistry = meterRegistry;
         Gauge.builder("queue_waiting_users", waitingUsers, AtomicLong::get)
                 .description("Current users waiting for queue admission")
                 .register(meterRegistry);
         Gauge.builder("queue_sse_connections_active", activeSseConnections, AtomicInteger::get)
                 .description("Current active queue SSE connections")
+                .register(meterRegistry);
+        Gauge.builder(
+                        "queue_admission_configured_rate",
+                        capacityPolicy,
+                        QueueAdmissionCapacityPolicy::configuredAdmissionRate
+                )
+                .description("Configured queue admissions per second")
+                .register(meterRegistry);
+        Gauge.builder(
+                        "queue_admission_max_backlog_drain_seconds",
+                        capacityPolicy,
+                        value -> value.maxBacklogDrainDuration().toSeconds()
+                )
+                .description("Estimated seconds required to drain the configured maximum backlog")
                 .register(meterRegistry);
     }
 

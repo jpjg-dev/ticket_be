@@ -28,7 +28,10 @@ class RedisQueueAofContinuityTest {
             Duration.ofMinutes(2),
             Duration.ofSeconds(30),
             Duration.ofMinutes(5),
-            Duration.ofSeconds(1)
+            Duration.ofSeconds(1),
+            100,
+            0.2,
+            Duration.ofMinutes(2)
     );
 
     private String redisDataVolume;

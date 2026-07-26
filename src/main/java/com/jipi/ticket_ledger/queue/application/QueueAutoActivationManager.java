@@ -18,6 +18,7 @@ public class QueueAutoActivationManager {
 
     private final QueueAutoActivationPolicy policy;
     private final Clock clock;
+    private final MeterRegistry meterRegistry;
     private final Counter transitions;
     private final AtomicInteger autoEnforcedGauge = new AtomicInteger();
 
@@ -25,6 +26,7 @@ public class QueueAutoActivationManager {
     private int overloadedSamples;
     private int recoveredSamples;
     private Instant lastTransitionAt;
+    private QueueMode lastConfiguredMode;
 
     public QueueAutoActivationManager(
             QueueAutoActivationPolicy policy,
@@ -33,6 +35,7 @@ public class QueueAutoActivationManager {
     ) {
         this.policy = policy;
         this.clock = clock;
+        this.meterRegistry = meterRegistry;
         this.transitions = Counter.builder("queue_auto_activation_transitions")
                 .description("Automatic queue activation state transitions")
                 .register(meterRegistry);
@@ -52,6 +55,7 @@ public class QueueAutoActivationManager {
     }
 
     public synchronized void evaluate(QueueMode configuredMode, QueueLoadSnapshot snapshot) {
+        recordConfiguredModeChange(configuredMode, snapshot);
         if (!policy.enabled() || configuredMode == QueueMode.OFF) {
             resetAutomaticState();
             return;
@@ -130,6 +134,7 @@ public class QueueAutoActivationManager {
         recoveredSamples = 0;
         lastTransitionAt = now;
         transitions.increment();
+        recordDecision(enforced ? "activate" : "deactivate", reason);
         log.warn("queue auto-activation transition effectiveMode={} reason={} requestRate={} concurrentRequests={} processCpu={} tomcatBusyRatio={} hikariPending={} waitingUsers={} telemetryComplete={}",
                 enforced ? QueueMode.ENFORCED : QueueMode.SHADOW,
                 reason,
@@ -147,5 +152,37 @@ public class QueueAutoActivationManager {
         recoveredSamples = 0;
         autoEnforced = false;
         autoEnforcedGauge.set(0);
+    }
+
+    private void recordConfiguredModeChange(QueueMode configuredMode, QueueLoadSnapshot snapshot) {
+        if (configuredMode == lastConfiguredMode) {
+            return;
+        }
+        lastConfiguredMode = configuredMode;
+        String decision = switch (configuredMode) {
+            case OFF -> "manual_off";
+            case SHADOW -> "automatic_control";
+            case ENFORCED -> "manual_enforced";
+        };
+        recordDecision(decision, "configured_mode_changed");
+        log.info("queue activation decision configuredMode={} decision={} requestRate={} concurrentRequests={} processCpu={} tomcatBusyRatio={} hikariPending={} waitingUsers={} telemetryComplete={}",
+                configuredMode,
+                decision,
+                snapshot.requestRate(),
+                snapshot.concurrentRequests(),
+                snapshot.processCpu(),
+                snapshot.tomcatBusyRatio(),
+                snapshot.hikariPending(),
+                snapshot.waitingUsers(),
+                snapshot.telemetryComplete());
+    }
+
+    private void recordDecision(String decision, String reason) {
+        Counter.builder("queue_auto_activation_decisions")
+                .description("Automatic and manual queue activation decisions")
+                .tag("decision", decision)
+                .tag("reason", reason)
+                .register(meterRegistry)
+                .increment();
     }
 }
