@@ -1273,7 +1273,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment approved = paymentService.confirmPayment("pay-key-duplicate-cancel", ready.getOrderId(), totalAmountWithVat);
 
         CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch cancelReachedPg = new CountDownLatch(1);
+        CountDownLatch cancelReachedPg = new CountDownLatch(2);
         CountDownLatch releasePg = new CountDownLatch(1);
         when(paymentGateway.cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId()))
                 .thenAnswer(invocation -> {
@@ -1303,7 +1303,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             });
 
             startLatch.countDown();
-            assertTrue(cancelReachedPg.await(10, TimeUnit.SECONDS), "첫 취소 요청이 PG 호출 지점까지 진입해야 합니다.");
+            assertTrue(cancelReachedPg.await(10, TimeUnit.SECONDS), "두 취소 요청이 PG 호출 지점까지 진입해야 합니다.");
             releasePg.countDown();
 
             assertNull(first.get(10, TimeUnit.SECONDS));
@@ -1319,7 +1319,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         List<Reservation> reservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
         List<Seat> seats = seatRepository.findAllById(fixture.seatIds);
 
-        // 락을 PG 호출 밖으로 뺀 durable 마커 설계에선 두 요청이 같은 멱등키로 PG 취소를 재호출할 수 있고
+        // 락을 PG 호출 밖으로 뺀 중간 상태 설계에서는 두 요청이 같은 멱등키로 PG 취소를 재호출할 수 있고
         // (Toss 가 멱등키로 dedupe), 두 번째 applyDecision 은 CANCELING 이 아니므로 멱등 no-op 으로 수렴한다.
         verify(paymentGateway, times(2))
                 .cancel("pay-key-duplicate-cancel", "사용자 요청", "KRW", "cancel:" + approved.getId());
