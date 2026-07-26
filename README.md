@@ -46,7 +46,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 - 인기 공연 오픈 시점에 같은 좌석으로 요청이 몰리는 상황을 가정했습니다.
 - 예매 단위는 개별 좌석이 아니라 `ReservationGroup`으로 묶었습니다.
-- 좌석 선점은 정렬된 좌석 ID와 DB 행 잠금으로 처리했습니다.
+- 좌석 선점은 정렬된 좌석 ID로 Redis 락을 먼저 획득하고, `Seat.version` 낙관적 락을 DB 최종 방어선으로 사용합니다.
 - 결제 승인은 `READY -> CONFIRMING -> APPROVED`로, 결제 취소는 `APPROVED -> CANCELING -> CANCELED`로 나누고, PG 호출 전후 트랜잭션을 분리했습니다.
 - 외부 PG 호출에는 connect/read timeout을 두고, 응답 불명 상태는 `CONFIRMING`/`CANCELING` 보정 흐름으로 수렴시킵니다.
 - Redis 캐시는 읽기·쓰기, 외부 PG는 승인·조회·취소별 Circuit Breaker를 두어 서로 다른 연산의 장애가 전파되지 않게 했고 자동 Retry는 사용하지 않습니다.
@@ -59,7 +59,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 | 영역 | 문제 | 해결 | 검증 |
 | --- | --- | --- | --- |
-| 예약/결제 정합성 | 같은 좌석에 예약 요청이 동시에 몰릴 수 있습니다. | 좌석 ID 정렬, DB 행 잠금, `ReservationGroup` 단위 상태 전이로 처리했습니다. | 완료 결제 `1,000`, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0` |
+| 예약/결제 정합성 | 같은 좌석에 예약 요청이 동시에 몰릴 수 있습니다. | 좌석 ID 정렬, Redis 선행 락, `Seat.version`, `ReservationGroup` 단위 상태 전이로 처리했습니다. | 완료 결제 `1,000`, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0` |
 | 인기 공연 조회 성능 | 매진 이후에도 좌석 `1,000`건 조회가 반복될 수 있습니다. | 공연 목록/상세 캐시, 좌석 조회 트랜잭션 범위 축소, SoldOut 정책을 적용했습니다. | 전체 여정 RPS `223.06 -> 336.94`, p95 `15.60s -> 244ms` |
 | 마이페이지 N+1 | 예매 이력이 많아질수록 연관 데이터 조회와 DTO 조립 비용이 커집니다. | `reservation/payment` fetch join과 groupId 기준 `Map` 재사용으로 반복 조회를 제거했습니다. | group `100` 기준 p95 `202.75ms -> 17.52ms`, 처리량 `60.73 -> 663.46 req/s` |
 
@@ -67,9 +67,11 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 ### 운영 / 배포 구조
 
-운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 nginx, frontend, backend, PostgreSQL을 하나의 네트워크(`ticket-network`)로 묶어 운영합니다. 외부 진입점은 nginx `80/443`으로 제한하고, frontend, backend, PostgreSQL은 직접 노출하지 않습니다.
+운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 nginx, frontend, backend, PostgreSQL, Redis와 Prometheus 관측 스택을 하나의 네트워크(`ticket-network`)로 묶어 운영합니다. 외부 진입점은 nginx `80/443`으로 제한하고, frontend, backend, PostgreSQL, Redis, Prometheus는 직접 노출하지 않습니다. Grafana는 VM loopback에만 연결하고 SSH 터널로 접근합니다.
 
 ![TicketLedger 운영 전체 아키텍처](docs/assets/images/backend-system-architecture-dark-clean-public-ports-only.png)
+
+이미지는 사용자 요청과 배포의 핵심 경로를 표시합니다. Redis 캐시·대기열과 Prometheus/Grafana 관측 경로를 포함한 현재 구성은 [운영 전체 아키텍처 문서](docs/architecture/system-architecture.md)에 정리했습니다.
 
 ### 요청 흐름
 
@@ -189,7 +191,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 | DB pool | Hikari active, idle, pending, max connection |
 | 결제 도메인 | 회색지대 backlog, 보정 결과 분포, PG 호출 실패(아래 회색지대 지표) |
 | 외부 의존성 | Redis 캐시 읽기·쓰기와 PG 승인·조회·취소 Circuit Breaker 상태·호출 결과 |
-| 예약 대기열 | 대기 인원, 입장 처리량, SSE 관측 대기시간, 입장 토큰 결과, 활성 SSE 연결 수, 자동 전환 상태·유입률·예약 동시 실행 수 |
+| 예약 대기열 | 대기 인원, 입장 처리량, SSE 관측 대기시간, 입장 토큰 결과, 활성 SSE 연결 수, 자동 전환 판단, 설정 입장률, 최대 backlog 소진 예상 시간 |
 
 메트릭 endpoint는 인증 없이 Prometheus가 scrape할 수 있습니다. 운영에서는 backend host port를 publish하지 않고 `expose`만 사용하며, nginx가 `/actuator` 경로를 차단하므로 외부에서는 접근할 수 없습니다. scrape는 내부 network에서만 수행합니다.
 
@@ -225,15 +227,16 @@ README에는 선택과 대안의 핵심만 요약하고, 상세 트레이드오�
 | --- | --- | --- | --- |
 | `ReservationGroup` 기준으로 예매를 묶었습니다. | 좌석마다 독립 예매를 생성하는 방식 | 다중 좌석 예매와 결제 1건의 관계를 명확히 관리하기 위해서입니다. | 부분 성공 예매 그룹 `0`을 확인했습니다. |
 | 좌석 ID를 정렬한 뒤 Redis 락과 DB 낙관적 락을 함께 사용했습니다. | DB 비관적 락만 사용하는 방식 | 같은 좌석의 경합 대기를 DB connection 밖으로 옮기고, Redis 락 만료·네트워크 장애 시에는 `Seat.version`으로 최종 충돌을 검출하기 위해서입니다. | 동일/겹치는 좌석 요청에서 하나의 예매 그룹만 성공하고 나머지는 재시도 없이 롤백됐습니다. |
-| 결제 승인에 `CONFIRMING` durable 마커를 적용했습니다. | PG 호출 동안 DB 락을 계속 잡는 방식 | 외부 호출 시간을 트랜잭션 밖으로 빼면서, 크래시 이후에도 보정 대상을 남기기 위해서입니다. | `CONFIRMING` 보정, 만료 경합, PG 재조회 테스트를 통과했습니다. |
-| 결제 취소에도 `CANCELING` durable 마커를 두어 승인과 대칭 구조로 맞췄습니다. | 취소는 예외를 던지고 `APPROVED`로 두는 방식 | 취소 역시 외부 PG와 내부 DB가 나뉘므로, 응답 불명 상태를 보정 대상으로 남겨야 하기 때문입니다. | 취소 timeout·재취소·소유자 검증 테스트를 통과했습니다. |
+| 결제 승인에 `CONFIRMING` 중간 상태를 적용했습니다. | PG 호출 동안 DB 락을 계속 잡는 방식 | 외부 호출 시간을 트랜잭션 밖으로 빼면서, 크래시 이후에도 보정 대상을 남기기 위해서입니다. | `CONFIRMING` 보정, 만료 경합, PG 재조회 테스트를 통과했습니다. |
+| 결제 취소에도 `CANCELING` 중간 상태를 두어 승인과 대칭 구조로 맞췄습니다. | 취소는 예외를 던지고 `APPROVED`로 두는 방식 | 취소 역시 외부 PG와 내부 DB가 나뉘므로, 응답 불명 상태를 보정 대상으로 남겨야 하기 때문입니다. | 취소 timeout·재취소·소유자 검증 테스트를 통과했습니다. |
 | `CANCELING`은 `CANCELED`로만 수렴시키고 되돌리지 않습니다. | 취소 실패 시 `APPROVED`로 복귀시키는 방식 | 되돌리면 PG에서 이미 취소된 결제를 내부적으로 승인 상태로 유지해 대금·좌석 불일치가 남기 때문입니다. | 회색지대 상태에서 좌석 `BOOKED`, 예매 `CONFIRMED` 유지로 이중 판매가 발생하지 않음을 확인했습니다. |
 | 가용 상태 기반 SoldOut 정책을 적용했습니다. | 매진 이후에도 좌석 목록 projection 조회를 반복하는 방식 | 만료 좌석의 즉시 재판매 정책은 유지하되, `AVAILABLE=0`, `HELD=0`, `BOOKED>0`이면 좌석 목록 조회를 생략하기 위해서입니다. | 전체 여정 p95 `2.66s -> 244ms`, 좌석 조회 p95 `1.31s -> 11.58ms`, dropped iteration `1,108 -> 0`을 확인했습니다. |
 | PG 승인/취소 후 상태를 재확인합니다. | PG 응답이나 redirect 결과만 신뢰하는 방식 | 외부 API 응답을 받지 못한 경우에도 내부 상태를 한 방향으로 수렴시키기 위해서입니다. | `paymentKey` 조회 결과를 기준으로 승인/취소 상태를 확정했습니다. |
 | Redis와 PG에 용도별 Circuit Breaker를 적용했습니다. | Retry와 단일 공용 회로를 함께 적용하는 방식 | Redis 읽기·쓰기와 PG 승인·조회·취소의 실패 대응이 달라, 한 연산의 장애가 정상 연산까지 차단하지 않게 하기 위해서입니다. | 회로 독립성, OPEN 차단, HALF_OPEN 복구, PG 4xx 실패율 제외, 보정 배치 중단 테스트를 통과했습니다. |
-| Redis는 단일 인스턴스에서 상태 보존을 우선하도록 구성했습니다. | 캐시 전용 `allkeys-lru`와 비영속 구성을 유지하는 방식 | 향후 대기열·입장 토큰을 함께 저장할 때 중요한 상태가 임의 제거되지 않도록 `noeviction`과 AOF `everysec`를 적용했습니다. | 메모리 한도에서는 쓰기를 명시적으로 실패시키고, 재시작 시 AOF를 재생해 상태를 복구하도록 구성했습니다. |
+| Redis는 단일 인스턴스에서 상태 보존을 우선하도록 구성했습니다. | 캐시 전용 `allkeys-lru`와 비영속 구성을 유지하는 방식 | 공연 캐시와 대기열·입장 토큰을 함께 저장하므로 중요한 상태가 임의 제거되지 않도록 `noeviction`과 AOF `everysec`를 적용했습니다. | 메모리 한도에서는 쓰기를 명시적으로 실패시키고, 재시작 시 AOF를 재생해 상태를 복구하도록 구성했습니다. |
 | Redis 대기열 장애는 fail-closed로 처리합니다. | Redis 장애 시 대기열을 우회해 예약을 허용하는 방식 | 순번과 입장 권한을 확인할 수 없는 요청이 예약 경계로 진입하면 보호 장치가 무력화되기 때문입니다. | Redis 중단 시 `503`과 `Retry-After`, SSE 단절 자원 회수, 토큰 만료·중복 거부를 확인했습니다. |
 | `SHADOW` 부하 관측으로 대기열을 자동 활성화합니다. | 대기열을 항상 강제하거나 운영자가 수동으로만 전환하는 방식 | 평상시에는 기존 흐름을 유지하되, 포화 신호가 연속으로 관측되거나 필수 메트릭이 유실되면 유입을 제한합니다. 재기동 직후에는 `ENFORCED`로 시작해 완전한 복구 지표가 확인된 뒤에만 해제합니다. | 단계 부하에서 약 `16.98 req/s`에 자동 활성화됐고, 결제 `999/999`, 예상 밖 오류 `0`을 확인했습니다. |
+| 최대 backlog와 대기 TTL의 용량 불변식을 검증합니다. | 입장 batch와 TTL을 독립적으로 설정하는 방식 | `fixedDelay` 실행시간 변동을 고려해 명목 처리율보다 낮은 최소 입장률을 기준으로 tail 입장 시간을 계산하고 5분의 안전 여유를 둡니다. | `15명/초`, 최소 `10명/초`, 최대 `10,000명`, TTL `30분`으로 설정하고 10,000개 토큰의 마지막 항목까지 승격했습니다. |
 | 정상 경합 거부와 예상 밖 오류를 분리했습니다. | HTTP 실패율만 보는 방식 | 인기 공연에서는 매진/경합 거부가 장애가 아니라 정상 결과일 수 있기 때문입니다. | k6 지표에서 예상된 거부와 예상 밖 오류를 나눴고 예상 밖 오류 `0`을 확인했습니다. |
 | 결제 금액 계산을 `PaymentAmount` 값객체로 단일화했습니다. | 도메인과 컨트롤러에 VAT 계산을 각각 정의하는 방식 | 세율·반올림 규칙을 한 곳에 모아 중복과 매직넘버를 없애고, 부동소수 대신 정수 연산으로 정밀도를 확보하기 위해서입니다. | 좌석금액·VAT·총액 계산과 음수/오버플로 검증 테스트를 통과했습니다. |
 
@@ -241,7 +244,7 @@ README에는 선택과 대안의 핵심만 요약하고, 상세 트레이드오�
 
 | 시나리오 | 구현 방식 | 검증 결과 |
 | --- | --- | --- |
-| 동일 좌석 동시 선점 | 좌석 ID 정렬 + DB 행 잠금 | 하나의 예매 그룹만 성공했습니다. |
+| 동일 좌석 동시 선점 | 좌석 ID 정렬 + Redis 선행 락 + `Seat.version` | 하나의 예매 그룹만 성공했습니다. |
 | 겹치는 좌석 묶음 요청 | 같은 좌석 집합에 동일한 잠금 순서 적용 | 중복 활성 좌석이 생기지 않았습니다. |
 | 다중 좌석 예매 | `ReservationGroup` 기준으로 전체 좌석을 한 번에 검증 | 부분 성공 예매 그룹 `0`을 확인했습니다. |
 | 예약 만료 | 만료된 예매 그룹, 예매, 좌석, 결제를 같은 흐름으로 정리 | 좌석이 다시 `AVAILABLE`로 복구되었습니다. |
@@ -321,6 +324,8 @@ DB 사후 검증 결과:
 | DB 커넥션 풀이 부족합니다. | Hikari pool 크기 조정 후 재측정 | p95와 완료 처리량 차이가 크지 않았습니다. | 단독 원인으로 보지 않았습니다. |
 | 매진 이후에도 좌석 목록 조회가 반복됩니다. | 회차별 가용 상태를 먼저 집계하고, `soldOut=true`이면 좌석 목록 조회 없이 빈 `seats`를 반환했습니다. | 완료 결제 `1,000`, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 유지했습니다. 응답 크기 감소는 부가 효과로 봤습니다. | SoldOut 정책으로 채택했습니다. |
 
+초기 코드를 `2 vCPU` 제한 환경에서 다시 계측한 결과 backend CPU는 최대 `178.29%`, Hikari pending은 최대 `168`이었지만 PostgreSQL CPU는 최대 `37.58%`였고 lock/I/O wait는 관찰되지 않았습니다. 반복 조회·엔티티 구성·직렬화 비용이 backend CPU를 먼저 포화시키고 커넥션 대기와 전체 API 지연으로 확산된 것으로 판단했습니다. 상세 조건과 JFR 분석은 [초기 E2E 병목 자원 분석](docs/performance/issue-49-initial-bottleneck-resource-analysis.md)에 정리했습니다.
+
 이 과정에서 핵심으로 본 것은 p95 자체보다, 조회 최적화 이후에도 예약·결제 상태 정합성이 깨지지 않는지였습니다.
 
 <a id="주요-api-흐름"></a>
@@ -386,8 +391,10 @@ GET  /api/v1/payments/{paymentId}/status
 ├── reservation          # 예매 / 좌석 선점 / 만료
 │   ├── presentation     # ReservationController
 │   │   └── dto          # CreateReservationRequest, ReservationResponse
-│   ├── application      # ReservationService, ReservationExpirationService, Scheduler
-│   └── domain           # Reservation, ReservationGroup, Status, Repository
+│   ├── application      # Command/조회 조정, 생성 정책, 만료 트랜잭션, Scheduler
+│   │   └── lock         # SeatLockManager, fallback guard, 락 정책
+│   ├── domain           # Reservation, ReservationGroup, Status, Repository
+│   └── infrastructure   # Redis 좌석 락, 락 설정
 ├── payment              # 결제 준비 / 승인 / 취소 / 보정
 │   ├── presentation     # PaymentApiController, HTTP 요청/응답 DTO
 │   │   └── dto          # ReadyPayment*, ConfirmPayment*
@@ -424,9 +431,9 @@ GET  /api/v1/payments/{paymentId}/status
 │   └── infrastructure   # Redis 버전 캐시, 읽기/쓰기 Circuit Breaker
 ├── queue                # 예약 진입 대기열
 │   ├── presentation     # 대기 등록/취소 API, SSE 순번 스트림
-│   ├── application      # 모드 판정, 배치 입장, 토큰 claim/완료
+│   ├── application      # 모드 판정, 자동 활성화, 용량 검증, 배치 입장, 토큰 claim/완료
 │   ├── domain           # 대기 상태와 입장 스냅샷
-│   └── infrastructure   # Redis ZSET, Lua 원자 연산, TTL 설정
+│   └── infrastructure   # Redis ZSET, Lua 원자 연산, TTL·입장률 설정
 ├── user                 # 사용자 / 마이페이지
 │   ├── presentation     # UserController, 회원가입 요청 DTO
 │   ├── application      # UserService

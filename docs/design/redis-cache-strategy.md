@@ -91,9 +91,9 @@ Redis가 중단되어도 일부 공연 조회는 DB fallback으로 처리하되,
 
 ### 단일 Redis 운영 정책
 
-현재 규모에서는 Redis를 역할별 인스턴스로 나누지 않고 하나의 물리 인스턴스에서 운영합니다. 공연 캐시와 향후 대기열 상태는 namespace와 장애 정책으로 구분합니다. 운영에서는 host port를 노출하지 않고 Docker 내부 네트워크에서만 접근합니다.
+현재 규모에서는 Redis를 역할별 인스턴스로 나누지 않고 하나의 물리 인스턴스에서 운영합니다. 공연 캐시, 대기열·입장 토큰, 좌석 락은 namespace와 장애 정책으로 구분합니다. 운영에서는 host port를 노출하지 않고 Docker 내부 네트워크에서만 접근합니다.
 
-| 구분 | 공연 캐시 | 향후 대기열·입장 상태 |
+| 구분 | 공연 캐시 | 대기열·입장 상태 |
 | --- | --- | --- |
 | 유실 허용 | DB에서 재생성 가능 | 순서·입장 권한의 임의 유실 불허 |
 | TTL | 목록·상세 TTL 필수 | 업무 유효기간과 공연 종료 기준으로 정리 |
@@ -164,7 +164,7 @@ EventQueryService
 `-- CacheAsideLoader      # 단일 로더와 제한된 DB fallback 제어
 ```
 
-애플리케이션 계층은 `EventCache` 계약에 의존하고 Redis 연결·직렬화 구현은 infrastructure에 둡니다. 연결 설정, 공연 cache value 설정, 읽기·쓰기 회로와 fallback 제한을 분리해 향후 대기열 상태가 추가되어도 캐시 실패 정책과 섞이지 않게 합니다.
+애플리케이션 계층은 `EventCache` 계약에 의존하고 Redis 연결·직렬화 구현은 infrastructure에 둡니다. 연결 설정, 공연 cache value 설정, 읽기·쓰기 회로와 fallback 제한을 대기열·좌석 락의 fail-closed 정책과 분리해, 같은 Redis 인스턴스를 사용해도 장애 대응이 섞이지 않게 합니다.
 
 ### 트레이드오프
 
@@ -240,7 +240,7 @@ Redis 복구 후 회로는 `HALF_OPEN -> CLOSED`로 전환됐고, 목록·상세
 | 기존 읽기 | 포화 전에 저장한 보호 key와 기존 1MB 값은 정상 조회됐습니다. |
 | eviction | `evicted_keys=0`을 유지했습니다. |
 
-이 결과는 `noeviction`이 기존 key를 조용히 제거하지 않고 수용할 수 없는 신규 쓰기를 명시적으로 거부하며, 동일 volume 재시작에서 AOF 기록을 복구하는 것을 확인한 것입니다. `everysec`의 장애 직전 유실 범위와 대기열 `WAITAOF` 내구성은 대기열 구현 후 별도로 검증합니다.
+이 결과는 `noeviction`이 기존 key를 조용히 제거하지 않고 수용할 수 없는 신규 쓰기를 명시적으로 거부하며, 동일 volume 재시작에서 AOF 기록을 복구하는 것을 확인한 것입니다. 대기열 구현 후에는 같은 AOF volume으로 Redis를 재기동해 `WAITING` 토큰과 순번이 복구되는 연속성 테스트도 추가했습니다. `WAITAOF` 기반 쓰기 확인은 현재 적용하지 않았습니다.
 
 ## CI 통합
 
@@ -249,6 +249,6 @@ Redis 캐시 통합 테스트는 Testcontainers로 일회용 Redis를 실행합�
 ## 후속 과제
 
 - Redis 장애 시 backend CPU 상한을 기준으로 fallback 허용량과 상위 요청 제한 조정
-- 대기열·입장 토큰 namespace, TTL, fail-closed 정책과 전용 회로 설계
+- 운영 관측값을 기준으로 대기열 최소 입장률과 자동 활성화 임계값 재교정
 - 멱등성 key의 보존 기간과 DB·PG 최종 방어선 설계
 - 좌석 분산 락의 성능·장애 테스트 후 wait time, watchdog timeout, DB fallback 허용량 확정
