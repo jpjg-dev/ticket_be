@@ -41,7 +41,8 @@ class QueueStatusStreamServiceTest {
     void closesSseResourcesAfterAdmission() {
         QueueAdmissionProperties properties = new QueueAdmissionProperties(
                 20, 3000, Duration.ofMinutes(15), Duration.ofMinutes(2),
-                Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMillis(1)
+                Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMillis(1),
+                1_000, 5.0, Duration.ofMinutes(2)
         );
         when(queueAdmissionService.getStatus(1L, 10L, "token"))
                 .thenReturn(QueueAdmissionSnapshot.admitted("token"));
@@ -59,7 +60,8 @@ class QueueStatusStreamServiceTest {
     void reconnectsWithSameTokenAfterTemporaryQueueFailure() {
         QueueAdmissionProperties properties = new QueueAdmissionProperties(
                 20, 3000, Duration.ofMinutes(15), Duration.ofMinutes(2),
-                Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMillis(1)
+                Duration.ofSeconds(30), Duration.ofMinutes(5), Duration.ofMillis(1),
+                1_000, 5.0, Duration.ofMinutes(2)
         );
         when(queueAdmissionService.getStatus(1L, 10L, "token"))
                 .thenThrow(new QueueTemporarilyUnavailableException(new RuntimeException("redis down")))

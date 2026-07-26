@@ -1,10 +1,10 @@
 # 결제 장애 복구 설계 (CONFIRMING · CANCELING 두 회색지대 통합 + 보정 스케줄러)
 
-> **상태: 반영됨.** `CONFIRMING`(승인 미확정)과 `CANCELING`(취소 미확정) 두 durable 회색지대, PG 호출 전후 트랜잭션 분리, 두 회색지대를 한 스케줄러 주기에서 보정하는 통합 스케줄러가 코드에 반영되었습니다. 아래에는 현재 구현 기준, 트레이드오프, 남은 후보를 함께 정리합니다.
+> **상태: 반영됨.** `CONFIRMING`(승인 미확정)과 `CANCELING`(취소 미확정) 두 중간 상태, PG 호출 전후 트랜잭션 분리, 두 회색지대를 한 스케줄러 주기에서 보정하는 통합 스케줄러가 코드에 반영되었습니다. 아래에는 현재 구현 기준, 트레이드오프, 남은 후보를 함께 정리합니다.
 
 ## 문서 목적
 
-PG 호출(승인/취소) 이후 내부 상태가 반영되지 않는 장애를 어떻게 복구할지 정리합니다. 핵심은 승인과 취소 각각에 `CONFIRMING`/`CANCELING` durable 마커를 두고, 보정 스케줄러가 이를 기준으로 내부 상태를 PG 진실에 수렴시키는 것입니다. 승인과 취소는 "외부 호출을 시도했지만 결과가 미확정"이라는 같은 문제를 공유하므로 **대칭 구조**로 설계했습니다.
+PG 호출(승인/취소) 이후 내부 상태가 반영되지 않는 장애를 어떻게 복구할지 정리합니다. 핵심은 승인과 취소 각각에 `CONFIRMING`/`CANCELING` 중간 상태를 두고, 보정 스케줄러가 이를 기준으로 내부 상태를 PG 진실에 수렴시키는 것입니다. 승인과 취소는 "외부 호출을 시도했지만 결과가 미확정"이라는 같은 문제를 공유하므로 **대칭 구조**로 설계했습니다.
 
 ## 문제 정의
 
@@ -24,7 +24,7 @@ PG(외부) 승인 = 돈 빠짐 / 취소 = 돈 돌아감   ──┐
 
 승인이 미확정이면 결제는 `CONFIRMING`에, 취소가 미확정이면 `CANCELING`에 남습니다.
 
-## 핵심 아이디어 — `CONFIRMING`/`CANCELING` durable 마커
+## 핵심 아이디어 - `CONFIRMING`/`CANCELING` 중간 상태
 
 confirm 진입 시 `READY -> CONFIRMING`을, 취소 진입 시 `APPROVED -> CANCELING`을 각각 **PG 호출 전에 먼저 커밋**합니다. PG 호출 이후 커밋 실패나 크래시가 나도 결제는 회색지대 상태에 남아, "승인/취소를 시도했지만 확정되지 못한" 결제를 식별할 수 있습니다. 이 `CONFIRMING`/`CANCELING` row가 복구 대상입니다.
 
@@ -59,7 +59,7 @@ confirm 진입 시 `READY -> CONFIRMING`을, 취소 진입 시 `APPROVED -> CANC
 PG 호출은 DB 트랜잭션 밖에서 수행합니다. 트랜잭션은 PG 호출 전 `CONFIRMING` 마커를 남기는 구간과, PG 결과를 내부 상태에 반영하는 구간으로 나눕니다.
 
 ```text
-Tx1: 락 → READY 검증 → READY -> CONFIRMING → 커밋        // durable 마커 확보
+Tx1: 락 → READY 검증 → READY -> CONFIRMING → 커밋        // 복구 기준 확보
 PG confirm 호출 (멱등키, 트랜잭션 밖)
 Tx2: 락 → CONFIRMING -> APPROVED + 예매 CONFIRMED + 좌석 BOOKED → 커밋
 ```
@@ -71,7 +71,7 @@ Tx2에서 커밋 실패/크래시 시 결제는 `CONFIRMING`에 남습니다.
 취소도 confirm과 대칭입니다. PG 취소 호출을 트랜잭션 밖에서 수행하고, 마커 커밋과 결과 반영 트랜잭션을 나눕니다.
 
 ```text
-Tx1: 락 → 소유자 검증 + APPROVED 검증 → APPROVED -> CANCELING → 커밋   // durable 마커 확보
+Tx1: 락 → 소유자 검증 + APPROVED 검증 → APPROVED -> CANCELING → 커밋   // 복구 기준 확보
 PG cancel 호출 (멱등키 "cancel:{id}", 트랜잭션 밖. 실패 시 paymentKey 조회 폴백)
 Tx2: 락 → CANCELING 재확인 → CANCELING -> CANCELED + 예매 CANCELED + 좌석 release → 커밋
 ```
@@ -234,12 +234,12 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceling_at  timestamp NULL;  -- 
 | 패키지 결합 정리 | `payment.application.cancel` ↔ `payment.application.recovery`가 공용 `PaymentRecoveryMetrics`를 두고 양방향 참조합니다. DI 사이클은 없으나, 향후 관측성 등 중립 패키지로 이동할 후보입니다(트레이드오프 7). |
 
 > **아래 항목은 향후 분산 아키텍처에서 함께 설계합니다** (Kafka + 분산락 + 분산 트랜잭션 + 서비스/DB 분해 도입 시):
-> retry 카운터·백오프·최대 횟수, dead-letter, 알림 임계, `HOLD_MANUAL` 핫루프 차단, ShedLock(다중 인스턴스 가드), `CANCELING` 전용 워커 분리. 현재 규모에서는 durable 마커 + 단일 주기 보정으로 정합성이 보장되므로 도입하지 않습니다.
+> retry 카운터·백오프·최대 횟수, dead-letter, 알림 임계, `HOLD_MANUAL` 핫루프 차단, ShedLock(다중 인스턴스 가드), `CANCELING` 전용 워커 분리. 현재 규모에서는 중간 상태 + 단일 주기 보정으로 정합성이 보장되므로 도입하지 않습니다.
 
 ### 반영됨
 
 - **confirm/cancel 두 회색지대 통합**: 취소도 승인과 같은 회색지대(`CANCELING`)로 다루고, 한 스케줄러 주기에서 confirm 배치 → cancel 배치 → backlog gauge를 순차 처리합니다. `Payment.cancel()` 가드를 `CANCELING -> CANCELED`로 좁혀 `APPROVED` 직행을 금지했습니다(REVERT 없음).
-- **cancel 크래시 갭(CANCELING 마커) 해소**: PG 취소 성공 직후 커밋 전 크래시로 결제가 `APPROVED`로 남던 갭을, `APPROVED -> CANCELING`을 PG 호출 전에 커밋하는 durable 마커로 메웠습니다. 이제 취소 미확정은 `CANCELING`에 남아 보정이 `CANCELED`로 수렴합니다.
+- **cancel 크래시 갭(CANCELING 중간 상태) 해소**: PG 취소 성공 직후 커밋 전 크래시로 결제가 `APPROVED`로 남던 갭을, `APPROVED -> CANCELING`을 PG 호출 전에 커밋하는 방식으로 메웠습니다. 이제 취소 미확정은 `CANCELING`에 남아 보정이 `CANCELED`로 수렴합니다.
 - **confirm 보정 환불을 트랜잭션 밖으로 분리**: 좌석 소실/데이터 불일치 환불 분기의 Toss cancel 호출을 보정 트랜잭션 밖으로 빼, **어떤 트랜잭션·행 락 안에서도 PG를 호출하지 않는** 구조로 통일했습니다(`PaymentRecoveryService.recover`가 apply 트랜잭션 전에 환불을 호출). 이전에는 환불이 보정 트랜잭션 안에서 실행됐습니다.
 - **결정 규칙 정책 객체화(순수 함수)**: confirm은 `RecoveryPolicy.decide`, cancel은 `PaymentCancelPolicy.decide`로 결정 로직을 순수 함수로 추출해 트랜잭션·외부 호출과 분리했습니다(닫힌 고정 매트릭스라 전략 패턴까지는 가지 않고 메서드 추출 수준 유지).
 - **보정 메트릭 노출(Micrometer)**: `payment_gray_zone_recovery_total`/`pg_failure_total`/`backlog`를 confirm/cancel 대칭으로 기록합니다(위 [메트릭](#메트릭-micrometer) 참고). 단, actuator 엔드포인트는 아직 열지 않았습니다.
@@ -252,7 +252,7 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceling_at  timestamp NULL;  -- 
 ## 트레이드오프
 
 1. **(수용) confirm 보정 APPROVE 결정 + apply 시점 좌석 유실 → 환불 최대 1주기(~60s) 지연.** 예전엔 같은 트랜잭션에서 즉시 환불했습니다. 근거: 돈은 PG가 보관하고, 좌석은 `CONFIRMING`이라 만료가 skip되어 이중 판매가 없습니다. 다음 주기에 `REFUND_THEN_FAIL`로 자가 치유합니다.
-2. **(수용) cancel 미확정(timeout/5xx/불일치) → 예외 대신 `200` + `CANCELING` durable 유지.** 스케줄러가 `CANCELED`로 수렴시킵니다. `markCanceling`을 통과한 뒤에는 `APPROVED`로 복귀하지 않아 사용자의 취소 의도가 보존됩니다. 사전 검사(소유자/상태/`paymentKey`) 실패만 예외를 던집니다.
+2. **(수용) cancel 미확정(timeout/5xx/불일치) → 예외 대신 `200` + `CANCELING` 유지.** 스케줄러가 `CANCELED`로 수렴시킵니다. `markCanceling`을 통과한 뒤에는 `APPROVED`로 복귀하지 않아 사용자의 취소 의도가 보존됩니다. 사전 검사(소유자/상태/`paymentKey`) 실패만 예외를 던집니다.
 3. **멱등키 배타성 불변식**: 한 결제는 CONFIRMING 계열(→환불→`FAILED`) 또는 APPROVED 계열(→취소→`CANCELED`) 중 하나만 타므로, `cancel:{id}`를 공유해도 충돌이 없습니다. 재취소 경로들끼리는 **반드시 동일 키**여야 동시 요청 레이스가 방어됩니다 — 키 프리픽스를 분리하면 안 됩니다.
 4. **전액 취소 확정 기준**: PG 응답의 원결제 금액과 취소 가능 잔액을 검증합니다. `balanceAmount=0`인 전액 환불만 내부 취소로 확정하고, 잔액이 남으면 `CANCELING`/`BOOKED`를 유지해 좌석을 잘못 재판매하지 않습니다.
 5. **gauge push 방식**: 스크레이프 시 DB 조회가 없다는 장점 대신, 스케줄러가 지속 실패하면 gauge가 stale해지는 단점이 있습니다(배치와 독립 격리로 완화).

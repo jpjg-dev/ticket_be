@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-@SpringBootTest(properties = "queue.admission.fixed-delay-ms=60000")
+@SpringBootTest
 class RedisQueueAdmissionStoreTest extends RedisTestContainerSupport {
 
     private static final Long USER_ID = 1L;
@@ -176,6 +176,28 @@ class RedisQueueAdmissionStoreTest extends RedisTestContainerSupport {
         assertEquals(0L, queueAdmissionStore.countTotalWaiting());
         assertThrows(QueueAdmissionRequiredException.class,
                 () -> queueAdmissionStore.getStatus(USER_ID, SCHEDULE_ID, token));
+    }
+
+    @Test
+    @DisplayName("최대 예상 backlog 10,000건을 손실 없이 모두 승격한다")
+    void promotesMaximumExpectedBacklogWithoutLosingTailEntry() {
+        int userCount = 10_000;
+        String tailToken = null;
+        for (long index = 0; index < userCount; index++) {
+            tailToken = queueAdmissionStore.register(10_000L + index, SCHEDULE_ID);
+        }
+
+        int admitted = 0;
+        while (queueAdmissionStore.countWaiting(SCHEDULE_ID) > 0) {
+            admitted += queueAdmissionStore.admitNextForActiveSchedules();
+        }
+
+        assertEquals(userCount, admitted);
+        assertEquals(0L, queueAdmissionStore.countTotalWaiting());
+        assertEquals(
+                QueueAdmissionStatus.ADMITTED,
+                queueAdmissionStore.getStatus(19_999L, SCHEDULE_ID, tailToken).status()
+        );
     }
 
     @Test

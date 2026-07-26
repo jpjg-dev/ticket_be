@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.queue.infrastructure;
 
 import com.jipi.ticket_ledger.queue.application.QueueAutoActivationPolicy;
+import com.jipi.ticket_ledger.queue.application.QueueAdmissionCapacityPolicy;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +22,16 @@ public class QueueAdmissionConfiguration {
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
         scheduler.setAwaitTerminationSeconds(5);
         return scheduler;
+    }
+
+    @Bean
+    public QueueAdmissionCapacityPolicy queueAdmissionCapacityPolicy(
+            QueueAdmissionProperties properties
+    ) {
+        return new QueueAdmissionCapacityPolicy(
+                properties.admissionsPerSecond(),
+                properties.maxBacklogDrainDuration()
+        );
     }
 
     @Bean

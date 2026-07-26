@@ -19,10 +19,12 @@ class QueueAutoActivationManagerTest {
 
     private MutableClock clock;
     private QueueAutoActivationManager manager;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
         clock = new MutableClock(Instant.parse("2026-07-23T00:00:00Z"));
+        meterRegistry = new SimpleMeterRegistry();
         QueueAutoActivationPolicy policy = new QueueAutoActivationPolicy(
                 true,
                 new QueueAutoActivationPolicy.LoadThreshold(10.0, 5, 0.70, 0.70, 1),
@@ -32,7 +34,7 @@ class QueueAutoActivationManagerTest {
                 Duration.ofSeconds(10),
                 Duration.ofSeconds(5)
         );
-        manager = new QueueAutoActivationManager(policy, clock, new SimpleMeterRegistry());
+        manager = new QueueAutoActivationManager(policy, clock, meterRegistry);
         manager.evaluate(QueueMode.OFF, snapshot(0, 0, 0, 0, 0, 0));
         clock.advance(Duration.ofSeconds(5));
     }
@@ -67,6 +69,13 @@ class QueueAutoActivationManagerTest {
 
         assertTrue(manager.isAutoEnforced());
         assertEquals(QueueMode.ENFORCED, manager.resolve(QueueMode.SHADOW));
+        assertEquals(
+                1.0,
+                meterRegistry.find("queue_auto_activation_decisions")
+                        .tag("decision", "activate")
+                        .counter()
+                        .count()
+        );
     }
 
     @Test
@@ -137,6 +146,13 @@ class QueueAutoActivationManagerTest {
 
         manager.evaluate(QueueMode.ENFORCED, overloaded);
         assertTrue(manager.isAutoEnforced());
+        assertEquals(
+                1.0,
+                meterRegistry.find("queue_auto_activation_decisions")
+                        .tag("decision", "manual_enforced")
+                        .counter()
+                        .count()
+        );
 
         manager.evaluate(QueueMode.OFF, overloaded);
         assertFalse(manager.isAutoEnforced());
