@@ -17,6 +17,8 @@ import org.testcontainers.DockerClientFactory;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -130,22 +132,27 @@ class RedisQueueAdmissionStoreTest extends RedisTestContainerSupport {
     @Test
     @DisplayName("Redis 연결 장애가 복구되면 같은 대기 토큰과 순번을 이어간다")
     void redisConnectionRecoveryContinuesWaitingTokenAndPosition() {
-        String firstToken = queueAdmissionStore.register(USER_ID, SCHEDULE_ID);
-        String secondToken = queueAdmissionStore.register(2L, SCHEDULE_ID);
-        assertEquals(1L, queueAdmissionStore.getStatus(USER_ID, SCHEDULE_ID, firstToken).position());
-        assertEquals(2L, queueAdmissionStore.getStatus(2L, SCHEDULE_ID, secondToken).position());
+        RedisQueueAdmissionStore fixedTimeStore = new RedisQueueAdmissionStore(
+                redisTemplate,
+                properties,
+                Clock.fixed(Instant.parse("2026-07-20T00:00:00Z"), ZoneOffset.UTC)
+        );
+        String firstToken = fixedTimeStore.register(USER_ID, SCHEDULE_ID);
+        String secondToken = fixedTimeStore.register(2L, SCHEDULE_ID);
+        assertEquals(1L, fixedTimeStore.getStatus(USER_ID, SCHEDULE_ID, firstToken).position());
+        assertEquals(2L, fixedTimeStore.getStatus(2L, SCHEDULE_ID, secondToken).position());
 
         DockerClientFactory.instance().client().pauseContainerCmd(REDIS.getContainerId()).exec();
         try {
-            assertThrows(DataAccessException.class, () -> queueAdmissionStore.countWaiting(SCHEDULE_ID));
+            assertThrows(DataAccessException.class, () -> fixedTimeStore.countWaiting(SCHEDULE_ID));
         } finally {
             DockerClientFactory.instance().client().unpauseContainerCmd(REDIS.getContainerId()).exec();
         }
         awaitRedisAvailable();
 
-        assertEquals(1L, queueAdmissionStore.getStatus(USER_ID, SCHEDULE_ID, firstToken).position());
-        assertEquals(2L, queueAdmissionStore.getStatus(2L, SCHEDULE_ID, secondToken).position());
-        assertEquals(2L, queueAdmissionStore.countTotalWaiting());
+        assertEquals(1L, fixedTimeStore.getStatus(USER_ID, SCHEDULE_ID, firstToken).position());
+        assertEquals(2L, fixedTimeStore.getStatus(2L, SCHEDULE_ID, secondToken).position());
+        assertEquals(2L, fixedTimeStore.countTotalWaiting());
     }
 
     @Test
