@@ -20,17 +20,20 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
 
     private static final String PREFIX = "ticketledger:queue:";
     private static final String ACTIVE_SCHEDULES_KEY = PREFIX + "active-schedules";
+    private static final String ORDER_SEQUENCE_KEY = PREFIX + "order-sequence";
 
     private static final DefaultRedisScript<String> REGISTER_SCRIPT = new DefaultRedisScript<>("""
             local existing = redis.call('GET', KEYS[1])
             if existing then
                 return existing
             end
-            redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[5])
-            redis.call('SET', KEYS[2], ARGV[2] .. ':' .. ARGV[3], 'PX', ARGV[5])
-            redis.call('ZADD', KEYS[3], 'NX', ARGV[4], ARGV[1])
-            redis.call('SADD', KEYS[4], ARGV[3])
-            return ARGV[1]
+            local sequence = redis.call('INCR', KEYS[4])
+            local token = string.format('%020d', sequence) .. ':' .. ARGV[1]
+            redis.call('SET', KEYS[1], token, 'PX', ARGV[5])
+            redis.call('SET', ARGV[6] .. token, ARGV[2] .. ':' .. ARGV[3], 'PX', ARGV[5])
+            redis.call('ZADD', KEYS[2], 'NX', ARGV[4], token)
+            redis.call('SADD', KEYS[3], ARGV[3])
+            return token
             """, String.class);
 
     private static final DefaultRedisScript<String> BYPASS_PERMIT_SCRIPT = new DefaultRedisScript<>("""
@@ -149,15 +152,20 @@ public class RedisQueueAdmissionStore implements QueueAdmissionStore {
 
     @Override
     public String register(Long userId, Long scheduleId) {
-        String token = UUID.randomUUID().toString();
         return redisTemplate.execute(
                 REGISTER_SCRIPT,
-                List.of(userEntryKey(userId, scheduleId), ownerKey(token), waitingKey(scheduleId), ACTIVE_SCHEDULES_KEY),
-                token,
+                List.of(
+                        userEntryKey(userId, scheduleId),
+                        waitingKey(scheduleId),
+                        ACTIVE_SCHEDULES_KEY,
+                        ORDER_SEQUENCE_KEY
+                ),
+                UUID.randomUUID().toString(),
                 userId.toString(),
                 scheduleId.toString(),
                 Long.toString(clock.millis()),
-                Long.toString(properties.entryTtl().toMillis())
+                Long.toString(properties.entryTtl().toMillis()),
+                PREFIX + "owner:"
         );
     }
 
