@@ -47,8 +47,7 @@ Grafana
 ## CI/CD 배포 흐름
 
 ```text
-GitHub main
--> GitHub Actions
+GitHub Actions 수동 실행
 -> GHCR image
 -> SSH to GCP VM
 -> Docker Compose config validation
@@ -56,7 +55,7 @@ GitHub main
 -> ticketledger.dev
 ```
 
-GitHub Actions는 `main` 브랜치 기준으로 운영 VM에 SSH 접속해 infra repository를 갱신하고 Docker Compose 설정을 검증한 뒤 컨테이너를 재배포합니다.
+GitHub Actions는 현재 자동 실행을 중단한 상태입니다. 필요할 때 `workflow_dispatch`로 수동 실행하면 운영 VM에 SSH 접속해 infra repository를 갱신하고 Docker Compose 설정을 검증한 뒤 컨테이너를 재배포합니다. `main` 브랜치 반영만으로는 실행되지 않습니다.
 
 ## 운영 기준
 
