@@ -37,7 +37,7 @@ reservation:
 payment:
   recovery-scheduler:
     grace-ms: 60000 # 60 seconds
-    fixed-delay-ms: 60000 # 1 minute
+    fixed-delay-ms: 10 #60000 # 1 minute
     batch-size: 5
 
 toss:
