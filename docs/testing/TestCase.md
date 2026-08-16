@@ -11,12 +11,15 @@
 | 영역 | 검증한 문제 |
 | --- | --- |
 | 예약 생성 | 좌석 선점, 다중 좌석 원자성, 예매 오픈 전 차단 |
+| 좌석 동시성 | Redis 선행 락, `Seat.version` 충돌 검출, 제한 DB 비관적 락 fallback |
 | 예약 만료 | `PENDING -> EXPIRED`, `HELD -> AVAILABLE`, `READY -> FAILED` |
 | 결제 승인 | `CONFIRMING` 마커, 중복 결제 방어, 금액 검증, PG 응답 검증, 상태 확정 |
 | 결제 취소 | 승인 결제만 취소, 좌석 복구, 중복 취소 방어 |
 | 조회 | 공연 캐시, 좌석 조회 전 회차별 만료 처리 |
 | 사용자 | 현재 사용자 조회, 본인 마이페이지 접근 제어 |
 | 인증 | Refresh Token 조건부 재발급과 동시성 방어 |
+| 대기열 | Redis ZSET 순번, SSE 연결, 입장 토큰, 장애 fail-closed, AOF 연속성 |
+| 운영 제어 | Feature Flag 버전 충돌, SHADOW 자동 활성화, 용량 불변식 |
 
 <details>
 <summary>ReservationService</summary>

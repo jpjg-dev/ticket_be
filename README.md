@@ -67,7 +67,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 ### 운영 / 배포 구조
 
-운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 nginx, frontend, backend, PostgreSQL, Redis와 Prometheus 관측 스택을 하나의 네트워크(`ticket-network`)로 묶어 운영합니다. 외부 진입점은 nginx `80/443`으로 제한하고, frontend, backend, PostgreSQL, Redis, Prometheus는 직접 노출하지 않습니다. Grafana는 VM loopback에만 연결하고 SSH 터널로 접근합니다.
+운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 애플리케이션 스택과 관측 스택을 운영합니다. nginx, frontend, backend, PostgreSQL, Redis는 `ticket-network`에서 통신하고, Prometheus는 `ticket-network`와 `monitoring-network`를 연결해 backend와 Redis Exporter의 지표를 수집합니다. 외부 진입점은 nginx `80/443`으로 제한하며 Grafana는 VM loopback에만 연결하고 SSH 터널로 접근합니다.
 
 ![TicketLedger 운영 전체 아키텍처](docs/assets/images/backend-system-architecture-dark-clean-public-ports-only.png)
 

@@ -15,7 +15,7 @@
 ## 운영 / 배포 구조
 
 - 운영 서버는 단일 GCP Compute Engine VM입니다.
-- Docker Compose가 Nginx, Next.js frontend, Spring Boot backend, PostgreSQL, Redis, Prometheus, Redis Exporter와 Grafana를 같은 Compose 네트워크로 묶습니다.
+- Docker Compose가 애플리케이션 스택과 관측 스택을 함께 관리합니다. Nginx, Next.js frontend, Spring Boot backend, PostgreSQL, Redis는 `ticket-network`를 사용하고, Prometheus는 `ticket-network`와 `monitoring-network`에 함께 연결됩니다. Redis Exporter와 Grafana는 `monitoring-network`를 사용합니다.
 - 외부 진입점은 Nginx `80/443`으로 제한합니다.
 - frontend, backend, PostgreSQL, Redis, Prometheus, Redis Exporter는 외부에 직접 노출하지 않고 Compose 내부 네트워크에서 통신합니다.
 - Grafana는 VM loopback에만 연결하고 운영자가 SSH 터널로 접근합니다.
