@@ -399,13 +399,14 @@ GET  /api/v1/payments/{paymentId}/status
 │   ├── presentation     # PaymentApiController, HTTP 요청/응답 DTO
 │   │   └── dto          # ReadyPayment*, ConfirmPayment*
 │   ├── application      # PaymentService
+│   │   ├── event        # PaymentApproved/PaymentCanceled v1 이벤트 계약
 │   │   ├── confirm      # PaymentConfirmService, TransactionService, PG 승인 검증
 │   │   ├── cancel       # PaymentCancelService, TransactionService, 취소 정책
 │   │   ├── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService
 │   │   ├── observability# 회색지대 보정 메트릭
-│   │   └── port/out     # PaymentGateway 계약과 PG 중립 응답 상태
+│   │   └── port/out     # PaymentGateway, PaymentEventOutbox 출력 포트
 │   ├── domain           # Payment, PaymentAmount, PaymentStatus, PaymentRepository
-│   └── infrastructure   # PG Client, 요청/응답 모델, 연산별 Circuit Breaker
+│   └── infrastructure   # PG Client, Circuit Breaker, Outbox JPA 저장 어댑터
 ├── auth                 # 로그인 / 토큰 / 쿠키 인증
 │   ├── presentation     # AuthController
 │   │   └── dto          # 로그인 요청/응답 DTO
@@ -523,6 +524,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 | [docs/design/auth-flow-readme.md](docs/design/auth-flow-readme.md) | 로그인, 재발급, HttpOnly 쿠키 인증 흐름 |
 | [docs/design/external-api-client-tradeoffs.md](docs/design/external-api-client-tradeoffs.md) | PG 연동 HTTP 클라이언트 선택 기준 |
 | [docs/design/payment-failure-recovery-design.md](docs/design/payment-failure-recovery-design.md) | CONFIRMING/CANCELING 회색지대 기반 결제 보정 설계와 남은 리팩토링 후보 |
+| [docs/design/payment-outbox-design.md](docs/design/payment-outbox-design.md) | 결제 최종 상태와 이벤트를 함께 확정하는 Transactional Outbox 정책 |
 | [docs/design/redis-cache-strategy.md](docs/design/redis-cache-strategy.md) | 공연 목록/상세 Redis Cache-Aside 적용 전략 |
 | [docs/design/feature-flag-strategy.md](docs/design/feature-flag-strategy.md) | 대기열 점진 전환을 위한 관리자 Feature Flag와 장애 정책 |
 | [docs/testing/concurrentTest.md](docs/testing/concurrentTest.md) | 겹치는 좌석 요청의 동시성 검증 |

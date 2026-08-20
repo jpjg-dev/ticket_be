@@ -12,6 +12,7 @@
 | 예약 만료 | 결제하지 않은 선점 좌석을 만료 후 복구합니다. |
 | 결제 승인/취소 | 승인은 `CONFIRMING`, 취소는 `CANCELING` 회색지대를 거쳐 PG 호출 전후 트랜잭션을 대칭으로 분리합니다. 취소는 소유자 검증 후에만 수행합니다. |
 | 결제 보정 | 오래된 `CONFIRMING`/`CANCELING` 결제를 PG 조회 결과 기준으로 승인/실패/환불/취소 확정 처리합니다. 결정 규칙은 순수 함수 정책 객체로 분리했습니다. |
+| 결제 Outbox | `PaymentApproved.v1`, `PaymentCanceled.v1` 계약과 PostgreSQL Outbox 저장 경계를 추가했습니다. 정상·보정의 최종 상태 전이와 Outbox INSERT가 같은 트랜잭션에서 커밋되며 저장 실패 시 상태 전이도 롤백됩니다. Kafka Publisher는 아직 연결하지 않았습니다. |
 | 운영 관측 | 회색지대 보정 결과, PG 호출 실패, 회색지대 backlog를 Micrometer 지표로 노출합니다. |
 | 대기열 Feature Flag | 관리자 제어와 실제 입장 경로를 연결했습니다. `SHADOW`에서는 요청률·CPU·Tomcat·Hikari 포화 신호를 관찰해 대기열을 자동 활성화하고, `ENFORCED`에서는 회차별 Redis ZSET, SSE 순번 갱신, 배치 승격, 입장 토큰 claim을 거쳐 예약을 생성합니다. `15명/초`, 최소 입장률 `10명/초`, 최대 backlog `10,000명`, TTL `30분`의 용량 불변식을 기동 시 검증하며 Redis 중단·SSE 단절·토큰 만료/중복·재기동 backlog·자동 모드 전환을 테스트했습니다. |
 | 정합성 검증 | 동시성 테스트와 E2E 부하 테스트 후 중복 좌석/부분 성공/상태 불일치 `0`을 확인했습니다. |
@@ -29,13 +30,15 @@
 
 Kafka 컨테이너나 이벤트 발행 코드부터 추가하지 않고, 현재 동기 흐름에서 서비스 경계와 정합성 책임을 먼저 확정합니다.
 
-- [ ] `event/seat`, `reservation`, `payment`, `auth/user`의 데이터 소유권과 변경 권한을 정리합니다.
-- [ ] 좌석 선점·결제 승인·보정 최종 상태 전이는 동기로 유지하고, 확정 이후 후처리만 비동기 후보로 분류합니다.
-- [ ] 이벤트 이름, 발행 조건, payload, 멱등 소비 기준과 최종 정합성 책임자를 정의합니다.
-- [ ] DB 커밋과 이벤트 발행 사이의 유실을 막기 위한 Outbox 경계를 설계합니다.
-- [ ] Kafka 도입 전후를 비교할 API 지연, CPU, Hikari, Redis, 대기열, 결제 backlog 기준선을 남깁니다.
+- [x] `event/seat`, `reservation`, `payment`, `auth/user`의 데이터 소유권과 변경 권한을 정리했습니다.
+- [x] 좌석 선점·결제 승인·보정 최종 상태 전이는 동기로 유지하고, 확정 이후 후처리만 비동기 후보로 분류했습니다.
+- [x] `PaymentApproved.v1`, `PaymentCanceled.v1`의 발행 조건, payload와 `eventId` 멱등 기준을 정의했습니다.
+- [x] DB 커밋과 이벤트 발행 사이의 유실을 막기 위한 결제 Outbox 저장 경계를 구현했습니다.
+- [ ] 기존 E2E·Grafana 자료는 기준선으로 재사용하고, Outbox 추가 전후 결제 지연·DB 부하와 Kafka 장애 시 backlog 복구만 회귀 측정합니다.
 
 초기에는 단일 DB를 유지하고 애플리케이션 내부의 소유권과 계약부터 분리합니다. 서비스와 DB의 물리 분리는 이벤트 계약과 장애 복구를 검증한 뒤 진행합니다.
+
+다음 구현 단계는 단일 인스턴스 DB Polling Publisher와 Kafka 어댑터입니다. Outbox 전달은 `at-least-once`로 보고, 발행 완료 반영 전 장애로 생기는 중복은 Consumer가 `eventId`로 제거합니다.
 
 ## 보류한 기능 확장 후보
 

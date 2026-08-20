@@ -252,6 +252,18 @@
 
 </details>
 
+<details>
+<summary>Payment Outbox</summary>
+
+- [x] 정상 승인과 보정 승인은 `PaymentApproved.v1`을 `PENDING`으로 한 건 저장합니다.
+- [x] 정상 취소와 보정 취소는 `PaymentCanceled.v1`을 `PENDING`으로 한 건 저장합니다.
+- [x] `CONFIRMING`과 `CANCELING` 중간 상태에서는 최종 이벤트를 생성하지 않습니다.
+- [x] Outbox UNIQUE 위반으로 INSERT가 실패하면 승인·취소 최종 상태 전이도 함께 롤백합니다.
+- [x] Outbox 저장 포트는 기존 도메인 트랜잭션 밖에서 단독 실행할 수 없습니다.
+- [x] payload는 JSONB 객체로 저장하며 `paymentKey`를 포함하지 않습니다.
+
+</details>
+
 ## 핵심 목표
 
 - 상태 전이 정합성을 보장합니다.
