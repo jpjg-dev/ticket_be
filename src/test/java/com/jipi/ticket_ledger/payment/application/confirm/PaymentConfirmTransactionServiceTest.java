@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.payment.application.confirm;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentEventOutbox;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
@@ -29,9 +30,11 @@ class PaymentConfirmTransactionServiceTest {
 
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
+    private final PaymentEventOutbox paymentEventOutbox = mock(PaymentEventOutbox.class);
     private final PaymentConfirmTransactionService transactionService =
             new PaymentConfirmTransactionService(
                     paymentRepository, reservationRepository, new PaymentConfirmValidator(),
+                    paymentEventOutbox,
                     Clock.systemDefaultZone());
 
     @Test

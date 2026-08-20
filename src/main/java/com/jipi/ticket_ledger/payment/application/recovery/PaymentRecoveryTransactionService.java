@@ -3,6 +3,9 @@ package com.jipi.ticket_ledger.payment.application.recovery;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEvent;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEventSource;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentEventOutbox;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
 import com.jipi.ticket_ledger.reservation.domain.ReservationRepository;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayPayment;
@@ -25,6 +28,7 @@ public class PaymentRecoveryTransactionService {
 
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
+    private final PaymentEventOutbox paymentEventOutbox;
     private final Clock clock;
 
     /**
@@ -75,6 +79,7 @@ public class PaymentRecoveryTransactionService {
                     return RecoveryOutcome.SEAT_LOST_DEFERRED;
                 }
                 applyApproval(payment, reservations, lookup.paymentKey(), lookup.method(), lookup.status());
+                paymentEventOutbox.append(PaymentEvent.approved(payment, PaymentEventSource.RECOVERY));
                 log.info("Recovered CONFIRMING payment. paymentId={} orderId={} pgStatus={}",
                         payment.getId(), payment.getOrderId(), lookup.status());
                 return RecoveryOutcome.APPROVED;

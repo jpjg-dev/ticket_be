@@ -10,6 +10,7 @@ import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmTransactionService;
 import com.jipi.ticket_ledger.payment.application.confirm.PaymentConfirmValidator;
 import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentEventOutbox;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -68,6 +69,9 @@ class PaymentServiceTest {
     private PaymentGateway paymentGateway;
 
     @Mock
+    private PaymentEventOutbox paymentEventOutbox;
+
+    @Mock
     private PaymentGatewayCircuitState paymentGatewayCircuitState;
 
     @Mock
@@ -89,6 +93,7 @@ class PaymentServiceTest {
         PaymentConfirmTransactionService transactionService =
                 new PaymentConfirmTransactionService(
                         paymentRepository, reservationRepository, new PaymentConfirmValidator(),
+                        paymentEventOutbox,
                         clock);
         lenient().when(paymentGatewayCircuitState.acquireConfirmPermit()).thenReturn(confirmCallPermit);
         lenient().when(confirmCallPermit.execute(any())).thenAnswer(invocation -> {
@@ -98,7 +103,12 @@ class PaymentServiceTest {
         PaymentConfirmService confirmService =
                 new PaymentConfirmService(paymentGateway, paymentGatewayCircuitState, transactionService);
         PaymentCancelTransactionService cancelTransactionService =
-                new PaymentCancelTransactionService(paymentRepository, reservationRepository, clock);
+                new PaymentCancelTransactionService(
+                        paymentRepository,
+                        reservationRepository,
+                        paymentEventOutbox,
+                        clock
+                );
         PaymentRecoveryMetrics recoveryMetrics =
                 new PaymentRecoveryMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         PaymentCancelService cancelService =

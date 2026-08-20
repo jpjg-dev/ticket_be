@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.payment.application.cancel;
 
 import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEventSource;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
@@ -64,7 +65,11 @@ class PaymentCancelServiceTest {
         paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", OWNER_ID);
 
         verify(paymentGateway).cancel("pay-key-1", "사용자 요청", "KRW", "cancel:1");
-        verify(paymentCancelTransactionService).applyDecision(eq(PAYMENT_ID), any(CancelDecision.class));
+        verify(paymentCancelTransactionService).applyDecision(
+                eq(PAYMENT_ID),
+                any(CancelDecision.class),
+                eq(PaymentEventSource.NORMAL)
+        );
     }
 
     @Test
@@ -77,7 +82,7 @@ class PaymentCancelServiceTest {
         PaymentStatus result = paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", OWNER_ID);
 
         assertEquals(PaymentStatus.CANCELING, result);
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
     }
 
     @Test
@@ -91,7 +96,11 @@ class PaymentCancelServiceTest {
 
         paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", OWNER_ID);
 
-        verify(paymentCancelTransactionService).applyDecision(eq(PAYMENT_ID), any(CancelDecision.class));
+        verify(paymentCancelTransactionService).applyDecision(
+                eq(PAYMENT_ID),
+                any(CancelDecision.class),
+                eq(PaymentEventSource.NORMAL)
+        );
     }
 
     @Test
@@ -105,7 +114,7 @@ class PaymentCancelServiceTest {
 
         paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", OWNER_ID);
 
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
     }
 
     @Test
@@ -119,7 +128,7 @@ class PaymentCancelServiceTest {
 
         paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", OWNER_ID);
 
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
     }
 
     @Test
@@ -131,7 +140,7 @@ class PaymentCancelServiceTest {
         paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", OWNER_ID);
 
         verifyNoInteractions(paymentGateway);
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
     }
 
     @Test
@@ -144,7 +153,7 @@ class PaymentCancelServiceTest {
                 () -> paymentCancelService.cancel(PAYMENT_ID, "사용자 요청", 999L));
 
         verifyNoInteractions(paymentGateway);
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
     }
 
     @Test
@@ -158,7 +167,11 @@ class PaymentCancelServiceTest {
 
         assertEquals(CancelOutcome.CANCELED, outcome);
         verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
-        verify(paymentCancelTransactionService).applyDecision(eq(PAYMENT_ID), any(CancelDecision.class));
+        verify(paymentCancelTransactionService).applyDecision(
+                eq(PAYMENT_ID),
+                any(CancelDecision.class),
+                eq(PaymentEventSource.RECOVERY)
+        );
         verify(paymentRecoveryMetrics).record(CancelOutcome.CANCELED);
     }
 
@@ -175,7 +188,11 @@ class PaymentCancelServiceTest {
 
         assertEquals(CancelOutcome.CANCELED, outcome);
         verify(paymentGateway).cancel("pay-key-1", "CANCEL_RECOVERY", "KRW", "cancel:1");
-        verify(paymentCancelTransactionService).applyDecision(eq(PAYMENT_ID), any(CancelDecision.class));
+        verify(paymentCancelTransactionService).applyDecision(
+                eq(PAYMENT_ID),
+                any(CancelDecision.class),
+                eq(PaymentEventSource.RECOVERY)
+        );
         verify(paymentRecoveryMetrics).record(CancelOutcome.CANCELED);
     }
 
@@ -191,7 +208,7 @@ class PaymentCancelServiceTest {
         CancelOutcome outcome = paymentCancelService.recoverCanceling(PAYMENT_ID);
 
         assertEquals(CancelOutcome.KEEP_CANCELING, outcome);
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
         verify(paymentRecoveryMetrics).record(CancelOutcome.KEEP_CANCELING);
     }
 
@@ -208,7 +225,7 @@ class PaymentCancelServiceTest {
         CancelOutcome outcome = paymentCancelService.recoverCanceling(PAYMENT_ID);
 
         assertEquals(CancelOutcome.CANCEL_UNRESOLVED, outcome);
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
         verify(paymentRecoveryMetrics).record(CancelOutcome.CANCEL_UNRESOLVED);
     }
 
@@ -223,7 +240,7 @@ class PaymentCancelServiceTest {
 
         assertEquals(CancelOutcome.HELD_MANUAL, outcome);
         verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
         verify(paymentRecoveryMetrics).record(CancelOutcome.HELD_MANUAL);
     }
 
@@ -238,7 +255,7 @@ class PaymentCancelServiceTest {
 
         assertEquals(CancelOutcome.LOOKUP_UNRESOLVED, outcome);
         verify(paymentGateway, never()).cancel(anyString(), anyString(), anyString(), anyString());
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
         verify(paymentRecoveryMetrics).record(CancelOutcome.LOOKUP_UNRESOLVED);
     }
 
@@ -251,7 +268,7 @@ class PaymentCancelServiceTest {
 
         assertEquals(CancelOutcome.NOOP_NOT_CANCELING, outcome);
         verifyNoInteractions(paymentGateway);
-        verify(paymentCancelTransactionService, never()).applyDecision(any(), any());
+        verify(paymentCancelTransactionService, never()).applyDecision(any(), any(), any());
         verify(paymentRecoveryMetrics).record(CancelOutcome.NOOP_NOT_CANCELING);
     }
 }

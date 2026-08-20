@@ -3,6 +3,8 @@ package com.jipi.ticket_ledger.payment.application.recovery;
 import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentEventOutbox;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEvent;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
@@ -38,8 +40,14 @@ class PaymentRecoveryTransactionServiceTest {
 
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
+    private final PaymentEventOutbox paymentEventOutbox = mock(PaymentEventOutbox.class);
     private final PaymentRecoveryTransactionService transactionService =
-            new PaymentRecoveryTransactionService(paymentRepository, reservationRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+            new PaymentRecoveryTransactionService(
+                    paymentRepository,
+                    reservationRepository,
+                    paymentEventOutbox,
+                    Clock.fixed(NOW, ZoneOffset.UTC)
+            );
 
     private final TossPaymentLookupResponse doneLookup =
             new TossPaymentLookupResponse("pay-key-1", "order-1", "DONE", "CARD", 11000, "KRW");
@@ -87,6 +95,7 @@ class PaymentRecoveryTransactionServiceTest {
         assertEquals(ReservationGroupStatus.CONFIRMED, group.getStatus());
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, reservation.getSeat().getStatus());
+        verify(paymentEventOutbox).append(any(PaymentEvent.class));
     }
 
     @Test
@@ -119,6 +128,7 @@ class PaymentRecoveryTransactionServiceTest {
         assertEquals(RecoveryOutcome.SEAT_LOST_DEFERRED, outcome);
         assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
         assertEquals(ReservationGroupStatus.PENDING, group.getStatus());
+        verify(paymentEventOutbox, never()).append(any());
     }
 
     @Test

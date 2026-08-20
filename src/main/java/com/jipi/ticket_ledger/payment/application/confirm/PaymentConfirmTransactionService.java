@@ -2,6 +2,9 @@ package com.jipi.ticket_ledger.payment.application.confirm;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
 import com.jipi.ticket_ledger.global.log.PaymentLogFormatter;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEvent;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEventSource;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentEventOutbox;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -24,6 +27,7 @@ public class PaymentConfirmTransactionService {
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
     private final PaymentConfirmValidator paymentConfirmValidator;
+    private final PaymentEventOutbox paymentEventOutbox;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -80,6 +84,7 @@ public class PaymentConfirmTransactionService {
             reservation.confirm();
             reservation.getSeat().book();
         });
+        paymentEventOutbox.append(PaymentEvent.approved(payment, PaymentEventSource.NORMAL));
 
         log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
                 LogEvents.PAYMENT_CONFIRM_SUCCESS, confirmingPayment.orderId(), payment.getId(),

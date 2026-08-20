@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.payment.application.cancel;
 
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEventSource;
 import com.jipi.ticket_ledger.payment.application.observability.PaymentRecoveryMetrics;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.global.log.PaymentLogFormatter;
@@ -46,7 +47,7 @@ public class PaymentCancelService {
             return PaymentStatus.CANCELED;
         }
 
-        CancelOutcome outcome = requestCancelDecideApply(snapshot, cancelReason);
+        CancelOutcome outcome = requestCancelDecideApply(snapshot, cancelReason, PaymentEventSource.NORMAL);
         return outcome == CancelOutcome.CANCELED ? PaymentStatus.CANCELED : PaymentStatus.CANCELING;
     }
 
@@ -78,11 +79,19 @@ public class PaymentCancelService {
         CancelDecision decision = PaymentCancelPolicy.decide(snapshot, PgCancelState.from(lookup));
         return switch (decision.action()) {
             case FINALIZE -> {
-                paymentCancelTransactionService.applyDecision(snapshot.paymentId(), decision);
+                paymentCancelTransactionService.applyDecision(
+                        snapshot.paymentId(),
+                        decision,
+                        PaymentEventSource.RECOVERY
+                );
                 yield record(CancelOutcome.CANCELED);
             }
             // 아직 승인(DONE) → 동기 경로와 동일한 재취소 파이프라인을 같은 멱등키로 공유한다.
-            case CANCEL_AGAIN -> record(requestCancelDecideApply(snapshot, RECOVERY_CANCEL_REASON));
+            case CANCEL_AGAIN -> record(requestCancelDecideApply(
+                    snapshot,
+                    RECOVERY_CANCEL_REASON,
+                    PaymentEventSource.RECOVERY
+            ));
             case HOLD_MANUAL -> {
                 logCancelReject(snapshot, "PG_CANCEL_RECOVERY_HOLD_MANUAL");
                 yield record(CancelOutcome.HELD_MANUAL);
@@ -94,7 +103,11 @@ public class PaymentCancelService {
      * 재취소 파이프라인(동기·보정 공유): PG 취소 호출(실패 시 조회 폴백) → 정책 재결정 → FINALIZE 면 apply, 아니면 CANCELING 유지.
      * 메트릭은 여기서 기록하지 않는다(호출자가 결정) — 동기 {@link #cancel} 은 메트릭 없이, {@link #recoverCanceling} 은 기록한다.
      */
-    private CancelOutcome requestCancelDecideApply(CancelingPaymentSnapshot snapshot, String cancelReason) {
+    private CancelOutcome requestCancelDecideApply(
+            CancelingPaymentSnapshot snapshot,
+            String cancelReason,
+            PaymentEventSource eventSource
+    ) {
         PgCancelState pgState = requestCancelOrLookup(snapshot, cancelReason);
         if (pgState == null) {
             // PG 취소 호출이 실패했고 폴백 조회도 미확정(timeout 등) → CANCELING 유지.
@@ -104,7 +117,7 @@ public class PaymentCancelService {
 
         CancelDecision decision = PaymentCancelPolicy.decide(snapshot, pgState);
         if (decision.action() == CancelAction.FINALIZE) {
-            paymentCancelTransactionService.applyDecision(snapshot.paymentId(), decision);
+            paymentCancelTransactionService.applyDecision(snapshot.paymentId(), decision, eventSource);
             return CancelOutcome.CANCELED;
         }
         if (decision.action() == CancelAction.HOLD_MANUAL) {

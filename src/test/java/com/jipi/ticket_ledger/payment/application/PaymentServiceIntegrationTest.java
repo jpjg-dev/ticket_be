@@ -12,6 +12,9 @@ import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.payment.infrastructure.TossCancelResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossConfirmResponse;
 import com.jipi.ticket_ledger.payment.infrastructure.TossPaymentLookupResponse;
+import com.jipi.ticket_ledger.payment.infrastructure.outbox.PaymentOutboxEvent;
+import com.jipi.ticket_ledger.payment.infrastructure.outbox.PaymentOutboxEventRepository;
+import com.jipi.ticket_ledger.payment.infrastructure.outbox.PaymentOutboxStatus;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGateway;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -93,6 +96,9 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     private PaymentRepository paymentRepository;
 
     @Autowired
+    private PaymentOutboxEventRepository paymentOutboxEventRepository;
+
+    @Autowired
     private ReservationRepository reservationRepository;
 
     @Autowired
@@ -128,6 +134,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
     void cleanup() {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
+            paymentOutboxEventRepository.deleteAllInBatch();
             paymentIds.forEach(paymentRepository::deleteById);
             savedReservationIds.forEach(reservationRepository::deleteById);
             reservationGroupIds.forEach(reservationGroupRepository::deleteById);
@@ -602,12 +609,17 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
         Reservation reservation = reservationRepository.findById(fixture.firstReservationId).orElseThrow();
         Seat seat = seatRepository.findById(fixture.seatId).orElseThrow();
+        PaymentOutboxEvent outboxEvent = paymentOutboxEventRepository
+                .findAllByPaymentIdOrderByIdAsc(ready.getId())
+                .getFirst();
 
         assertEquals(1, recoveredCount);
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
         assertEquals("pay-key-recovered", payment.getPaymentKey());
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, seat.getStatus());
+        assertEquals("PaymentApproved", outboxEvent.getEventType());
+        assertEquals("RECOVERY", outboxEvent.getPayload().path("source").asText());
     }
 
     @Test
@@ -1542,12 +1554,16 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ReservationGroup group = reservationGroupRepository.findById(fixture.fixture.reservationGroupId).orElseThrow();
         Reservation reservation = reservationRepository.findById(fixture.fixture.firstReservationId).orElseThrow();
         Seat seat = seatRepository.findById(fixture.fixture.seatId).orElseThrow();
+        List<PaymentOutboxEvent> outboxEvents =
+                paymentOutboxEventRepository.findAllByPaymentIdOrderByIdAsc(fixture.paymentId);
 
         assertEquals(1, recovered);
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CANCELED, group.getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, seat.getStatus());
+        assertEquals("PaymentCanceled", outboxEvents.get(1).getEventType());
+        assertEquals("RECOVERY", outboxEvents.get(1).getPayload().path("source").asText());
         // 보정은 재취소 없이 조회만으로 확정한다(이미 CANCELED).
         verify(paymentGateway, never())
                 .cancel("pay-key-recover-canceled", "CANCEL_RECOVERY", "KRW", "cancel:" + fixture.paymentId);
@@ -1623,10 +1639,17 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
         Payment approved = paymentService.confirmPayment("pay-key-group", ready.getOrderId(), totalAmountWithVat);
 
+        List<PaymentOutboxEvent> approvedEvents =
+                paymentOutboxEventRepository.findAllByPaymentIdOrderByIdAsc(approved.getId());
+
         List<Reservation> confirmedReservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
         List<Seat> bookedSeats = seatRepository.findAllById(fixture.seatIds);
 
         assertEquals(PaymentStatus.APPROVED, approved.getStatus());
+        assertEquals(1, approvedEvents.size());
+        assertEquals("PaymentApproved", approvedEvents.getFirst().getEventType());
+        assertEquals(PaymentOutboxStatus.PENDING, approvedEvents.getFirst().getStatus());
+        assertFalse(approvedEvents.getFirst().getPayload().has("paymentKey"));
         assertEquals(fixture.price, approved.getAmount());
         assertEquals(2, confirmedReservations.size());
         assertTrue(confirmedReservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CONFIRMED));
@@ -1642,11 +1665,17 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
         paymentService.cancelPayment(approved.getId(), "사용자 요청", fixture.userId);
 
+        List<PaymentOutboxEvent> paymentEvents =
+                paymentOutboxEventRepository.findAllByPaymentIdOrderByIdAsc(approved.getId());
+
         Payment canceled = paymentRepository.findById(approved.getId()).orElseThrow();
         List<Reservation> canceledReservations = reservationRepository.findByReservationGroupId(fixture.reservationGroupId);
         List<Seat> releasedSeats = seatRepository.findAllById(fixture.seatIds);
 
         assertEquals(PaymentStatus.CANCELED, canceled.getStatus());
+        assertEquals(2, paymentEvents.size());
+        assertEquals("PaymentCanceled", paymentEvents.get(1).getEventType());
+        assertEquals(PaymentOutboxStatus.PENDING, paymentEvents.get(1).getStatus());
         assertTrue(canceledReservations.stream().allMatch(reservation -> reservation.getStatus() == ReservationStatus.CANCELED));
         assertTrue(releasedSeats.stream().allMatch(seat -> seat.getStatus() == SeatStatus.AVAILABLE));
     }

@@ -4,6 +4,9 @@ import com.jipi.ticket_ledger.event.domain.Event;
 import com.jipi.ticket_ledger.event.domain.Schedule;
 import com.jipi.ticket_ledger.global.exception.ForbiddenAccessException;
 import com.jipi.ticket_ledger.payment.domain.Payment;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEventSource;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEvent;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentEventOutbox;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 import com.jipi.ticket_ledger.reservation.domain.Reservation;
@@ -32,7 +35,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentCancelTransactionServiceTest {
@@ -46,12 +52,19 @@ class PaymentCancelTransactionServiceTest {
     @Mock
     private ReservationRepository reservationRepository;
 
+    @Mock
+    private PaymentEventOutbox paymentEventOutbox;
+
     private PaymentCancelTransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         transactionService = new PaymentCancelTransactionService(
-                paymentRepository, reservationRepository, Clock.systemDefaultZone());
+                paymentRepository,
+                reservationRepository,
+                paymentEventOutbox,
+                Clock.systemDefaultZone()
+        );
     }
 
     @Test
@@ -188,12 +201,17 @@ class PaymentCancelTransactionServiceTest {
         when(reservationRepository.findByReservationGroupId(reservation.getReservationGroup().getId()))
                 .thenReturn(List.of(reservation));
 
-        transactionService.applyDecision(PAYMENT_ID, CancelDecision.finalizeCancel());
+        transactionService.applyDecision(
+                PAYMENT_ID,
+                CancelDecision.finalizeCancel(),
+                PaymentEventSource.NORMAL
+        );
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
         assertEquals(ReservationGroupStatus.CANCELED, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
         assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
+        verify(paymentEventOutbox).append(any(PaymentEvent.class));
     }
 
     @Test
@@ -204,9 +222,14 @@ class PaymentCancelTransactionServiceTest {
 
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(payment));
 
-        transactionService.applyDecision(PAYMENT_ID, CancelDecision.finalizeCancel());
+        transactionService.applyDecision(
+                PAYMENT_ID,
+                CancelDecision.finalizeCancel(),
+                PaymentEventSource.NORMAL
+        );
 
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        verify(paymentEventOutbox, never()).append(any());
     }
 
     @Test
@@ -218,7 +241,11 @@ class PaymentCancelTransactionServiceTest {
 
         when(paymentRepository.findByIdForUpdate(PAYMENT_ID)).thenReturn(Optional.of(payment));
 
-        transactionService.applyDecision(PAYMENT_ID, CancelDecision.holdManual());
+        transactionService.applyDecision(
+                PAYMENT_ID,
+                CancelDecision.holdManual(),
+                PaymentEventSource.NORMAL
+        );
 
         assertEquals(PaymentStatus.CANCELING, payment.getStatus());
         assertEquals(ReservationGroupStatus.CONFIRMED, reservation.getReservationGroup().getStatus());

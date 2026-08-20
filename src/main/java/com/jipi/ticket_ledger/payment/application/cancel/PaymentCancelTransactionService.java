@@ -2,6 +2,9 @@ package com.jipi.ticket_ledger.payment.application.cancel;
 
 import com.jipi.ticket_ledger.global.exception.ForbiddenAccessException;
 import com.jipi.ticket_ledger.global.log.LogEvents;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEvent;
+import com.jipi.ticket_ledger.payment.application.event.PaymentEventSource;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentEventOutbox;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
@@ -30,6 +33,7 @@ public class PaymentCancelTransactionService {
 
     private final PaymentRepository paymentRepository;
     private final ReservationRepository reservationRepository;
+    private final PaymentEventOutbox paymentEventOutbox;
     private final Clock clock;
 
     /**
@@ -116,7 +120,7 @@ public class PaymentCancelTransactionService {
      * CANCEL_AGAIN 은 오케스트레이터가 처리하며 이 메서드로 오지 않는다.
      */
     @Transactional
-    public void applyDecision(Long paymentId, CancelDecision decision) {
+    public void applyDecision(Long paymentId, CancelDecision decision, PaymentEventSource eventSource) {
         Payment payment = paymentRepository.findByIdForUpdate(paymentId)
                 .orElseThrow(() -> new EntityNotFoundException("결제를 찾을 수 없습니다."));
 
@@ -131,6 +135,7 @@ public class PaymentCancelTransactionService {
             case FINALIZE -> {
                 List<Reservation> reservations = getReservationsForPayment(payment);
                 applyCancellation(payment, reservations);
+                paymentEventOutbox.append(PaymentEvent.canceled(payment, eventSource));
                 log.info("event={} orderId={} paymentId={} reservationGroupId={} reason={} pgStatus={} paymentKeyMasked={}",
                         LogEvents.PAYMENT_CANCEL_SUCCESS, payment.getOrderId(), payment.getId(), reservationGroupId,
                         "FINALIZE", payment.getPgStatus(), PaymentLogFormatter.maskPaymentKey(payment.getPaymentKey()));
