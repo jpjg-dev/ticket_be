@@ -17,6 +17,9 @@ spring:
   flyway:
     enabled: true
 
+  kafka:
+    bootstrap-servers: 127.0.0.1:9092
+
 app:
   scheduling:
     enabled: false
@@ -52,6 +55,19 @@ payment:
     grace-ms: 60000
     fixed-delay-ms: 60000
     batch-size: 20
+  outbox:
+    relay:
+      enabled: false
+      fixed-delay: 1s
+      batch-size: 20
+      lease-duration: 30s
+      send-timeout: 10s
+      retry-initial-delay: 5s
+      retry-max-delay: 5m
+      unknown-max-attempts: 10
+      topic: ticketledger-payment-events
+      partitions: 3
+      retention: 7d
 
 security:
   csrf-origin:

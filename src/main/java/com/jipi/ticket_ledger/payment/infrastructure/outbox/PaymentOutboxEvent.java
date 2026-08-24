@@ -64,6 +64,10 @@ public class PaymentOutboxEvent {
 
     private Instant publishedAt;
 
+    private UUID claimToken;
+
+    private Instant claimedUntil;
+
     private PaymentOutboxEvent(
             UUID eventId,
             Long paymentId,

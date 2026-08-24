@@ -22,6 +22,19 @@ spring:
       connect-timeout: ${CACHE_REDIS_CONNECT_TIMEOUT}
       timeout: ${CACHE_REDIS_TIMEOUT}
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        "[enable.idempotence]": true
+        "[max.in.flight.requests.per.connection]": 5
+        "[delivery.timeout.ms]": 8000
+        "[request.timeout.ms]": 5000
+        "[max.block.ms]": 5000
+
 server:
   port: ${PORT}
   shutdown: graceful
@@ -137,6 +150,21 @@ toss:
     secret-key: ${TOSS_SECRET_KEY}
     connect-timeout: 2s
     read-timeout: 5s
+
+payment:
+  outbox:
+    relay:
+      enabled: ${PAYMENT_OUTBOX_RELAY_ENABLED}
+      fixed-delay: ${PAYMENT_OUTBOX_RELAY_FIXED_DELAY}
+      batch-size: ${PAYMENT_OUTBOX_RELAY_BATCH_SIZE}
+      lease-duration: ${PAYMENT_OUTBOX_RELAY_LEASE_DURATION}
+      send-timeout: ${PAYMENT_OUTBOX_RELAY_SEND_TIMEOUT}
+      retry-initial-delay: ${PAYMENT_OUTBOX_RETRY_INITIAL_DELAY}
+      retry-max-delay: ${PAYMENT_OUTBOX_RETRY_MAX_DELAY}
+      unknown-max-attempts: ${PAYMENT_OUTBOX_UNKNOWN_MAX_ATTEMPTS}
+      topic: ${PAYMENT_OUTBOX_TOPIC}
+      partitions: ${PAYMENT_OUTBOX_TOPIC_PARTITIONS}
+      retention: ${PAYMENT_OUTBOX_TOPIC_RETENTION}
 
 app:
   time:
