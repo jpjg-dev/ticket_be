@@ -261,6 +261,11 @@
 - [x] Outbox UNIQUE 위반으로 INSERT가 실패하면 승인·취소 최종 상태 전이도 함께 롤백합니다.
 - [x] Outbox 저장 포트는 기존 도메인 트랜잭션 밖에서 단독 실행할 수 없습니다.
 - [x] payload는 JSONB 객체로 저장하며 `paymentKey`를 포함하지 않습니다.
+- [x] 같은 결제의 후속 이벤트는 선행 이벤트가 `PUBLISHED`된 뒤에만 claim합니다.
+- [x] 한 결제가 `HOLD_MANUAL`이어도 다른 결제 이벤트는 계속 claim합니다.
+- [x] lease 만료 후 새 token으로 재claim하고 이전 token의 결과 반영을 거부합니다.
+- [x] Kafka ACK를 받은 이벤트만 `PUBLISHED` 처리합니다.
+- [x] 같은 `paymentId`의 승인·취소 이벤트가 같은 partition에서 순서대로 전달됩니다.
 
 </details>
 

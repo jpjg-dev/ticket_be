@@ -52,6 +52,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 - Redis 캐시는 읽기·쓰기, 외부 PG는 승인·조회·취소별 Circuit Breaker를 두어 서로 다른 연산의 장애가 전파되지 않게 했고 자동 Retry는 사용하지 않습니다.
 - 결제되지 않은 선점 좌석은 만료 후 다시 `AVAILABLE`로 복구합니다.
 - 재기동 후 backlog가 한 번에 몰리지 않도록 보정/만료 스케줄러는 한 주기 처리량을 제한하고, 만료 작업은 그룹별 독립 트랜잭션으로 격리합니다.
+- 결제 확정 이벤트는 Transactional Outbox에 함께 저장하고, paymentId별 순서를 유지하는 Polling Relay가 Kafka로 전달합니다.
 - 고부하 전체 여정 테스트에서는 완료 결제 `1,000`건, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 확인했습니다.
 - 마이페이지는 예매 그룹 `100`개 조건에서 N+1과 반복 조회 비용을 줄였습니다.
 
@@ -67,11 +68,11 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 
 ### 운영 / 배포 구조
 
-운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 애플리케이션 스택과 관측 스택을 운영합니다. nginx, frontend, backend, PostgreSQL, Redis는 `ticket-network`에서 통신하고, Prometheus는 `ticket-network`와 `monitoring-network`를 연결해 backend와 Redis Exporter의 지표를 수집합니다. 외부 진입점은 nginx `80/443`으로 제한하며 Grafana는 VM loopback에만 연결하고 SSH 터널로 접근합니다.
+운영 서버는 단일 GCP Compute Engine VM에서 Docker Compose로 애플리케이션 스택과 관측 스택을 운영합니다. nginx, frontend, backend, PostgreSQL, Redis, Kafka는 `ticket-network`에서 통신하고, Prometheus는 `ticket-network`와 `monitoring-network`를 연결해 backend와 Redis Exporter의 지표를 수집합니다. 외부 진입점은 nginx `80/443`으로 제한하며 Grafana는 VM loopback에만 연결하고 SSH 터널로 접근합니다.
 
 ![TicketLedger 운영 전체 아키텍처](docs/assets/images/backend-system-architecture-dark-clean-public-ports-only.png)
 
-이미지는 사용자 요청과 배포의 핵심 경로를 표시합니다. Redis 캐시·대기열과 Prometheus/Grafana 관측 경로를 포함한 현재 구성은 [운영 전체 아키텍처 문서](docs/architecture/system-architecture.md)에 정리했습니다.
+이미지는 사용자 요청과 배포의 핵심 경로를 표시합니다. Redis 캐시·대기열, Kafka Outbox 전달과 Prometheus/Grafana 관측 경로를 포함한 현재 구성은 [운영 전체 아키텍처 문서](docs/architecture/system-architecture.md)에 정리했습니다.
 
 ### 요청 흐름
 
@@ -403,10 +404,11 @@ GET  /api/v1/payments/{paymentId}/status
 │   │   ├── confirm      # PaymentConfirmService, TransactionService, PG 승인 검증
 │   │   ├── cancel       # PaymentCancelService, TransactionService, 취소 정책
 │   │   ├── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService
-│   │   ├── observability# 회색지대 보정 메트릭
-│   │   └── port/out     # PaymentGateway, PaymentEventOutbox 출력 포트
+│   │   ├── outbox       # paymentId별 claim, retry/backoff, Relay Scheduler
+│   │   ├── observability# 회색지대·Outbox 메트릭
+│   │   └── port/out     # PaymentGateway, Outbox Store, Kafka Publisher 포트
 │   ├── domain           # Payment, PaymentAmount, PaymentStatus, PaymentRepository
-│   └── infrastructure   # PG Client, Circuit Breaker, Outbox JPA 저장 어댑터
+│   └── infrastructure   # PG Client, Circuit Breaker, PostgreSQL Outbox, Kafka 어댑터
 ├── auth                 # 로그인 / 토큰 / 쿠키 인증
 │   ├── presentation     # AuthController
 │   │   └── dto          # 로그인 요청/응답 DTO
@@ -468,6 +470,7 @@ GET  /api/v1/payments/{paymentId}/status
 | 영속성 | Spring Data JPA, PostgreSQL, Flyway | 상태 전이, 행 잠금, 스키마 관리를 위해 사용했습니다. |
 | 보안 | Spring Security, JWT, HttpOnly 쿠키 | 쿠키 기반 인증과 권한 검증을 위해 사용했습니다. |
 | 캐시 | Spring Cache, Redis | 공연 목록/상세는 Redis Cache-Aside로 처리하고, 좌석 상태는 정합성 때문에 캐시하지 않습니다. |
+| 메시징 | Spring Kafka, Apache Kafka | 결제 확정 이후 이벤트를 Outbox 기반 at-least-once 방식으로 전달합니다. |
 | API 문서 | springdoc-openapi, Swagger UI | 운영 환경에서 API 확인이 가능하도록 사용했습니다. |
 | 테스트 | JUnit 5, Spring Boot Test, Spring Security Test, Mockito | 상태 전이와 동시성 흐름 검증에 사용했습니다. |
 | 성능 | k6, 모의 PG | 인기 공연 전체 여정 흐름을 외부 PG 부하 없이 검증하기 위해 사용했습니다. |

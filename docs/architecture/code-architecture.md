@@ -32,6 +32,7 @@ presentation -> application -> domain
 | 공연 캐시 | `EventCache` 출력 포트와 Redis 어댑터, DB load guard를 분리했습니다. | Cache-Aside, key별 단일 로더, 제한 fallback, 회차 경계 TTL |
 | 출력 모델 | 조회 결과를 `application.model`로 이동했습니다. | 기존 HTTP JSON 필드 |
 | 관측성 | 보정 메트릭을 `application.observability`로 이동했습니다. | 기존 Prometheus 지표명과 태그 |
+| 결제 이벤트 | `PaymentEventOutbox`, `PaymentOutboxRelayStore`, `PaymentEventPublisher` 출력 포트와 PostgreSQL/Kafka 어댑터를 분리했습니다. | 결제 상태와 Outbox 원자성, paymentId별 순서, at-least-once 전달 |
 
 ## 구조 규칙
 
