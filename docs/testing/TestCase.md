@@ -266,6 +266,14 @@
 - [x] lease 만료 후 새 token으로 재claim하고 이전 token의 결과 반영을 거부합니다.
 - [x] Kafka ACK를 받은 이벤트만 `PUBLISHED` 처리합니다.
 - [x] 같은 `paymentId`의 승인·취소 이벤트가 같은 partition에서 순서대로 전달됩니다.
+- [x] Inbox와 감사 이력은 같은 DB 트랜잭션으로 커밋됩니다.
+- [x] 같은 `eventId`와 같은 canonical payload는 중복 처리하지 않습니다.
+- [x] 같은 `eventId`와 다른 payload는 기존 감사 이력을 변경하지 않고 충돌로 격리합니다.
+- [x] malformed 이벤트를 DLT로 보낸 뒤 같은 partition의 정상 이벤트를 계속 처리합니다.
+- [x] DB 장애가 발생하면 offset을 진행하지 않고 같은 record를 재처리합니다.
+- [x] ADMIN만 `HOLD_MANUAL` Outbox 이벤트를 requeue할 수 있습니다.
+- [x] Outbox와 Inbox retention은 cutoff와 batch-size를 만족하는 행만 삭제합니다.
+- [x] Audit 처리 증거가 없거나 payload hash가 다른 `PUBLISHED` Outbox는 삭제하지 않습니다.
 
 </details>
 

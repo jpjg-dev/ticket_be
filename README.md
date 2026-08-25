@@ -53,6 +53,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 - 결제되지 않은 선점 좌석은 만료 후 다시 `AVAILABLE`로 복구합니다.
 - 재기동 후 backlog가 한 번에 몰리지 않도록 보정/만료 스케줄러는 한 주기 처리량을 제한하고, 만료 작업은 그룹별 독립 트랜잭션으로 격리합니다.
 - 결제 확정 이벤트는 Transactional Outbox에 함께 저장하고, paymentId별 순서를 유지하는 Polling Relay가 Kafka로 전달합니다.
+- 감사 Consumer는 Inbox를 이용해 중복 이벤트를 제거하고, malformed 이벤트는 DLT로 격리합니다.
 - 고부하 전체 여정 테스트에서는 완료 결제 `1,000`건, 중복 좌석 `0`, 부분 성공 `0`, 상태 불일치 `0`을 확인했습니다.
 - 마이페이지는 예매 그룹 `100`개 조건에서 N+1과 반복 조회 비용을 줄였습니다.
 
@@ -409,6 +410,9 @@ GET  /api/v1/payments/{paymentId}/status
 │   │   └── port/out     # PaymentGateway, Outbox Store, Kafka Publisher 포트
 │   ├── domain           # Payment, PaymentAmount, PaymentStatus, PaymentRepository
 │   └── infrastructure   # PG Client, Circuit Breaker, PostgreSQL Outbox, Kafka 어댑터
+├── paymentaudit         # 결제 이벤트 수신 / Inbox / 감사 이력
+│   ├── application      # strict 계약 검증, canonical hash, Inbox 트랜잭션, retention
+│   └── infrastructure   # Kafka Consumer, DLT 정책, JDBC Inbox/Audit 저장
 ├── auth                 # 로그인 / 토큰 / 쿠키 인증
 │   ├── presentation     # AuthController
 │   │   └── dto          # 로그인 요청/응답 DTO
@@ -470,7 +474,7 @@ GET  /api/v1/payments/{paymentId}/status
 | 영속성 | Spring Data JPA, PostgreSQL, Flyway | 상태 전이, 행 잠금, 스키마 관리를 위해 사용했습니다. |
 | 보안 | Spring Security, JWT, HttpOnly 쿠키 | 쿠키 기반 인증과 권한 검증을 위해 사용했습니다. |
 | 캐시 | Spring Cache, Redis | 공연 목록/상세는 Redis Cache-Aside로 처리하고, 좌석 상태는 정합성 때문에 캐시하지 않습니다. |
-| 메시징 | Spring Kafka, Apache Kafka | 결제 확정 이후 이벤트를 Outbox 기반 at-least-once 방식으로 전달합니다. |
+| 메시징 | Spring Kafka, Apache Kafka | Outbox 기반 at-least-once 전달과 Inbox 기반 멱등 소비를 구현했습니다. |
 | API 문서 | springdoc-openapi, Swagger UI | 운영 환경에서 API 확인이 가능하도록 사용했습니다. |
 | 테스트 | JUnit 5, Spring Boot Test, Spring Security Test, Mockito | 상태 전이와 동시성 흐름 검증에 사용했습니다. |
 | 성능 | k6, 모의 PG | 인기 공연 전체 여정 흐름을 외부 PG 부하 없이 검증하기 위해 사용했습니다. |

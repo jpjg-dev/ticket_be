@@ -33,6 +33,7 @@ presentation -> application -> domain
 | 출력 모델 | 조회 결과를 `application.model`로 이동했습니다. | 기존 HTTP JSON 필드 |
 | 관측성 | 보정 메트릭을 `application.observability`로 이동했습니다. | 기존 Prometheus 지표명과 태그 |
 | 결제 이벤트 | `PaymentEventOutbox`, `PaymentOutboxRelayStore`, `PaymentEventPublisher` 출력 포트와 PostgreSQL/Kafka 어댑터를 분리했습니다. | 결제 상태와 Outbox 원자성, paymentId별 순서, at-least-once 전달 |
+| 감사 소비 | 별도 `paymentaudit` 경계에서 Inbox 포트와 Kafka/JDBC 어댑터를 분리했습니다. | Consumer 중복 제거, payload 충돌 격리, 감사 이력 불변성 |
 
 ## 구조 규칙
 

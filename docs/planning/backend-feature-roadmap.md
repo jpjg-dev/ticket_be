@@ -13,6 +13,7 @@
 | 결제 승인/취소 | 승인은 `CONFIRMING`, 취소는 `CANCELING` 회색지대를 거쳐 PG 호출 전후 트랜잭션을 대칭으로 분리합니다. 취소는 소유자 검증 후에만 수행합니다. |
 | 결제 보정 | 오래된 `CONFIRMING`/`CANCELING` 결제를 PG 조회 결과 기준으로 승인/실패/환불/취소 확정 처리합니다. 결정 규칙은 순수 함수 정책 객체로 분리했습니다. |
 | 결제 Outbox | 최종 상태와 Outbox INSERT를 함께 커밋하고, paymentId별 선두 이벤트만 claim하는 Polling Relay가 Kafka로 발행합니다. 실패 이벤트는 해당 결제의 후속 이벤트만 차단하며 다른 결제는 계속 처리합니다. |
+| 결제 Audit Inbox | 감사 Consumer가 `eventId`와 canonical payload hash로 중복·충돌을 판정하고 Inbox와 감사 이력을 같은 DB 트랜잭션으로 저장합니다. malformed 이벤트는 DLT로 격리하고 DB 장애는 offset을 진행하지 않습니다. |
 | 운영 관측 | 회색지대 보정 결과, PG 호출 실패, 회색지대 backlog를 Micrometer 지표로 노출합니다. |
 | 대기열 Feature Flag | 관리자 제어와 실제 입장 경로를 연결했습니다. `SHADOW`에서는 요청률·CPU·Tomcat·Hikari 포화 신호를 관찰해 대기열을 자동 활성화하고, `ENFORCED`에서는 회차별 Redis ZSET, SSE 순번 갱신, 배치 승격, 입장 토큰 claim을 거쳐 예약을 생성합니다. `15명/초`, 최소 입장률 `10명/초`, 최대 backlog `10,000명`, TTL `30분`의 용량 불변식을 기동 시 검증하며 Redis 중단·SSE 단절·토큰 만료/중복·재기동 backlog·자동 모드 전환을 테스트했습니다. |
 | 정합성 검증 | 동시성 테스트와 E2E 부하 테스트 후 중복 좌석/부분 성공/상태 불일치 `0`을 확인했습니다. |
@@ -38,7 +39,7 @@ Kafka 컨테이너나 이벤트 발행 코드부터 추가하지 않고, 현재 
 
 초기에는 단일 DB를 유지하고 애플리케이션 내부의 소유권과 계약부터 분리합니다. 서비스와 DB의 물리 분리는 이벤트 계약과 장애 복구를 검증한 뒤 진행합니다.
 
-Outbox 전달은 `at-least-once`로 보고, 발행 완료 반영 전 장애로 생기는 중복은 Consumer가 `eventId`로 제거합니다. 다음 구현 단계는 첫 Consumer의 Inbox 멱등 처리와 `PUBLISHED` 보존·정리 정책입니다.
+Outbox 전달은 `at-least-once`로 보고, 발행 완료 반영 전 장애로 생기는 중복은 Consumer가 `eventId`로 제거합니다. Audit Inbox와 retention까지 검증했으며, 다음 구현 단계는 Payment 결과를 Booking 상태에 반영하는 상태형 Consumer와 보상 흐름입니다.
 
 ## 보류한 기능 확장 후보
 

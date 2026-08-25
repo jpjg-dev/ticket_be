@@ -92,4 +92,36 @@ Tx2: PUBLISHED 또는 retry/HOLD_MANUAL 반영
 - 재시도/backoff/`HOLD_MANUAL` 격리
 - Outbox backlog, 활성 lease, 발행 결과·시간 메트릭
 
-첫 실제 Consumer의 Inbox, 수동 requeue API, `PUBLISHED` 보존·정리 작업은 다음 단계에서 구현합니다.
+## Audit Consumer와 Inbox
+
+첫 Consumer는 Booking 상태를 변경하지 않는 결제 감사 Consumer입니다. Consumer는 record 단위로 다음 로컬 트랜잭션을 실행합니다.
+
+```text
+Kafka record 수신
+-> payload strict 검증 + canonical SHA-256
+-> Inbox eventId 중복 확인
+-> Inbox INSERT + 감사 이력 INSERT
+-> DB COMMIT
+-> listener 정상 반환 후 Kafka offset 반영
+```
+
+- DB 커밋 전 장애는 offset이 반영되지 않아 같은 record를 다시 처리합니다.
+- DB 커밋 후 offset 반영 전 장애는 재수신되지만 Inbox `eventId`가 중복 업무 처리를 막습니다.
+- 같은 `eventId`와 같은 canonical hash는 멱등 no-op입니다.
+- 같은 `eventId`와 다른 hash는 payload 충돌로 판단해 원본 감사 이력을 변경하지 않고 DLT로 격리합니다.
+- malformed, unknown field, `paymentKey`, key/paymentId 불일치와 미지원 version도 DLT 대상입니다.
+- DB 연결·트랜잭션 장애는 DLT로 넘기지 않고 partition을 유지한 채 재시도합니다.
+
+현재 이벤트에는 aggregate version이 없으므로 감사 기록만 수행합니다. Booking 같은 상태형 Consumer를 도입할 때는 v2 계약에 aggregate version을 추가해 gap과 순서 역전을 검출합니다.
+
+## 운영 수명주기
+
+- `HOLD_MANUAL` Outbox는 ADMIN API로만 `PENDING` 재진입할 수 있으며 관리자 ID·사유·시각을 별도 감사 테이블에 같은 트랜잭션으로 기록합니다.
+- `PUBLISHED` Outbox는 14일이 지나고 audit Consumer가 같은 `eventId + canonical payloadHash`를 처리한 경우에만 bounded batch로 정리합니다.
+- 과거 hash가 없거나 audit 증거가 없는 Outbox는 자동 삭제하지 않습니다.
+- Inbox는 DLT 30일보다 긴 90일을 유지한 뒤 정리합니다.
+- 감사 이력은 Inbox와 분리해 자동 삭제하지 않습니다.
+- Inbox가 삭제된 뒤 장기 replay가 발생해도 감사 이력의 `eventId + payloadHash`로 중복과 충돌을 다시 판정합니다.
+- cleanup은 relay와 다른 단일 스레드 scheduler를 사용합니다.
+
+다음 단계는 상태형 Booking Consumer, DLT 수동 replay와 `PUBLISHED` 보존 기간의 운영 데이터 기반 조정입니다.
