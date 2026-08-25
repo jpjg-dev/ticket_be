@@ -1,11 +1,16 @@
 package com.jipi.ticket_ledger.payment.application.event;
 
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentStatus;
 
 import java.time.Instant;
 import java.util.UUID;
 
+@JsonPropertyOrder({
+        "eventId", "eventType", "eventVersion", "paymentId", "orderId",
+        "reservationGroupId", "userId", "totalAmount", "currency", "occurredAt", "source"
+})
 public record PaymentEvent(
         UUID eventId,
         String eventType,

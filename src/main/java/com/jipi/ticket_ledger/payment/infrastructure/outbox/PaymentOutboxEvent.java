@@ -44,6 +44,9 @@ public class PaymentOutboxEvent {
     @Column(nullable = false, columnDefinition = "jsonb")
     private JsonNode payload;
 
+    @Column(length = 64)
+    private String payloadHash;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PaymentOutboxStatus status;
@@ -74,6 +77,7 @@ public class PaymentOutboxEvent {
             String eventType,
             Integer eventVersion,
             JsonNode payload,
+            String payloadHash,
             Instant occurredAt,
             Instant createdAt
     ) {
@@ -82,6 +86,7 @@ public class PaymentOutboxEvent {
         this.eventType = eventType;
         this.eventVersion = eventVersion;
         this.payload = payload;
+        this.payloadHash = payloadHash;
         this.status = PaymentOutboxStatus.PENDING;
         this.retryCount = 0;
         this.occurredAt = occurredAt;
@@ -94,6 +99,7 @@ public class PaymentOutboxEvent {
             String eventType,
             Integer eventVersion,
             JsonNode payload,
+            String payloadHash,
             Instant occurredAt,
             Instant createdAt
     ) {
@@ -103,8 +109,21 @@ public class PaymentOutboxEvent {
                 eventType,
                 eventVersion,
                 payload,
+                payloadHash,
                 occurredAt,
                 createdAt
         );
+    }
+
+    public static PaymentOutboxEvent pending(
+            UUID eventId,
+            Long paymentId,
+            String eventType,
+            Integer eventVersion,
+            JsonNode payload,
+            Instant occurredAt,
+            Instant createdAt
+    ) {
+        return pending(eventId, paymentId, eventType, eventVersion, payload, null, occurredAt, createdAt);
     }
 }

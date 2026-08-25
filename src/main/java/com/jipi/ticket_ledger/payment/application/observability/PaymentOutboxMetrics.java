@@ -18,6 +18,7 @@ public class PaymentOutboxMetrics {
     private final MeterRegistry meterRegistry;
     private final Map<String, Counter> publishCounters = new ConcurrentHashMap<>();
     private final Map<String, Counter> failureCounters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> requeueCounters = new ConcurrentHashMap<>();
     private final Timer publishDuration;
     private final AtomicLong pendingCount = new AtomicLong();
     private final AtomicLong holdManualCount = new AtomicLong();
@@ -48,6 +49,13 @@ public class PaymentOutboxMetrics {
     public void recordFailure(String kind) {
         failureCounters.computeIfAbsent(kind, key -> Counter.builder("payment_outbox_publish_failure_total")
                         .tag("kind", key)
+                        .register(meterRegistry))
+                .increment();
+    }
+
+    public void recordRequeue(String outcome) {
+        requeueCounters.computeIfAbsent(outcome, key -> Counter.builder("payment_outbox_requeue_total")
+                        .tag("outcome", key)
                         .register(meterRegistry))
                 .increment();
     }

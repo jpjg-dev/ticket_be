@@ -34,6 +34,11 @@ spring:
         "[delivery.timeout.ms]": 8000
         "[request.timeout.ms]": 5000
         "[max.block.ms]": 5000
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 server:
   port: ${PORT}
@@ -165,6 +170,26 @@ payment:
       topic: ${PAYMENT_OUTBOX_TOPIC}
       partitions: ${PAYMENT_OUTBOX_TOPIC_PARTITIONS}
       retention: ${PAYMENT_OUTBOX_TOPIC_RETENTION}
+  audit:
+    consumer:
+      enabled: ${PAYMENT_AUDIT_CONSUMER_ENABLED}
+      topic: ${PAYMENT_AUDIT_TOPIC}
+      group-id: ${PAYMENT_AUDIT_CONSUMER_GROUP_ID}
+      concurrency: ${PAYMENT_AUDIT_CONSUMER_CONCURRENCY}
+      max-poll-records: ${PAYMENT_AUDIT_MAX_POLL_RECORDS}
+      database-retry-delay: ${PAYMENT_AUDIT_DATABASE_RETRY_DELAY}
+      unknown-retry-delay: ${PAYMENT_AUDIT_UNKNOWN_RETRY_DELAY}
+      unknown-max-attempts: ${PAYMENT_AUDIT_UNKNOWN_MAX_ATTEMPTS}
+      max-payload-bytes: ${PAYMENT_AUDIT_MAX_PAYLOAD_BYTES}
+      dlt-topic: ${PAYMENT_AUDIT_DLT_TOPIC}
+      topic-partitions: ${PAYMENT_AUDIT_TOPIC_PARTITIONS}
+  event-maintenance:
+    enabled: ${PAYMENT_EVENT_MAINTENANCE_ENABLED}
+    fixed-delay: ${PAYMENT_EVENT_MAINTENANCE_FIXED_DELAY}
+    batch-size: ${PAYMENT_EVENT_MAINTENANCE_BATCH_SIZE}
+    outbox-published-retention: ${PAYMENT_OUTBOX_PUBLISHED_RETENTION}
+    inbox-retention: ${PAYMENT_INBOX_RETENTION}
+    dlt-retention: ${PAYMENT_AUDIT_DLT_RETENTION}
 
 app:
   time:

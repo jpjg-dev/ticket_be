@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.payment.infrastructure.outbox;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.jipi.ticket_ledger.payment.application.outbox.ClaimedPaymentOutboxEvent;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentOutboxRelayStore;
+import com.jipi.ticket_ledger.payment.application.port.out.PaymentOutboxAdminStore;
 import com.jipi.ticket_ledger.payment.domain.Payment;
 import com.jipi.ticket_ledger.payment.domain.PaymentRepository;
 import com.jipi.ticket_ledger.reservation.domain.ReservationGroup;
@@ -14,6 +15,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,18 +31,26 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(properties = {
         "spring.jpa.show-sql=false",
         "logging.level.org.hibernate.SQL=OFF"
 })
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PaymentOutboxRelayStoreIntegrationTest extends PostgresTestContainerSupport {
 
     private static final Instant NOW = Instant.parse("2026-08-23T00:00:00Z");
 
     @Autowired
     private PaymentOutboxRelayStore relayStore;
+
+    @Autowired
+    private PaymentOutboxAdminStore adminStore;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private PaymentOutboxEventRepository outboxRepository;
@@ -59,6 +70,7 @@ class PaymentOutboxRelayStoreIntegrationTest extends PostgresTestContainerSuppor
 
     @AfterEach
     void cleanup() {
+        jdbcTemplate.update("DELETE FROM payment_outbox_requeue_audit");
         outboxRepository.deleteAllInBatch();
         paymentIds.forEach(paymentRepository::deleteById);
         groupIds.forEach(reservationGroupRepository::deleteById);
@@ -119,6 +131,35 @@ class PaymentOutboxRelayStoreIntegrationTest extends PostgresTestContainerSuppor
 
         ClaimedPaymentOutboxEvent dueRetry = claim(NOW.plusSeconds(6), UUID.randomUUID()).orElseThrow();
         assertEquals(delayedFirst.getId(), dueRetry.outboxId());
+    }
+
+    @Test
+    void adminRequeueResetsOnlyHoldManualEvent() {
+        Payment payment = payment("requeue");
+        PaymentOutboxEvent event = outbox(payment, "PaymentApproved");
+        ClaimedPaymentOutboxEvent claimed = claim(NOW, UUID.randomUUID()).orElseThrow();
+        assertTrue(relayStore.holdManual(claimed.outboxId(), claimed.claimToken(), "POISON_TEST"));
+
+        assertEquals(payment.getId(), adminStore.requeueHoldManual(
+                event.getEventId(),
+                1L,
+                "payload fixed",
+                NOW.plusSeconds(1)
+        ).orElseThrow());
+
+        PaymentOutboxEvent requeued = outboxRepository.findByEventId(event.getEventId()).orElseThrow();
+        assertEquals(PaymentOutboxStatus.PENDING, requeued.getStatus());
+        assertEquals(0, requeued.getRetryCount());
+        assertNull(requeued.getLastError());
+        assertEquals(1, paymentOutboxRequeueAuditCount(event.getEventId()));
+    }
+
+    private int paymentOutboxRequeueAuditCount(UUID eventId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM payment_outbox_requeue_audit WHERE event_id = ?",
+                Integer.class,
+                eventId
+        );
     }
 
     @Test
