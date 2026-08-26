@@ -192,6 +192,7 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 | Tomcat | thread pool 사용량 |
 | DB pool | Hikari active, idle, pending, max connection |
 | 결제 도메인 | 회색지대 backlog, 보정 결과 분포, PG 호출 실패(아래 회색지대 지표) |
+| 결제 이벤트 | Outbox backlog·활성 lease·발행/재처리 결과, Audit Consumer 처리 결과, Inbox 보존 상태와 retention 실행 결과 |
 | 외부 의존성 | Redis 캐시 읽기·쓰기와 PG 승인·조회·취소 Circuit Breaker 상태·호출 결과 |
 | 예약 대기열 | 대기 인원, 입장 처리량, SSE 관측 대기시간, 입장 토큰 결과, 활성 SSE 연결 수, 자동 전환 판단, 설정 입장률, 최대 backlog 소진 예상 시간 |
 
@@ -220,6 +221,16 @@ TicketLedger 백엔드는 **인기 공연 오픈 시점의 예약·결제 정합
 | `payment_gray_zone_pg_failure_total` | `operation`, `call` | PG 조회/승인/취소 호출이 결과 불명으로 끝난 횟수 |
 | `payment_gray_zone_backlog` | `status` | 스케줄러 한 주기 기준 `CONFIRMING`/`CANCELING` 잔존 건수 |
 | `reservation_expiration_group_total` | `trigger`, `outcome` | 예약 그룹 만료 처리 결과(`expired`, `skipped`, `failed`) |
+
+결제 이벤트 파이프라인은 다음 지표로 추적합니다.
+
+| 지표 | 의미 |
+| --- | --- |
+| `payment_outbox_backlog`, `payment_outbox_oldest_pending_age_seconds` | `PENDING`/`HOLD_MANUAL` 적체와 가장 오래된 대기 시간 |
+| `payment_outbox_publish_total`, `payment_outbox_requeue_total` | Kafka 발행과 관리자 수동 재처리 결과 |
+| `payment_audit_consume_total`, `payment_audit_record_total` | Audit Consumer 처리·중복·DLT 결과와 감사 기록 결과 |
+| `payment_audit_inbox_records`, `payment_audit_inbox_oldest_age_seconds` | Inbox 보존 레코드 수와 가장 오래된 레코드의 나이 |
+| `payment_event_retention_deleted_total`, `payment_event_retention_last_success_timestamp_seconds` | Outbox/Inbox 정리 건수와 마지막 정상 완료 시각 |
 
 ## 주요 설계 판단
 
@@ -383,6 +394,17 @@ GET  /api/v1/payments/{paymentId}/status
 
 보정 스케줄러는 오래된 `CONFIRMING`/`CANCELING` 결제를 한 주기에 함께 조회하고, PG 상태를 기준으로 각각 승인 확정·실패/환불, 취소 확정으로 정리합니다.
 
+### 운영 관리
+
+```text
+POST /api/v1/admin/payment-outbox/events/{eventId}/requeue
+-> ROLE_ADMIN 검증
+-> HOLD_MANUAL 이벤트를 PENDING으로 재진입
+-> 관리자 ID·사유·시각을 같은 트랜잭션으로 감사 기록
+```
+
+자동 재시도 한도를 넘긴 Outbox 이벤트만 수동 재처리할 수 있습니다. 재처리 요청 자체도 감사 대상이므로 상태 변경과 운영자 이력을 원자적으로 저장합니다.
+
 </details>
 
 ## 패키지 구조
@@ -406,7 +428,7 @@ GET  /api/v1/payments/{paymentId}/status
 │   │   ├── cancel       # PaymentCancelService, TransactionService, 취소 정책
 │   │   ├── recovery     # RecoveryScheduler, RecoveryService, RecoveryTransactionService
 │   │   ├── outbox       # paymentId별 claim, retry/backoff, Relay Scheduler
-│   │   ├── observability# 회색지대·Outbox 메트릭
+│   │   ├── observability # 회색지대·Outbox 메트릭
 │   │   └── port/out     # PaymentGateway, Outbox Store, Kafka Publisher 포트
 │   ├── domain           # Payment, PaymentAmount, PaymentStatus, PaymentRepository
 │   └── infrastructure   # PG Client, Circuit Breaker, PostgreSQL Outbox, Kafka 어댑터

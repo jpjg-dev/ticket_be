@@ -14,7 +14,7 @@
 | 결제 보정 | 오래된 `CONFIRMING`/`CANCELING` 결제를 PG 조회 결과 기준으로 승인/실패/환불/취소 확정 처리합니다. 결정 규칙은 순수 함수 정책 객체로 분리했습니다. |
 | 결제 Outbox | 최종 상태와 Outbox INSERT를 함께 커밋하고, paymentId별 선두 이벤트만 claim하는 Polling Relay가 Kafka로 발행합니다. 실패 이벤트는 해당 결제의 후속 이벤트만 차단하며 다른 결제는 계속 처리합니다. |
 | 결제 Audit Inbox | 감사 Consumer가 `eventId`와 canonical payload hash로 중복·충돌을 판정하고 Inbox와 감사 이력을 같은 DB 트랜잭션으로 저장합니다. malformed 이벤트는 DLT로 격리하고 DB 장애는 offset을 진행하지 않습니다. |
-| 운영 관측 | 회색지대 보정 결과, PG 호출 실패, 회색지대 backlog를 Micrometer 지표로 노출합니다. |
+| 운영 관측 | 회색지대 보정, Outbox backlog·발행·수동 재처리, Audit Consumer 처리·DLT, Inbox 보존과 retention 결과를 Micrometer 지표로 노출합니다. Prometheus 경보와 Grafana 패널은 infra repository에서 관리합니다. |
 | 대기열 Feature Flag | 관리자 제어와 실제 입장 경로를 연결했습니다. `SHADOW`에서는 요청률·CPU·Tomcat·Hikari 포화 신호를 관찰해 대기열을 자동 활성화하고, `ENFORCED`에서는 회차별 Redis ZSET, SSE 순번 갱신, 배치 승격, 입장 토큰 claim을 거쳐 예약을 생성합니다. `15명/초`, 최소 입장률 `10명/초`, 최대 backlog `10,000명`, TTL `30분`의 용량 불변식을 기동 시 검증하며 Redis 중단·SSE 단절·토큰 만료/중복·재기동 backlog·자동 모드 전환을 테스트했습니다. |
 | 정합성 검증 | 동시성 테스트와 E2E 부하 테스트 후 중복 좌석/부분 성공/상태 불일치 `0`을 확인했습니다. |
 
@@ -23,18 +23,20 @@
 | 후보 | 이유 |
 | --- | --- |
 | 회색지대 조회 인덱스 추가 | 보정 스케줄러가 한 주기에 `status` 기준 조회를 여러 번 수행합니다. 결제 볼륨이 커지면 `payments(status, confirming_at)` / `(status, canceling_at)` 인덱스를 검토합니다. |
-| 보정 재시도·알림 체계 | retry 카운터, 백오프, dead-letter, `HOLD_MANUAL` 알림 임계는 Kafka와 분산 락·분산 트랜잭션을 도입하고 서비스/DB를 분해하는 시점에 함께 설계합니다. |
+| 회색지대 보정 운영 자동화 | 현재 보정은 bounded batch와 상태별 수렴 규칙을 사용합니다. retry 횟수·장기 체류 임계·운영 알림과 수동 조치 기준은 실제 backlog 지표를 수집한 뒤 확정합니다. |
 
 > 완료됨: 보정 환불 호출 트랜잭션 밖 분리, 결제 보정 정책 객체 분리, 결제 취소 `CANCELING` 중간 상태 도입, 운영 관측 지표 보강, 관측성 패키지 중립화, PG·JWT 출력 포트 분리, 공연/좌석 조회 책임 분리, ArchUnit 계층 규칙 추가.
 
-## 다음 단계: Kafka 도입 전 준비
+## Kafka 1차 도입 완료와 다음 검증
 
-Kafka 컨테이너나 이벤트 발행 코드부터 추가하지 않고, 현재 동기 흐름에서 서비스 경계와 정합성 책임을 먼저 확정합니다.
+서비스 경계와 정합성 책임을 먼저 확정한 뒤, 결제 확정 이후 감사 처리를 첫 비동기 경계로 구현했습니다.
 
 - [x] `event/seat`, `reservation`, `payment`, `auth/user`의 데이터 소유권과 변경 권한을 정리했습니다.
 - [x] 좌석 선점·결제 승인·보정 최종 상태 전이는 동기로 유지하고, 확정 이후 후처리만 비동기 후보로 분류했습니다.
 - [x] `PaymentApproved.v1`, `PaymentCanceled.v1`의 발행 조건, payload와 `eventId` 멱등 기준을 정의했습니다.
 - [x] DB 커밋과 이벤트 발행 사이의 유실을 막기 위한 결제 Outbox 저장 경계를 구현했습니다.
+- [x] Audit Consumer가 Inbox와 감사 이력을 같은 로컬 트랜잭션으로 저장하고, 중복·payload 충돌·malformed record를 구분하도록 구현했습니다.
+- [x] DLT 격리, 관리자 수동 requeue 감사, Outbox/Inbox retention과 운영 지표를 구현했습니다.
 - [ ] 기존 E2E·Grafana 자료는 기준선으로 재사용하고, Outbox 추가 전후 결제 지연·DB 부하와 Kafka 장애 시 backlog 복구만 회귀 측정합니다.
 
 초기에는 단일 DB를 유지하고 애플리케이션 내부의 소유권과 계약부터 분리합니다. 서비스와 DB의 물리 분리는 이벤트 계약과 장애 복구를 검증한 뒤 진행합니다.

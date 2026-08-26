@@ -22,7 +22,8 @@
 - PostgreSQL 데이터는 VM host volume인 `/mnt/postgres-data`에 유지해 컨테이너 재생성 후에도 보존합니다.
 - Redis는 `redis-data` named volume에 AOF를 저장하고 `noeviction` 정책으로 대기열 상태의 임의 삭제를 막습니다.
 - Kafka는 `kafka-data` named volume에 log를 저장하며 단일 KRaft broker로 Outbox 이벤트를 전달합니다.
-- 결제 승인과 조회는 backend가 Toss Payments로 아웃바운드 호출합니다.
+- 결제 승인·조회·취소는 backend가 외부 PG로 아웃바운드 호출합니다.
+- 결제 최종 상태와 함께 저장한 Outbox 이벤트는 Kafka main topic으로 발행하고, backend 내부 Audit Consumer가 Inbox와 감사 이력으로 저장합니다. 유효하지 않은 record는 audit DLT로 격리합니다.
 
 ## 요청 흐름
 
@@ -34,7 +35,8 @@ User Browser
 |-> PostgreSQL
 |-> Redis cache / queue / seat lock
 |-> Kafka payment events
-`-> Toss Payments
+|   `-> Audit Consumer -> PostgreSQL Inbox / audit
+`-> External PG
 
 Grafana
 -> Prometheus
