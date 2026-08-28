@@ -39,7 +39,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "spring.jpa.show-sql=false",
         "logging.level.org.hibernate.SQL=OFF",
         "app.scheduling.enabled=false",
-        "payment.outbox.relay.enabled=true"
+        "payment.outbox.relay.enabled=true",
+        "payment.outbox.relay.send-timeout=500ms",
+        "payment.outbox.relay.retry-initial-delay=100ms",
+        "payment.outbox.relay.retry-max-delay=1s"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class PaymentOutboxKafkaIntegrationTest extends KafkaPostgresTestContainerSupport {
@@ -96,6 +99,33 @@ class PaymentOutboxKafkaIntegrationTest extends KafkaPostgresTestContainerSuppor
         assertEquals(records.get(0).partition(), records.get(1).partition());
         assertTrue(records.get(0).value().contains(approvedEventId.toString()));
         assertTrue(records.get(1).value().contains(canceledEventId.toString()));
+    }
+
+    @Test
+    void brokerOutageKeepsEventPendingAndPublishesAfterRecovery() throws Exception {
+        Payment payment = payment();
+        UUID eventId = UUID.randomUUID();
+        outbox(payment, eventId, "PaymentApproved");
+
+        KAFKA.getDockerClient().pauseContainerCmd(KAFKA.getContainerId()).exec();
+        try {
+            PaymentOutboxRelayResult failed = relayService.publishBatch();
+
+            assertEquals(1, failed.retryScheduledCount());
+            assertEquals(PaymentOutboxStatus.PENDING, outboxRepository.findByEventId(eventId)
+                    .orElseThrow()
+                    .getStatus());
+        } finally {
+            KAFKA.getDockerClient().unpauseContainerCmd(KAFKA.getContainerId()).exec();
+        }
+
+        Thread.sleep(250);
+        PaymentOutboxRelayResult recovered = relayService.publishBatch();
+
+        assertEquals(1, recovered.publishedCount());
+        assertEquals(PaymentOutboxStatus.PUBLISHED, outboxRepository.findByEventId(eventId)
+                .orElseThrow()
+                .getStatus());
     }
 
     private List<ConsumerRecord<String, String>> consumePaymentRecords(Long paymentId, int expectedCount) {
