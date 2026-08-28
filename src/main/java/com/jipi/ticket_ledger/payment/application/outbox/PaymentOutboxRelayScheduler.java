@@ -7,10 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(
-        name = {"app.scheduling.enabled", "payment.outbox.relay.enabled"},
-        havingValue = "true"
-)
+@ConditionalOnProperty(name = "payment.outbox.relay.enabled", havingValue = "true")
 @RequiredArgsConstructor
 @Slf4j
 public class PaymentOutboxRelayScheduler {
