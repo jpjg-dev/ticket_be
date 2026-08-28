@@ -556,6 +556,7 @@ k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
 | [docs/design/payment-outbox-design.md](docs/design/payment-outbox-design.md) | 결제 최종 상태와 이벤트를 함께 확정하는 Transactional Outbox 정책 |
 | [docs/design/redis-cache-strategy.md](docs/design/redis-cache-strategy.md) | 공연 목록/상세 Redis Cache-Aside 적용 전략 |
 | [docs/design/feature-flag-strategy.md](docs/design/feature-flag-strategy.md) | 대기열 점진 전환을 위한 관리자 Feature Flag와 장애 정책 |
+| [docs/performance/kafka-outbox-regression-test.md](docs/performance/kafka-outbox-regression-test.md) | Kafka Outbox 도입 후 성능 회귀와 broker 장애 복구 검증 |
 | [docs/testing/concurrentTest.md](docs/testing/concurrentTest.md) | 겹치는 좌석 요청의 동시성 검증 |
 | [docs/testing/TestCase.md](docs/testing/TestCase.md) | 상태 전이와 API 테스트 체크리스트 |
 | [docs/performance/performance-e2e-optimization-summary.md](docs/performance/performance-e2e-optimization-summary.md) | 인기 공연 전체 여정 성능 개선 과정과 최종 지표 |

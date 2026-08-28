@@ -265,6 +265,8 @@
 - [x] 한 결제가 `HOLD_MANUAL`이어도 다른 결제 이벤트는 계속 claim합니다.
 - [x] lease 만료 후 새 token으로 재claim하고 이전 token의 결과 반영을 거부합니다.
 - [x] Kafka ACK를 받은 이벤트만 `PUBLISHED` 처리합니다.
+- [x] Kafka broker 중단 시 이벤트를 `PENDING`으로 유지하고, broker 복구 후 재발행해 `PUBLISHED`로 수렴합니다.
+- [x] 전역 스케줄링 속성을 생략한 기본 활성 상태에서도 Outbox relay와 retention scheduler가 등록됩니다.
 - [x] 같은 `paymentId`의 승인·취소 이벤트가 같은 partition에서 순서대로 전달됩니다.
 - [x] Inbox와 감사 이력은 같은 DB 트랜잭션으로 커밋됩니다.
 - [x] 같은 `eventId`와 같은 canonical payload는 중복 처리하지 않습니다.

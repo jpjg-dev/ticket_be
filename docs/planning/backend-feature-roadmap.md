@@ -37,11 +37,13 @@
 - [x] DB 커밋과 이벤트 발행 사이의 유실을 막기 위한 결제 Outbox 저장 경계를 구현했습니다.
 - [x] Audit Consumer가 Inbox와 감사 이력을 같은 로컬 트랜잭션으로 저장하고, 중복·payload 충돌·malformed record를 구분하도록 구현했습니다.
 - [x] DLT 격리, 관리자 수동 requeue 감사, Outbox/Inbox retention과 운영 지표를 구현했습니다.
-- [ ] 기존 E2E·Grafana 자료는 기준선으로 재사용하고, Outbox 추가 전후 결제 지연·DB 부하와 Kafka 장애 시 backlog 복구만 회귀 측정합니다.
+- [x] 기존 E2E·Grafana 자료를 기준선으로 재사용해 Outbox 도입 후 결제 지연·DB 부하와 Kafka 장애 시 backlog 복구를 회귀 측정했습니다. 2 vCPU 공유 환경에서는 정합성을 유지했지만 CPU·DB pool 경쟁에 따른 지연 증가를 확인했습니다.
 
 초기에는 단일 DB를 유지하고 애플리케이션 내부의 소유권과 계약부터 분리합니다. 서비스와 DB의 물리 분리는 이벤트 계약과 장애 복구를 검증한 뒤 진행합니다.
 
 Outbox 전달은 `at-least-once`로 보고, 발행 완료 반영 전 장애로 생기는 중복은 Consumer가 `eventId`로 제거합니다. Audit Inbox와 retention까지 검증했으며, 다음 구현 단계는 Payment 결과를 Booking 상태에 반영하는 상태형 Consumer와 보상 흐름입니다.
+
+성능 회귀와 장애 복구 결과는 [Kafka Outbox 회귀·장애 테스트](../performance/kafka-outbox-regression-test.md)에 정리했습니다. 다음 운영 조정은 Relay/Consumer 처리량 제한과 Kafka 자원 격리를 먼저 검토합니다.
 
 ## 보류한 기능 확장 후보
 
