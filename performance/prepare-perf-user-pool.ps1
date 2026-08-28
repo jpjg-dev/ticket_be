@@ -1,3 +1,10 @@
+param(
+    [string]$DatabaseUrl,
+    [string]$DatabaseUsername,
+    [string]$DatabasePassword,
+    [string]$JwtSecret
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -7,26 +14,33 @@ $generatorPath = Join-Path $PSScriptRoot "scripts\generate-perf-user-tokens.js"
 $dataDirectory = Join-Path $PSScriptRoot "data"
 $outputPath = Join-Path $dataDirectory "perf-users.json"
 
-if (-not (Test-Path $envPath)) {
+if (-not (Test-Path $envPath) -and (-not $DatabaseUrl -or -not $DatabaseUsername -or -not $DatabasePassword -or -not $JwtSecret)) {
     throw ".env.dev was not found: $envPath"
 }
 
 $envMap = @{}
-Get-Content $envPath | ForEach-Object {
-    if ($_ -match '^\s*#' -or $_ -notmatch '=') {
-        return
+if (Test-Path $envPath) {
+    Get-Content $envPath | ForEach-Object {
+        if ($_ -match '^\s*#' -or $_ -notmatch '=') {
+            return
+        }
+
+        $parts = $_ -split '=', 2
+        $envMap[$parts[0].Trim()] = $parts[1].Trim()
     }
-
-    $parts = $_ -split '=', 2
-    $envMap[$parts[0].Trim()] = $parts[1].Trim()
 }
 
-if (-not ($envMap["DB_URL"] -match 'jdbc:postgresql://([^:/]+):(\d+)/(.+)$')) {
-    throw "DB_URL parse failed: $($envMap["DB_URL"])"
+$resolvedDatabaseUrl = if ($DatabaseUrl) { $DatabaseUrl } else { $envMap["DB_URL"] }
+$resolvedDatabaseUsername = if ($DatabaseUsername) { $DatabaseUsername } else { $envMap["DB_USERNAME"] }
+$resolvedDatabasePassword = if ($DatabasePassword) { $DatabasePassword } else { $envMap["DB_PASSWORD"] }
+$resolvedJwtSecret = if ($JwtSecret) { $JwtSecret } else { $envMap["JWT_SECRET"] }
+
+if (-not ($resolvedDatabaseUrl -match 'jdbc:postgresql://([^:/]+):(\d+)/(.+)$')) {
+    throw "DB_URL parse failed: $resolvedDatabaseUrl"
 }
 
-if (-not $envMap["JWT_SECRET"]) {
-    throw "JWT_SECRET was not found in .env.dev"
+if (-not $resolvedDatabaseUsername -or -not $resolvedDatabasePassword -or -not $resolvedJwtSecret) {
+    throw "Database credentials and JWT secret are required."
 }
 
 $hostName = $Matches[1]
@@ -35,14 +49,14 @@ $dbName = $Matches[3]
 
 New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
 
-$env:PGPASSWORD = $envMap["DB_PASSWORD"]
-$env:JWT_SECRET = $envMap["JWT_SECRET"]
+$env:PGPASSWORD = $resolvedDatabasePassword
+$env:JWT_SECRET = $resolvedJwtSecret
 $env:PERF_ACCESS_TOKEN_EXPIRATION_SECONDS = "3600"
 
 $userIds = psql `
     -h $hostName `
     -p $port `
-    -U $envMap["DB_USERNAME"] `
+    -U $resolvedDatabaseUsername `
     -d $dbName `
     -t `
     -A `

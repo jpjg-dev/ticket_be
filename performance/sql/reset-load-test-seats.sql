@@ -4,6 +4,10 @@ CREATE TEMP TABLE target_load_test_group_ids (
     id BIGINT PRIMARY KEY
 ) ON COMMIT DROP;
 
+CREATE TEMP TABLE target_load_test_payment_ids (
+    id BIGINT PRIMARY KEY
+) ON COMMIT DROP;
+
 WITH target_schedule AS (
     SELECT s.id
     FROM schedules s
@@ -22,9 +26,31 @@ FROM reservations reservation
 JOIN target_seats seat ON seat.id = reservation.seat_id
 WHERE reservation.reservation_group_id IS NOT NULL;
 
+INSERT INTO target_load_test_payment_ids (id)
+SELECT payment.id
+FROM payments payment
+JOIN target_load_test_group_ids reservation_group
+  ON reservation_group.id = payment.reservation_group_id;
+
+DELETE FROM payment_outbox_requeue_audit requeue_audit
+USING target_load_test_payment_ids payment
+WHERE requeue_audit.payment_id = payment.id;
+
+DELETE FROM payment_event_inbox inbox
+USING target_load_test_payment_ids payment
+WHERE inbox.payment_id = payment.id;
+
+DELETE FROM payment_event_audit audit
+USING target_load_test_payment_ids payment
+WHERE audit.payment_id = payment.id;
+
+DELETE FROM payment_outbox_events outbox
+USING target_load_test_payment_ids payment
+WHERE outbox.payment_id = payment.id;
+
 DELETE FROM payments payment
-USING target_load_test_group_ids reservation_group
-WHERE payment.reservation_group_id = reservation_group.id;
+USING target_load_test_payment_ids target
+WHERE payment.id = target.id;
 
 WITH target_schedule AS (
     SELECT s.id
