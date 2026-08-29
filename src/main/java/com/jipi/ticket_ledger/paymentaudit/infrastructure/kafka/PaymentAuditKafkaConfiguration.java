@@ -58,6 +58,7 @@ public class PaymentAuditKafkaConfiguration {
         configurer.configure(factory, consumerFactory);
         factory.setConcurrency(properties.concurrency());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
+        factory.getContainerProperties().setIdleBetweenPolls(properties.idleBetweenPolls().toMillis());
 
         DeadLetterPublishingRecoverer deadLetterRecoverer = new DeadLetterPublishingRecoverer(
                 kafkaTemplate,

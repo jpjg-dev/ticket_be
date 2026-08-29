@@ -52,6 +52,7 @@ class PaymentAuditEventCodecTest {
                 "ticketledger-payment-audit-v1",
                 1,
                 20,
+                Duration.ZERO,
                 Duration.ofSeconds(5),
                 Duration.ofSeconds(1),
                 3,

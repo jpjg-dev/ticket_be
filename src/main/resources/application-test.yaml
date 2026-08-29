@@ -75,6 +75,7 @@ payment:
       group-id: ticketledger-payment-audit-v1
       concurrency: 1
       max-poll-records: 20
+      idle-between-polls: 0ms
       database-retry-delay: 5s
       unknown-retry-delay: 1s
       unknown-max-attempts: 3

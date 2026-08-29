@@ -177,6 +177,7 @@ payment:
       group-id: ${PAYMENT_AUDIT_CONSUMER_GROUP_ID}
       concurrency: ${PAYMENT_AUDIT_CONSUMER_CONCURRENCY}
       max-poll-records: ${PAYMENT_AUDIT_MAX_POLL_RECORDS}
+      idle-between-polls: ${PAYMENT_AUDIT_IDLE_BETWEEN_POLLS}
       database-retry-delay: ${PAYMENT_AUDIT_DATABASE_RETRY_DELAY}
       unknown-retry-delay: ${PAYMENT_AUDIT_UNKNOWN_RETRY_DELAY}
       unknown-max-attempts: ${PAYMENT_AUDIT_UNKNOWN_MAX_ATTEMPTS}

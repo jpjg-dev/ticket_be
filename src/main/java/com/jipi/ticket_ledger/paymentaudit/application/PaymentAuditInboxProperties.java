@@ -11,6 +11,7 @@ public record PaymentAuditInboxProperties(
         String groupId,
         int concurrency,
         int maxPollRecords,
+        Duration idleBetweenPolls,
         Duration databaseRetryDelay,
         Duration unknownRetryDelay,
         int unknownMaxAttempts,
@@ -33,6 +34,7 @@ public record PaymentAuditInboxProperties(
                 || maxPayloadBytes <= 0 || topicPartitions <= 0) {
             throw new IllegalArgumentException("Payment audit consumer의 수량 설정은 1 이상이어야 합니다.");
         }
+        requireNonNegative(idleBetweenPolls, "idle-between-polls");
         requirePositive(databaseRetryDelay, "database-retry-delay");
         requirePositive(unknownRetryDelay, "unknown-retry-delay");
     }
@@ -40,6 +42,12 @@ public record PaymentAuditInboxProperties(
     private static void requirePositive(Duration value, String property) {
         if (value == null || value.isZero() || value.isNegative()) {
             throw new IllegalArgumentException("payment.audit.consumer." + property + "는 양수여야 합니다.");
+        }
+    }
+
+    private static void requireNonNegative(Duration value, String property) {
+        if (value == null || value.isNegative()) {
+            throw new IllegalArgumentException("payment.audit.consumer." + property + "는 0 이상이어야 합니다.");
         }
     }
 }
