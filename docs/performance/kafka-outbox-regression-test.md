@@ -81,3 +81,16 @@ Prometheus에서 전체 Kafka 경로 실행 중 다음 최대값을 확인했습
 - DB pool을 먼저 늘리면 CPU 포화 상태에서 경합만 키울 수 있으므로 우선순위가 아닙니다.
 - 다음 조정은 Relay batch/주기와 Consumer 처리량을 CPU·Hikari pending·backlog 기준으로 제한하거나, Kafka broker/후처리 worker의 자원을 요청 경로와 분리하는 방향으로 진행합니다.
 - 대기열은 사용자 요청 유입을 제어하고, Relay 제한은 이미 커밋된 backlog의 배출 속도를 제어하므로 두 보호 장치를 별도로 관측합니다.
+
+## 2026-09-01 처리율 후보 재측정
+
+동일 2 vCPU 환경에서 Relay batch `5/10/20`과 Audit Consumer idle `0/100ms`를 단계적으로 비교했습니다. 하지만 backend 재기동 뒤 같은 `20/0ms` control도 완료 결제가 `505 -> 869 -> 1,000`으로 크게 변해 후보 간 차이보다 warmup·host 변동이 더 컸습니다.
+
+- `20/0ms`: 세 번째 실행에서만 완료 결제 `1,000`, unexpected `0`을 충족했습니다.
+- `5/0ms`: warm 재측정에서도 완료 결제 `615`, unexpected `34`로 탈락했습니다.
+- `10/0ms`: warm 재측정에서도 완료 결제 `702`로 탈락했습니다.
+- `20/100ms`: 재기동 직후 실행에서 완료 결제 `328`로 탈락했습니다.
+
+후보가 정확성 기준을 통과하지 못했고 설정별 재기동 warmup 편향을 제거하지 못했으므로, Consumer `50ms`와 최종 후보 3회 측정은 진행하지 않았습니다. 현재 운영 시작값은 Relay batch `20`, Consumer idle `0ms`로 유지합니다. 이는 최적값 확정이 아니라 근거가 부족한 변경을 피한 결정입니다.
+
+다음 재측정은 후보마다 full arrival warmup을 반복해 control 수준이 안정된 뒤 점수화하고, fixture 초기화 전에 Outbox backlog 수렴 또는 backend 중지를 보장해야 합니다. 상세 실행값과 무효 처리 근거는 Git 제외 private 문서에 보관합니다.
