@@ -223,6 +223,12 @@ node performance/mock-pg/mock-pg-server.js
 .\performance\reset-load-test-seats.ps1
 ```
 
+점수화 k6 실행 전에는 백엔드 liveness와 Prometheus의 CPU, Hikari 대기, Outbox backlog가 기본 3회 연속 안정 상태인지 확인합니다. 이 임계값은 운영 SLO가 아니라 실험 시작 조건입니다.
+
+```powershell
+.\performance\Wait-PerformanceEnvironmentReady.ps1
+```
+
 ```powershell
 $env:LOAD_PROFILE="arrival"
 k6 run performance/k6/popular-event-payment-arrival-rate-spike.js
