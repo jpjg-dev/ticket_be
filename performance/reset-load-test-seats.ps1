@@ -74,6 +74,12 @@ AND (
     outbox.status <> 'PUBLISHED'
     OR NOT EXISTS (
         SELECT 1
+        FROM payment_event_inbox inbox
+        WHERE inbox.event_id = outbox.event_id
+          AND inbox.payload_hash = outbox.payload_hash
+    )
+    OR NOT EXISTS (
+        SELECT 1
         FROM payment_event_audit audit
         WHERE audit.event_id = outbox.event_id
           AND audit.payload_hash = outbox.payload_hash

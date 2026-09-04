@@ -42,6 +42,31 @@ function Invoke-ReadinessCase {
     }
 }
 
+function Invoke-LiveModeFailureCase {
+    $stdoutPath = Join-Path $fixtureDirectory "live-mode.out"
+    $stderrPath = Join-Path $fixtureDirectory "live-mode.err"
+    $process = Start-Process -FilePath "pwsh" -ArgumentList @(
+        "-NoProfile",
+        "-File",
+        $scriptPath,
+        "-BackendBaseUrl",
+        "http://127.0.0.1:1",
+        "-PollIntervalSeconds",
+        "1",
+        "-TimeoutSeconds",
+        "0"
+    ) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+
+    $output = Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue
+    $errorOutput = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
+    if ($process.ExitCode -eq 0) {
+        throw "live-mode expected a connection failure but exited successfully. Output: $output $errorOutput"
+    }
+    if ("$output`n$errorOutput" -match "Object reference not set") {
+        throw "live-mode treated an empty fixture array as fixture input. Output: $output $errorOutput"
+    }
+}
+
 try {
     $stable = @{ livenessStatus = "UP"; prometheus = New-MetricsText }
     Invoke-ReadinessCase -Name "success" -Samples @($stable, $stable, $stable) -TimeoutSeconds 10 -ExpectedExitCode 0
@@ -54,6 +79,8 @@ try {
 
     $notReady = @{ livenessStatus = "UP"; prometheus = New-MetricsText -PendingOutbox 1 }
     Invoke-ReadinessCase -Name "timeout" -Samples @($notReady) -TimeoutSeconds 2 -ExpectedExitCode 1
+
+    Invoke-LiveModeFailureCase
 } finally {
     Remove-Item -LiteralPath $fixtureDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }

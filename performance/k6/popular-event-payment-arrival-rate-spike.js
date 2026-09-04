@@ -87,8 +87,8 @@ export const options = {
         },
       },
   thresholds: {
-    arrival_e2e_unexpected_rate: ["rate<0.01"],
-    arrival_e2e_payment_completion_rate: ["rate>0.99"],
+    arrival_e2e_unexpected: ["count==0"],
+    arrival_e2e_payment_completed: ["count==1000"],
   },
 };
 
@@ -273,10 +273,7 @@ function isSuccess(response) {
 }
 
 function isExpectedContention(response) {
-  return response.status >= 400
-    && response.status < 500
-    && response.status !== 401
-    && response.status !== 403;
+  return response.status === 409;
 }
 
 function tags(reason, status) {

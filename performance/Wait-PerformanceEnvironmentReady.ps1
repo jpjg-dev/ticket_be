@@ -90,7 +90,7 @@ function Get-ReadinessSample {
         [ref]$FixtureIndex
     )
 
-    if ($null -ne $FixtureSamples) {
+    if ($null -ne $FixtureSamples -and $FixtureSamples.Count -gt 0) {
         $sample = $FixtureSamples[[Math]::Min($FixtureIndex.Value, $FixtureSamples.Count - 1)]
         $FixtureIndex.Value++
         return [pscustomobject]@{
@@ -100,7 +100,7 @@ function Get-ReadinessSample {
     }
 
     $health = Invoke-RestMethod -Uri "$($BackendBaseUrl.TrimEnd('/'))/actuator/health/liveness" -Method Get -TimeoutSec $PollIntervalSeconds
-    $prometheus = Invoke-WebRequest -Uri "$($BackendBaseUrl.TrimEnd('/'))/actuator/prometheus" -Method Get -TimeoutSec $PollIntervalSeconds
+    $prometheus = Invoke-WebRequest -Uri "$($BackendBaseUrl.TrimEnd('/'))/actuator/prometheus" -Method Get -TimeoutSec $PollIntervalSeconds -UseBasicParsing
     return [pscustomobject]@{
         LivenessStatus = [string]$health.status
         PrometheusText = $prometheus.Content
@@ -150,7 +150,7 @@ while ($true) {
         }
     } catch {
         $stableSamples = 0
-        Write-Output "readiness sample=$sampleNumber result=unstable stable_samples=0/$RequiredConsecutiveSamples reason=$($_.Exception.Message)"
+        Write-Output "readiness sample=$sampleNumber result=unstable stable_samples=0/$RequiredConsecutiveSamples line=$($_.InvocationInfo.ScriptLineNumber) reason=$($_.Exception.Message)"
     }
 
     if ($fixtureSamples) {

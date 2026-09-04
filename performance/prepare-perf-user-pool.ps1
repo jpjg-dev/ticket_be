@@ -66,11 +66,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "Performance user seed failed."
 }
 
-$userIds | node $generatorPath | Set-Content -LiteralPath $outputPath -Encoding utf8NoBOM
+$generatedUsersJson = $userIds | node $generatorPath | Out-String
 
 if ($LASTEXITCODE -ne 0) {
     throw "Performance token generation failed."
 }
+
+[System.IO.File]::WriteAllText(
+    $outputPath,
+    $generatedUsersJson,
+    [System.Text.UTF8Encoding]::new($false)
+)
 
 $users = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
 if ($users.Count -ne 10000) {
