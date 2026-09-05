@@ -88,7 +88,7 @@ export const options = {
       },
   thresholds: {
     arrival_e2e_unexpected: ["count==0"],
-    arrival_e2e_payment_completed: ["count==1000"],
+    arrival_e2e_payment_completed: [`count==${loadProfile === "smoke" ? 1 : maxSeatId - minSeatId + 1}`],
   },
 };
 
@@ -97,6 +97,8 @@ export function completePopularEventPaymentJourney() {
   const iterationIndex = exec.scenario.iterationInTest;
   const user = perfUsers[iterationIndex % perfUsers.length];
   let isUnexpected = false;
+  paymentCompleted.add(0, tags());
+  unexpected.add(0, tags());
 
   if (iterationIndex >= perfUsers.length) {
     userPoolReuse.add(1, tags());
