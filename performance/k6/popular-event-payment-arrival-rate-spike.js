@@ -13,6 +13,8 @@ const scheduleId = Number(__ENV.SCHEDULE_ID || 18);
 const minSeatId = Number(__ENV.MIN_SEAT_ID || 391);
 const maxSeatId = Number(__ENV.MAX_SEAT_ID || 1390);
 const selectionDelaySeconds = Number(__ENV.SELECTION_DELAY_SECONDS || 0.2);
+const logUnexpected = __ENV.LOG_UNEXPECTED === "true";
+let lastResponse;
 
 const perfUsers = new SharedArray("performance users", () =>
   JSON.parse(open("../data/perf-users.json"))
@@ -232,6 +234,11 @@ export function completePopularEventPaymentJourney() {
   function recordUnexpected(reason, status) {
     isUnexpected = true;
     unexpected.add(1, tags(reason, status));
+    if (logUnexpected) {
+      const body = lastResponse ? parseJson(lastResponse) : null;
+      const safeIdentifier = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,100}$/.test(value) ? value : undefined;
+      console.warn(JSON.stringify({ reason, status, errorCode: lastResponse && lastResponse.error_code, elapsedMs: exec.instance.currentTestRunDuration, code: safeIdentifier(body && body.code), traceId: safeIdentifier(body && body.traceId) }));
+    }
   }
 
   function recordPaymentFailure(reason, status) {
@@ -245,6 +252,7 @@ function timedGet(path, metric, endpoint) {
     tags: { case: caseName, endpoint },
   });
   metric.add(response.timings.duration, tags());
+  lastResponse = response;
   return response;
 }
 
@@ -259,6 +267,7 @@ function timedPost(path, body, metric, endpoint, cookie) {
     tags: { case: caseName, endpoint },
   });
   metric.add(response.timings.duration, tags());
+  lastResponse = response;
   return response;
 }
 

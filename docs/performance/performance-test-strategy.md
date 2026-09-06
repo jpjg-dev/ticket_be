@@ -214,6 +214,8 @@ entry TTL > max expected backlog / minimum admission rate + safety margin
 - 실행할 DB와 JWT secret을 명시해 성능 사용자 토큰을 갱신하고, 같은 대상의 `/api/v1/users/me` 인증을 확인합니다.
 - `popular-event-payment-arrival-rate-spike.js`의 smoke는 결제 1건, arrival은 설정한 좌석 ID 범위의 좌석 수만큼 완료를 요구합니다. 실행 전 실제 fixture 좌석 수도 이 범위와 일치해야 합니다.
 - unexpected는 0건이어야 합니다. 성공/실패 카운터에 0 샘플을 기록해 미발생 지표도 결과 파일에 남깁니다.
+- 실패 원인 진단 시 `LOG_UNEXPECTED=true`를 지정하면 사유, HTTP 상태, k6 오류 코드, 실행 경과 시간, 검증된 형식의 오류 코드와 traceId를 기록합니다. 응답 본문 전체와 Cookie는 기록하지 않습니다. k6 summary는 사유별 태그를 보존하지 않으므로 console 로그와 backend 로그를 컨테이너 재생성 전에 별도로 보관합니다.
+- 종료 시점의 `status=0` 진단 로그와 summary에 집계된 unexpected 건수를 동일시하지 않습니다. 강제 중단된 요청의 로그·메트릭 반영 시점이 다를 수 있으므로 HTTP 응답 오류와 전송 중단을 나눠 분석합니다.
 - k6 종료 뒤 서버의 진행 중 요청과 이벤트 처리가 안정된 것을 확인한 후 `performance/sql/verify-load-test-payment-events.sql`로 승인 결제·좌석 상태·이벤트 전달을 대조합니다.
 - 기본 fixture(회차 18, 좌석 ID 391~1390)의 arrival 승인 결제와 BOOKED 좌석은 각각 1,000건, 이벤트 coverage 오류·승인 결제 상태 불일치·승인 없는 BOOKED/CONFIRMED·중복 활성 좌석은 모두 0이어야 합니다. 이 SQL은 읽기 전용 집계이며 결과를 자동 합격 처리하지 않습니다. 다른 fixture를 사용하면 SQL 범위도 함께 맞춥니다.
 - 정합성 통과와 지연/처리량 평가는 구분합니다. dropped iteration, 중단된 여정, p95와 파이프라인 수렴 시간은 별도로 기록합니다.
