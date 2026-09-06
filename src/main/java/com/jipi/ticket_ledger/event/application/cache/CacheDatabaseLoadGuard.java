@@ -21,7 +21,7 @@ public class CacheDatabaseLoadGuard {
 
     public <T> T execute(Supplier<T> loader) {
         if (!permits.tryAcquire()) {
-            metrics.rejected();
+            metrics.rejected("database_capacity");
             throw unavailable();
         }
 

@@ -30,8 +30,9 @@ public class EventCacheMetrics {
         increment("database_load");
     }
 
-    public void rejected() {
+    public void rejected(String reason) {
         increment("rejected");
+        meterRegistry.counter("ticketledger.event.cache.rejections", "reason", reason).increment();
     }
 
     private void increment(String outcome) {

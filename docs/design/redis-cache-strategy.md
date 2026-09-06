@@ -126,6 +126,8 @@ Redis가 정상이고 cache miss가 발생하면 동일 key의 요청 하나만 
 
 초기값 `2`, `300ms`, `2s`는 최적값이 아니라 서버 보호를 위한 시작점입니다. 장애 주입 테스트에서 DB CPU, Hikari pending connection, fallback 성공률과 `503` 비율을 측정한 뒤 조정합니다.
 
+거부 원인은 `ticketledger_event_cache_rejections_total{reason}`으로 구분합니다. `refresh_timeout`은 동일 key의 재생성 대기 초과, `database_capacity`는 DB 로드 permit 부족, `interrupted`는 재생성 대기 중 스레드 인터럽트입니다. 기존 `ticketledger_event_cache_requests_total{outcome="rejected"}` 집계도 유지하며, 이전에 누락되던 인터럽트 거부도 집계합니다. 응답은 기존과 동일한 503이므로 오류 코드만으로 Redis 장애라고 판단하지 않습니다. reason 값은 코드에 고정된 세 가지이며 cache key나 사용자 ID를 태그에 넣지 않습니다.
+
 ### Redis Circuit Breaker
 
 Redis cache get은 `eventRedisCacheRead`, put과 refresh lock은 `eventRedisCacheWrite` 회로로 분리합니다. 각 회로는 최근 `10`회 중 최소 `5`회가 수집된 뒤 실패율이 `50%` 이상이면 `10초` 동안 OPEN하고, HALF_OPEN에서는 `1`회만 복구 여부를 확인합니다.

@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class CacheDatabaseLoadGuardTest {
 
@@ -19,8 +20,9 @@ class CacheDatabaseLoadGuardTest {
     @DisplayName("허용된 DB cache load가 모두 사용 중이면 추가 요청을 거절한다")
     void rejectsLoadWhenPermitsAreExhausted() throws Exception {
         EventCachePolicyProperties policy = policy(2);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
         CacheDatabaseLoadGuard guard = new CacheDatabaseLoadGuard(
-                policy, new EventCacheMetrics(new SimpleMeterRegistry()));
+                policy, new EventCacheMetrics(registry));
         CountDownLatch entered = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
 
@@ -29,9 +31,13 @@ class CacheDatabaseLoadGuardTest {
             Future<String> second = executor.submit(() -> guard.execute(() -> await(entered, release)));
             entered.await();
 
-            assertThrows(CacheTemporarilyUnavailableException.class, () -> guard.execute(() -> "rejected"));
-
-            release.countDown();
+            try {
+                assertThrows(CacheTemporarilyUnavailableException.class, () -> guard.execute(() -> "rejected"));
+                assertEquals(1, registry.get("ticketledger.event.cache.rejections")
+                        .tag("reason", "database_capacity").counter().count());
+            } finally {
+                release.countDown();
+            }
             first.get();
             second.get();
         }

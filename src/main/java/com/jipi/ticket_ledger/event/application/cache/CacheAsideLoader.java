@@ -65,7 +65,7 @@ public class CacheAsideLoader {
                 return cached.get();
             }
         }
-        metrics.rejected();
+        metrics.rejected("refresh_timeout");
         throw databaseLoadGuard.unavailable();
     }
 
@@ -90,6 +90,7 @@ public class CacheAsideLoader {
             Thread.sleep(duration);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            metrics.rejected("interrupted");
             throw databaseLoadGuard.unavailable();
         }
     }
