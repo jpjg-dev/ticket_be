@@ -2,6 +2,7 @@ package com.jipi.ticket_ledger.event.application.cache;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class EventCacheMetrics {
@@ -33,6 +34,11 @@ public class EventCacheMetrics {
     public void rejected(String reason) {
         increment("rejected");
         meterRegistry.counter("ticketledger.event.cache.rejections", "reason", reason).increment();
+    }
+
+    public void refreshPhase(String phase, long startedAtNanos) {
+        meterRegistry.timer("ticketledger.event.cache.refresh.duration", "phase", phase)
+                .record(System.nanoTime() - startedAtNanos, TimeUnit.NANOSECONDS);
     }
 
     private void increment(String outcome) {

@@ -48,7 +48,13 @@ public class CacheAsideLoader {
                 return refreshed.get();
             }
 
-            T value = databaseLoadGuard.execute(databaseReader);
+            long databaseStarted = System.nanoTime();
+            T value;
+            try {
+                value = databaseLoadGuard.execute(databaseReader);
+            } finally {
+                metrics.refreshPhase("database_load", databaseStarted);
+            }
             writeCache(cacheWriter, value);
             return value;
         } finally {
@@ -70,10 +76,13 @@ public class CacheAsideLoader {
     }
 
     private <T> void writeCache(Consumer<T> cacheWriter, T value) {
+        long writeStarted = System.nanoTime();
         try {
             cacheWriter.accept(value);
         } catch (EventCacheAccessException exception) {
             metrics.redisError();
+        } finally {
+            metrics.refreshPhase("cache_write", writeStarted);
         }
     }
 
