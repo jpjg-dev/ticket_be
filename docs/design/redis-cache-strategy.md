@@ -128,6 +128,19 @@ Redis가 정상이고 cache miss가 발생하면 동일 key의 요청 하나만 
 
 거부 원인은 `ticketledger_event_cache_rejections_total{reason}`으로 구분합니다. `refresh_timeout`은 동일 key의 재생성 대기 초과, `database_capacity`는 DB 로드 permit 부족, `interrupted`는 재생성 대기 중 스레드 인터럽트입니다. 기존 `ticketledger_event_cache_requests_total{outcome="rejected"}` 집계도 유지하며, 이전에 누락되던 인터럽트 거부도 집계합니다. 응답은 기존과 동일한 503이므로 오류 코드만으로 Redis 장애라고 판단하지 않습니다. reason 값은 코드에 고정된 세 가지이며 cache key나 사용자 ID를 태그에 넣지 않습니다.
 
+### 캐시 재생성 시간 관측
+
+`ticketledger_event_cache_refresh_duration_seconds_count`, `_sum`, `_max`를 `phase`별로 확인합니다. 단위는 초이며, 정상 cache hit가 아니라 재생성 락을 획득하고 캐시 재확인에서도 miss인 요청의 작업을 측정합니다.
+
+| phase | 측정 범위 | 해석 시 주의점 |
+| --- | --- | --- |
+| `database_load` | DB 로드 guard 진입부터 database supplier 종료까지 | permit 거부, 커넥션 대기, 트랜잭션 처리와 DTO 조립이 포함될 수 있어 순수 SQL 실행 시간이 아닙니다. |
+| `cache_write` | cache writer 호출 시작부터 종료까지 | 직렬화와 TTL 계산, 회로 판단, Redis 저장 등이 포함되므로 순수 네트워크 시간이나 직렬화 시간으로 단정하지 않습니다. |
+
+두 구간 모두 `finally`에서 시간을 기록하므로 실패·거부된 시도도 포함됩니다. `database_load`가 실패하면 `cache_write`는 실행되지 않아 두 구간의 count가 다를 수 있습니다. 성공 여부는 거부 사유·Redis 오류·Circuit Breaker 지표와 함께 확인합니다.
+
+락 획득·재확인·해제, 다른 요청의 재생성 대기, Redis 장애 시 직접 DB fallback은 이 타이머에 포함되지 않습니다. 따라서 두 구간의 합을 전체 요청 시간으로 해석하지 않습니다. 목록·상세도 같은 phase에 합산되므로 개별 재생성 한 건의 원인을 확정하려면 추가 로그나 별도 계측이 필요합니다.
+
 ### Redis Circuit Breaker
 
 Redis cache get은 `eventRedisCacheRead`, put과 refresh lock은 `eventRedisCacheWrite` 회로로 분리합니다. 각 회로는 최근 `10`회 중 최소 `5`회가 수집된 뒤 실패율이 `50%` 이상이면 `10초` 동안 OPEN하고, HALF_OPEN에서는 `1`회만 복구 여부를 확인합니다.
