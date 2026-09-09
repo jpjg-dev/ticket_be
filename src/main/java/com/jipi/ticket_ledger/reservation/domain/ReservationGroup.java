@@ -17,8 +17,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.List;
 
 @Getter
@@ -51,14 +49,6 @@ public class ReservationGroup {
         this.createdAt = now;
         this.expiresAt = expiresAt;
         this.status = ReservationGroupStatus.PENDING;
-    }
-
-    public ReservationGroup(User user, LocalDateTime now, LocalDateTime expiresAt) {
-        this(
-                user,
-                now.atZone(ZoneId.systemDefault()).toInstant(),
-                expiresAt.atZone(ZoneId.systemDefault()).toInstant()
-        );
     }
 
     public boolean isExpiredAt(Instant now) {

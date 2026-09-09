@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -58,9 +59,10 @@ public class PaymentConfirmTransactionService {
             return ConfirmingPayment.from(payment);
         }
 
-        paymentConfirmValidator.validate(paymentKey, orderId, amount, payment, reservations, clock.instant());
+        Instant confirmingAt = clock.instant();
+        paymentConfirmValidator.validate(paymentKey, orderId, amount, payment, reservations, confirmingAt);
 
-        payment.confirming();
+        payment.confirming(confirmingAt);
         return ConfirmingPayment.from(payment);
     }
 
@@ -78,7 +80,7 @@ public class PaymentConfirmTransactionService {
         }
 
         List<Reservation> reservations = getReservationsForPayment(payment);
-        payment.approve(approval.paymentKey(), approval.method(), approval.status());
+        payment.approve(approval.paymentKey(), approval.method(), approval.status(), clock.instant());
         payment.getReservationGroup().confirm();
         reservations.forEach(reservation -> {
             reservation.confirm();

@@ -25,6 +25,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -183,12 +184,13 @@ class UserApplicationServiceTest {
 
     private ReservationFixture createConfirmedReservationFixture(User user, Long reservationGroupId, Long paymentId, String... seatNumbers) {
         LocalDateTime now = LocalDateTime.now();
-        ReservationGroup reservationGroup = createReservationGroup(user, reservationGroupId, now);
-        List<Reservation> reservations = createReservations(user, reservationGroup, now, seatNumbers);
-        Payment payment = new Payment(reservationGroup, 200000, now, "order-" + paymentId, "KRW");
+        Instant occurredAt = Instant.now();
+        ReservationGroup reservationGroup = createReservationGroup(user, reservationGroupId, occurredAt);
+        List<Reservation> reservations = createReservations(user, reservationGroup, now, occurredAt, seatNumbers);
+        Payment payment = new Payment(reservationGroup, 200000, occurredAt, "order-" + paymentId, "KRW");
         ReflectionTestUtils.setField(payment, "id", paymentId);
-        payment.confirming();
-        payment.approve("payment-key-" + paymentId, "CARD", "DONE");
+        payment.confirming(java.time.Instant.now());
+        payment.approve("payment-key-" + paymentId, "CARD", "DONE", java.time.Instant.now());
         reservations.forEach(reservation -> {
             reservation.confirm();
             reservation.getSeat().book();
@@ -200,9 +202,9 @@ class UserApplicationServiceTest {
     private ReservationFixture createCanceledReservationFixture(User user, Long reservationGroupId, Long paymentId, String... seatNumbers) {
         ReservationFixture fixture = createConfirmedReservationFixture(user, reservationGroupId, paymentId, seatNumbers);
         fixture.payment().startCanceling(java.time.Instant.now());
-        fixture.payment().cancel(LocalDateTime.now());
+        fixture.payment().cancel(Instant.now());
         fixture.reservations().forEach(reservation -> {
-            reservation.cancel();
+            reservation.cancel(java.time.Instant.now());
             reservation.getSeat().releaseBooked();
         });
         fixture.reservations().get(0).getReservationGroup().cancel();
@@ -216,7 +218,13 @@ class UserApplicationServiceTest {
         return fixture;
     }
 
-    private List<Reservation> createReservations(User user, ReservationGroup reservationGroup, LocalDateTime now, String... seatNumbers) {
+    private List<Reservation> createReservations(
+            User user,
+            ReservationGroup reservationGroup,
+            LocalDateTime now,
+            Instant occurredAt,
+            String... seatNumbers
+    ) {
         Event event = new Event("테스트 공연", "설명", "테스트홀", now.minusDays(1), now);
         Schedule schedule = new Schedule(event, now.plusDays(1), now.plusDays(1).plusHours(2), now);
 
@@ -224,15 +232,15 @@ class UserApplicationServiceTest {
                 .mapToObj(index -> {
                     Seat seat = new Seat(schedule, seatNumbers[index], "VIP", 100000, now);
                     seat.hold();
-                    Reservation reservation = new Reservation(user, seat, reservationGroup, now, reservationGroup.getExpiresAt());
+                    Reservation reservation = new Reservation(user, seat, reservationGroup, occurredAt, reservationGroup.getExpiresAt());
                     ReflectionTestUtils.setField(reservation, "id", reservationGroup.getId() * 10 + index);
                     return reservation;
                 })
                 .toList();
     }
 
-    private ReservationGroup createReservationGroup(User user, Long reservationGroupId, LocalDateTime now) {
-        ReservationGroup reservationGroup = new ReservationGroup(user, now, now.plusMinutes(5));
+    private ReservationGroup createReservationGroup(User user, Long reservationGroupId, Instant now) {
+        ReservationGroup reservationGroup = new ReservationGroup(user, now, now.plusSeconds(300));
         ReflectionTestUtils.setField(reservationGroup, "id", reservationGroupId);
         return reservationGroup;
     }

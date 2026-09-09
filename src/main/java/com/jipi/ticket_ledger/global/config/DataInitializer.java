@@ -276,8 +276,9 @@ public class DataInitializer implements ApplicationRunner {
             reservationRepository.saveAll(reservations);
 
             Payment payment = paymentRepository.save(new Payment(group, amount, now, "perf-mypage-order-" + sequence));
-            payment.confirming();
-            payment.approve("perf-mypage-paykey-" + sequence, "CARD", "DONE");
+            // 개발 이력 fixture는 한 번 샘플링한 기준 시각으로 전체 상태 이력을 구성한다.
+            payment.confirming(now);
+            payment.approve("perf-mypage-paykey-" + sequence, "CARD", "DONE", now);
             group.confirm();
         }
     }
@@ -364,8 +365,8 @@ public class DataInitializer implements ApplicationRunner {
                     bookedSeatIds.add(seat.getId());
                 }
             }
-            payment.confirming();
-            payment.approve("paykey-" + orderId, "CARD", "DONE");
+            payment.confirming(now);
+            payment.approve("paykey-" + orderId, "CARD", "DONE", now);
             group.confirm();
             for (Reservation reservation : reservations) {
                 reservation.confirm();
@@ -374,8 +375,8 @@ public class DataInitializer implements ApplicationRunner {
             for (Seat seat : seatsForGroup) {
                 seat.book();
             }
-            payment.confirming();
-            payment.approve("paykey-" + orderId, "CARD", "DONE");
+            payment.confirming(now);
+            payment.approve("paykey-" + orderId, "CARD", "DONE", now);
             group.confirm();
             for (Reservation reservation : reservations) {
                 reservation.confirm();
@@ -384,7 +385,7 @@ public class DataInitializer implements ApplicationRunner {
             payment.startCanceling(now);
             payment.cancel(now);
             for (Reservation reservation : reservations) {
-                reservation.cancel();
+                reservation.cancel(now);
             }
             group.cancel();
             for (Seat seat : seatsForGroup) {

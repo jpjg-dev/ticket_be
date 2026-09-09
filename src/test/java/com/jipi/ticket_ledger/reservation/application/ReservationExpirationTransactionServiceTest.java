@@ -24,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -85,7 +86,7 @@ class ReservationExpirationTransactionServiceTest {
     @DisplayName("expireGroup: CONFIRMING 결제는 보정 스케줄러에 맡기고 건너뛴다")
     void skipsConfirmingPayment() {
         Fixture fixture = createFixture(12L);
-        fixture.payment().confirming();
+        fixture.payment().confirming(java.time.Instant.now());
         when(paymentRepository.findByReservationGroupIdForUpdate(12L)).thenReturn(Optional.of(fixture.payment()));
         when(reservationGroupRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(fixture.group()));
 
@@ -136,7 +137,8 @@ class ReservationExpirationTransactionServiceTest {
     private Fixture createFixture(Long groupId) {
         User user = new User("user@test.com", "password", "테스터", LocalDateTime.now());
         LocalDateTime now = LocalDateTime.now();
-        ReservationGroup group = new ReservationGroup(user, now, now.minusSeconds(1));
+        Instant occurredAt = clock.instant();
+        ReservationGroup group = new ReservationGroup(user, occurredAt, occurredAt.minusSeconds(1));
         ReflectionTestUtils.setField(group, "id", groupId);
 
         Event event = new Event("공연", "설명", "장소", now, now);
@@ -146,9 +148,9 @@ class ReservationExpirationTransactionServiceTest {
         seat1.hold();
         seat2.hold();
 
-        Reservation reservation1 = new Reservation(user, seat1, group, now, group.getExpiresAt());
-        Reservation reservation2 = new Reservation(user, seat2, group, now, group.getExpiresAt());
-        Payment payment = new Payment(group, 200000, now, "order-expire-group", "KRW");
+        Reservation reservation1 = new Reservation(user, seat1, group, occurredAt, group.getExpiresAt());
+        Reservation reservation2 = new Reservation(user, seat2, group, occurredAt, group.getExpiresAt());
+        Payment payment = new Payment(group, 200000, occurredAt, "order-expire-group", "KRW");
         return new Fixture(group, List.of(reservation1, reservation2), payment);
     }
 

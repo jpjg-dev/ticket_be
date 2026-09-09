@@ -43,7 +43,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayException;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -86,10 +88,11 @@ class PaymentServiceTest {
     private PaymentService paymentService;
 
     private static final Long OWNER_ID = 100L;
+    private static final Instant NOW = Instant.parse("2026-09-09T00:00:00Z");
 
     @BeforeEach
     void setUpPaymentService() {
-        Clock clock = Clock.systemDefaultZone();
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         PaymentConfirmTransactionService transactionService =
                 new PaymentConfirmTransactionService(
                         paymentRepository, reservationRepository, new PaymentConfirmValidator(),
@@ -136,9 +139,9 @@ class PaymentServiceTest {
     @Test
     @DisplayName("readyPayment: 기존 READY 결제가 있으면 재사용한다")
     void readyPaymentReuseExisting() {
-        ReservationGroup reservationGroup = createReservationGroup(LocalDateTime.now().plusMinutes(10));
-        Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, LocalDateTime.now().plusMinutes(10));
-        Payment existingPayment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-ready-1", "KRW");
+        ReservationGroup reservationGroup = createReservationGroup(NOW.plusSeconds(600));
+        Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, NOW.plusSeconds(600));
+        Payment existingPayment = new Payment(reservationGroup, 10000, NOW, "order-ready-1", "KRW");
 
         when(reservationGroupRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(reservationGroup));
         when(reservationRepository.findByReservationGroupId(1L)).thenReturn(List.of(reservation));
@@ -156,9 +159,9 @@ class PaymentServiceTest {
     @Test
     @DisplayName("readyPayment: 저장 중 유니크 충돌이 나면 기존 결제를 다시 조회해 반환한다")
     void readyPaymentReuseExistingAfterConstraintViolation() {
-        ReservationGroup reservationGroup = createReservationGroup(LocalDateTime.now().plusMinutes(10));
-        Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, LocalDateTime.now().plusMinutes(10));
-        Payment existingPayment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-ready-2", "KRW");
+        ReservationGroup reservationGroup = createReservationGroup(NOW.plusSeconds(600));
+        Reservation reservation = createPendingReservationWithHeldSeat(reservationGroup, NOW.plusSeconds(600));
+        Payment existingPayment = new Payment(reservationGroup, 10000, NOW, "order-ready-2", "KRW");
 
         when(reservationGroupRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(reservationGroup));
         when(reservationRepository.findByReservationGroupId(1L)).thenReturn(List.of(reservation));
@@ -177,8 +180,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: READY/PENDING/HELD 상태에서 승인 성공 시 상태가 확정된다")
     void confirmPaymentSuccess(CapturedOutput output) {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-1", "KRW");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-confirm-1", "KRW");
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-1")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -201,17 +204,17 @@ class PaymentServiceTest {
     @Test
     @DisplayName("Payment: READY 결제는 CONFIRMING을 거친 뒤 APPROVED로 전이된다")
     void paymentApproveRequiresConfirmingState() {
-        ReservationGroup reservationGroup = createReservationGroup(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservationGroup, 10000, LocalDateTime.now(), "order-confirming-guard", "KRW");
+        ReservationGroup reservationGroup = createReservationGroup(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservationGroup, 10000, NOW, "order-confirming-guard", "KRW");
 
         assertThrows(IllegalStateException.class,
-                () -> payment.approve("pay-key-direct", "CARD", "DONE"));
+                () -> payment.approve("pay-key-direct", "CARD", "DONE", NOW));
 
-        payment.confirming();
+        payment.confirming(NOW);
         assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
         assertNotNull(payment.getConfirmingAt());
 
-        payment.approve("pay-key-confirming", "CARD", "DONE");
+        payment.approve("pay-key-confirming", "CARD", "DONE", NOW);
 
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
         assertEquals("pay-key-confirming", payment.getPaymentKey());
@@ -220,8 +223,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: amount가 다르면 예외가 발생하고 READY 상태가 유지된다")
     void confirmPaymentAmountMismatch() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-2", "KRW");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-confirm-2", "KRW");
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-2")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -238,10 +241,10 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: 이미 APPROVED면 기존 결제를 그대로 반환하고 PG를 다시 호출하지 않는다")
     void confirmPaymentAlreadyApproved() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-3", "KRW");
-        payment.confirming();
-        payment.approve("pay-key-3", "CARD", "DONE");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-confirm-3", "KRW");
+        payment.confirming(NOW);
+        payment.approve("pay-key-3", "CARD", "DONE", NOW);
         reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
@@ -259,8 +262,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: FAILED 결제는 승인할 수 없다")
     void confirmPaymentRejectsFailedPayment() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-failed", "KRW");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-confirm-failed", "KRW");
         payment.fail();
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-failed")).thenReturn(Optional.of(payment));
@@ -276,9 +279,9 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: PENDING이 아닌 예약이 있으면 승인할 수 없다")
     void confirmPaymentRejectsNonPendingReservation() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-invalid-reservation", "KRW");
-        reservation.cancel();
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-confirm-invalid-reservation", "KRW");
+        reservation.cancel(NOW);
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-invalid-reservation")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -294,8 +297,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: PG confirm 응답을 못 받아도 조회 결과가 DONE이면 승인 상태를 확정한다")
     void confirmPaymentReconcileAfterPgTimeout() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-confirm-4", "KRW");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-confirm-4", "KRW");
 
         when(paymentRepository.findByOrderIdForUpdate("order-confirm-4")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -323,8 +326,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: confirm breaker가 OPEN이면 DB 상태를 바꾸기 전에 거절한다")
     void confirmPaymentRejectsReadyAdmissionWhenCircuitAlreadyOpen() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-open-admission", "KRW");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-open-admission", "KRW");
 
         when(paymentGatewayCircuitState.acquireConfirmPermit())
                 .thenThrow(new PaymentGatewayTemporarilyUnavailableException(
@@ -343,8 +346,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("confirmPayment: permit 획득 후 PG 결과가 불명이면 CONFIRMING 복구 상태를 보존한다")
     void confirmPaymentPreservesConfirmingWhenPgResultIsUnresolved() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-open-race", "KRW");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-open-race", "KRW");
 
         when(paymentRepository.findByOrderIdForUpdate("order-open-race")).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -364,8 +367,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("failPayment: 만료 전 실패면 결제만 FAILED로 변경되고 예약/좌석은 유지된다")
     void failPaymentSuccessNotExpired() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-4");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-4");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -381,8 +384,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("failPayment: 만료 후 실패면 예약 만료 및 좌석 복구가 수행된다")
     void failPaymentWhenExpired() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().minusMinutes(1));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-5");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.minusSeconds(60));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-5");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -398,10 +401,10 @@ class PaymentServiceTest {
     @Test
     @DisplayName("failPayment: READY 상태가 아니면 예외가 발생한다")
     void failPaymentWhenNotReady() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-6");
-        payment.confirming();
-        payment.approve("pay-key-2", "CARD", "DONE");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-6");
+        payment.confirming(NOW);
+        payment.approve("pay-key-2", "CARD", "DONE", NOW);
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
         stubReservationsForPayment(payment, reservation);
@@ -412,12 +415,12 @@ class PaymentServiceTest {
     @Test
     @DisplayName("cancelPayment: APPROVED 결제를 취소하면 예약/좌석이 함께 복구된다")
     void cancelPaymentSuccess(CapturedOutput output) {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-7");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-7");
         ReflectionTestUtils.setField(payment, "id", 1L);
 
-        payment.confirming();
-        payment.approve("pay-key-3", "CARD", "DONE");
+        payment.confirming(NOW);
+        payment.approve("pay-key-3", "CARD", "DONE", NOW);
         reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
@@ -441,11 +444,11 @@ class PaymentServiceTest {
     @Test
     @DisplayName("cancelPayment: 소유자가 아니면 예외가 발생하고 PG를 호출하지 않는다")
     void cancelPaymentRejectsNonOwner() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-owner");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-owner");
         ReflectionTestUtils.setField(payment, "id", 1L);
-        payment.confirming();
-        payment.approve("pay-key-owner", "CARD", "DONE");
+        payment.confirming(NOW);
+        payment.approve("pay-key-owner", "CARD", "DONE", NOW);
         reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
@@ -462,8 +465,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("cancelPayment: APPROVED 상태가 아니면 예외가 발생한다")
     void cancelPaymentWhenNotApproved() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-8");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-8");
         ReflectionTestUtils.setField(payment, "id", 1L);
 
         when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
@@ -474,17 +477,17 @@ class PaymentServiceTest {
     @Test
     @DisplayName("cancelPayment: 이미 CANCELED면 기존 상태를 유지하고 PG를 다시 호출하지 않는다")
     void cancelPaymentAlreadyCanceled() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-9");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-9");
         ReflectionTestUtils.setField(payment, "id", 1L);
-        payment.confirming();
-        payment.approve("pay-key-9", "CARD", "DONE");
+        payment.confirming(NOW);
+        payment.approve("pay-key-9", "CARD", "DONE", NOW);
         reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
-        payment.startCanceling(java.time.Instant.now());
-        payment.cancel(LocalDateTime.now());
-        reservation.cancel();
+        payment.startCanceling(NOW);
+        payment.cancel(NOW);
+        reservation.cancel(NOW);
         reservation.getSeat().releaseBooked();
 
         when(paymentRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(payment));
@@ -498,11 +501,11 @@ class PaymentServiceTest {
     @Test
     @DisplayName("cancelPayment: PG cancel 응답을 못 받아도 조회 결과가 CANCELED면 취소 상태를 확정한다")
     void cancelPaymentReconcileAfterPgTimeout() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-10");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-10");
         ReflectionTestUtils.setField(payment, "id", 1L);
-        payment.confirming();
-        payment.approve("pay-key-10", "CARD", "DONE");
+        payment.confirming(NOW);
+        payment.approve("pay-key-10", "CARD", "DONE", NOW);
         reservation.getReservationGroup().confirm();
         reservation.confirm();
         reservation.getSeat().book();
@@ -540,8 +543,8 @@ class PaymentServiceTest {
     @Test
     @DisplayName("getPaymentStatus: paymentId로 현재 결제 상태를 조회한다")
     void getPaymentStatusSuccess() {
-        Reservation reservation = createPendingReservationWithHeldSeat(LocalDateTime.now().plusMinutes(10));
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-status-1", "KRW");
+        Reservation reservation = createPendingReservationWithHeldSeat(NOW.plusSeconds(600));
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-status-1", "KRW");
 
         when(paymentRepository.findById(1L)).thenReturn(Optional.of(payment));
 
@@ -550,15 +553,21 @@ class PaymentServiceTest {
         assertSame(payment, found);
     }
 
-    private Reservation createPendingReservationWithHeldSeat(LocalDateTime expiresAt) {
+    private Reservation createPendingReservationWithHeldSeat(Instant expiresAt) {
         return createPendingReservationWithHeldSeat(createReservationGroup(expiresAt), expiresAt);
     }
 
-    private Reservation createPendingReservationWithHeldSeat(ReservationGroup reservationGroup, LocalDateTime expiresAt) {
+    private Reservation createPendingReservationWithHeldSeat(ReservationGroup reservationGroup, Instant expiresAt) {
         Seat seat = createSeat();
         seat.hold();
 
-        return new Reservation(createUser(), seat, reservationGroup, LocalDateTime.now(), expiresAt);
+        return new Reservation(
+                createUser(),
+                seat,
+                reservationGroup,
+                NOW,
+                expiresAt
+        );
     }
 
     private void stubReservationsForPayment(Payment payment, Reservation... reservations) {
@@ -566,10 +575,14 @@ class PaymentServiceTest {
                 .thenReturn(List.of(reservations));
     }
 
-    private ReservationGroup createReservationGroup(LocalDateTime expiresAt) {
+    private ReservationGroup createReservationGroup(Instant expiresAt) {
         User owner = createUser();
         ReflectionTestUtils.setField(owner, "id", OWNER_ID);
-        ReservationGroup reservationGroup = new ReservationGroup(owner, LocalDateTime.now(), expiresAt);
+        ReservationGroup reservationGroup = new ReservationGroup(
+                owner,
+                NOW,
+                expiresAt
+        );
         ReflectionTestUtils.setField(reservationGroup, "id", 1L);
         return reservationGroup;
     }

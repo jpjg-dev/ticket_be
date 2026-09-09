@@ -18,8 +18,8 @@ class PaymentEventTest {
     @DisplayName("APPROVED 결제는 민감한 paymentKey 없이 PaymentApproved.v1 계약을 만든다")
     void approvedEventContract() {
         Payment payment = payment();
-        payment.confirming();
-        payment.approve("secret-payment-key", "CARD", "DONE");
+        payment.confirming(java.time.Instant.now());
+        payment.approve("secret-payment-key", "CARD", "DONE", java.time.Instant.now());
 
         PaymentEvent event = PaymentEvent.approved(payment, PaymentEventSource.NORMAL);
 
@@ -38,7 +38,7 @@ class PaymentEventTest {
     @DisplayName("CONFIRMING 결제에서는 승인 완료 이벤트를 만들 수 없다")
     void confirmingCannotCreateApprovedEvent() {
         Payment payment = payment();
-        payment.confirming();
+        payment.confirming(java.time.Instant.now());
 
         assertThrows(
                 IllegalStateException.class,
@@ -50,8 +50,8 @@ class PaymentEventTest {
     @DisplayName("CANCELED 결제는 PaymentCanceled.v1 계약을 만든다")
     void canceledEventContract() {
         Payment payment = payment();
-        payment.confirming();
-        payment.approve("secret-payment-key", "CARD", "DONE");
+        payment.confirming(java.time.Instant.now());
+        payment.approve("secret-payment-key", "CARD", "DONE", java.time.Instant.now());
         payment.startCanceling(Instant.now());
         payment.cancel(Instant.now());
 

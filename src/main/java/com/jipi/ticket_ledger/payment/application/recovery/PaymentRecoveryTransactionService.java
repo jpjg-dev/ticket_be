@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -72,13 +73,14 @@ public class PaymentRecoveryTransactionService {
 
         switch (decision.action()) {
             case APPROVE -> {
+                Instant approvedAt = clock.instant();
                 // 스냅샷 시점 이후 좌석이 유실됐을 수 있으므로 락 하에서 다시 검증한다.
-                if (!RecoveryPolicy.isReservationStillHeld(payment.getReservationGroup(), reservations, clock.instant())) {
+                if (!RecoveryPolicy.isReservationStillHeld(payment.getReservationGroup(), reservations, approvedAt)) {
                     log.warn("Seat lost before approval apply, deferring to next cycle. paymentId={} orderId={}",
                             payment.getId(), payment.getOrderId());
                     return RecoveryOutcome.SEAT_LOST_DEFERRED;
                 }
-                applyApproval(payment, reservations, lookup.paymentKey(), lookup.method(), lookup.status());
+                applyApproval(payment, reservations, lookup.paymentKey(), lookup.method(), lookup.status(), approvedAt);
                 paymentEventOutbox.append(PaymentEvent.approved(payment, PaymentEventSource.RECOVERY));
                 log.info("Recovered CONFIRMING payment. paymentId={} orderId={} pgStatus={}",
                         payment.getId(), payment.getOrderId(), lookup.status());
@@ -103,8 +105,15 @@ public class PaymentRecoveryTransactionService {
         }
     }
 
-    private void applyApproval(Payment payment, List<Reservation> reservations, String paymentKey, String method, String pgStatus) {
-        payment.approve(paymentKey, method, pgStatus);
+    private void applyApproval(
+            Payment payment,
+            List<Reservation> reservations,
+            String paymentKey,
+            String method,
+            String pgStatus,
+            Instant approvedAt
+    ) {
+        payment.approve(paymentKey, method, pgStatus, approvedAt);
         payment.getReservationGroup().confirm();
         reservations.forEach(reservation -> {
             reservation.confirm();

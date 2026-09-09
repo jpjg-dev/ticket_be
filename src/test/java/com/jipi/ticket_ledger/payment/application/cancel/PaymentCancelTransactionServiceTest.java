@@ -26,7 +26,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -45,6 +47,7 @@ class PaymentCancelTransactionServiceTest {
 
     private static final Long OWNER_ID = 100L;
     private static final Long PAYMENT_ID = 1L;
+    private static final Instant NOW = Instant.parse("2026-09-09T00:00:00Z");
 
     @Mock
     private PaymentRepository paymentRepository;
@@ -63,7 +66,7 @@ class PaymentCancelTransactionServiceTest {
                 paymentRepository,
                 reservationRepository,
                 paymentEventOutbox,
-                Clock.systemDefaultZone()
+                Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
 
@@ -78,6 +81,7 @@ class PaymentCancelTransactionServiceTest {
         CancelingPaymentSnapshot snapshot = transactionService.markCanceling(PAYMENT_ID, OWNER_ID);
 
         assertEquals(PaymentStatus.CANCELING, payment.getStatus());
+        assertEquals(NOW, payment.getCancelingAt());
         assertFalse(snapshot.alreadyCanceled());
         assertEquals("pay-key-1", snapshot.paymentKey());
         assertEquals(11000, snapshot.totalAmount());
@@ -122,7 +126,7 @@ class PaymentCancelTransactionServiceTest {
     @DisplayName("markCanceling: READY 등 취소 불가 상태면 예외가 발생한다")
     void markCancelingRejectsReady() {
         Reservation reservation = approvedReservation();
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-1", "KRW");
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, java.time.Instant.now(), "order-1", "KRW");
         ReflectionTestUtils.setField(payment, "id", PAYMENT_ID);
         ReflectionTestUtils.setField(payment, "paymentKey", "pay-key-1"); // status 는 READY, key 는 있지만 상태로 거절
 
@@ -136,7 +140,7 @@ class PaymentCancelTransactionServiceTest {
     @DisplayName("markCanceling: paymentKey 가 없으면 예외가 발생한다")
     void markCancelingRejectsBlankPaymentKey() {
         Reservation reservation = approvedReservation();
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-1", "KRW");
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, java.time.Instant.now(), "order-1", "KRW");
         ReflectionTestUtils.setField(payment, "id", PAYMENT_ID);
         ReflectionTestUtils.setField(payment, "status", PaymentStatus.APPROVED); // paymentKey 없는 APPROVED
 
@@ -208,8 +212,10 @@ class PaymentCancelTransactionServiceTest {
         );
 
         assertEquals(PaymentStatus.CANCELED, payment.getStatus());
+        assertEquals(NOW, payment.getCanceledAt());
         assertEquals(ReservationGroupStatus.CANCELED, reservation.getReservationGroup().getStatus());
         assertEquals(ReservationStatus.CANCELED, reservation.getStatus());
+        assertEquals(NOW, reservation.getCanceledAt());
         assertEquals(SeatStatus.AVAILABLE, reservation.getSeat().getStatus());
         verify(paymentEventOutbox).append(any(PaymentEvent.class));
     }
@@ -255,7 +261,7 @@ class PaymentCancelTransactionServiceTest {
     private Reservation approvedReservation() {
         User owner = new User("owner@test.com", "password", "소유자", LocalDateTime.now());
         ReflectionTestUtils.setField(owner, "id", OWNER_ID);
-        ReservationGroup group = new ReservationGroup(owner, LocalDateTime.now(), LocalDateTime.now().plusMinutes(5));
+        ReservationGroup group = new ReservationGroup(owner, NOW, NOW.plusSeconds(300));
         ReflectionTestUtils.setField(group, "id", 10L);
 
         Event event = new Event("공연", "설명", "장소", LocalDateTime.now(), LocalDateTime.now());
@@ -264,17 +270,17 @@ class PaymentCancelTransactionServiceTest {
         seat.hold();
         seat.book();
 
-        Reservation reservation = new Reservation(owner, seat, group, LocalDateTime.now(), LocalDateTime.now().plusMinutes(5));
+        Reservation reservation = new Reservation(owner, seat, group, NOW, NOW.plusSeconds(300));
         reservation.confirm();
         group.confirm();
         return reservation;
     }
 
     private Payment approvedPayment(Reservation reservation) {
-        Payment payment = new Payment(reservation.getReservationGroup(), 10000, LocalDateTime.now(), "order-1", "KRW");
+        Payment payment = new Payment(reservation.getReservationGroup(), 10000, NOW, "order-1", "KRW");
         ReflectionTestUtils.setField(payment, "id", PAYMENT_ID);
-        payment.confirming();
-        payment.approve("pay-key-1", "CARD", "DONE");
+        payment.confirming(NOW);
+        payment.approve("pay-key-1", "CARD", "DONE", NOW);
         return payment;
     }
 }

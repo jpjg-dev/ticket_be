@@ -12,21 +12,47 @@ import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PaymentTest {
+    private static final Instant NOW = Instant.parse("2026-09-09T00:00:00Z");
 
     private Payment approvedPayment() {
         User user = new User("user@test.com", "password", "테스터", LocalDateTime.now());
         ReservationGroup group = new ReservationGroup(
                 user,
-                LocalDateTime.now(),
-                LocalDateTime.now().plusMinutes(5)
+                NOW,
+                NOW.plusSeconds(300)
         );
-        Payment payment = new Payment(group, 10000, LocalDateTime.now(), "order-cancel-guard", "KRW");
-        payment.confirming();
-        payment.approve("pay-key", "CARD", "DONE");
+        Payment payment = new Payment(group, 10000, NOW, "order-cancel-guard", "KRW");
+        payment.confirming(NOW);
+        payment.approve("pay-key", "CARD", "DONE", NOW);
         return payment;
+    }
+
+    @Test
+    @DisplayName("confirming: null 시각이면 READY 상태와 시각을 변경하지 않는다")
+    void confirmingRejectsNullWithoutMutation() {
+        Payment payment = readyPayment();
+
+        assertThrows(NullPointerException.class, () -> payment.confirming(null));
+
+        assertEquals(PaymentStatus.READY, payment.getStatus());
+        assertNull(payment.getConfirmingAt());
+    }
+
+    @Test
+    @DisplayName("approve: null 시각이면 CONFIRMING 상태와 PG 필드를 변경하지 않는다")
+    void approveRejectsNullWithoutMutation() {
+        Payment payment = readyPayment();
+        payment.confirming(NOW);
+
+        assertThrows(NullPointerException.class, () -> payment.approve("pay-key", "CARD", "DONE", null));
+
+        assertEquals(PaymentStatus.CONFIRMING, payment.getStatus());
+        assertNull(payment.getPaymentKey());
+        assertNull(payment.getApprovedAt());
     }
 
     @Test
@@ -44,12 +70,21 @@ class PaymentTest {
     @Test
     @DisplayName("startCanceling: APPROVED 가 아니면 예외가 발생한다")
     void startCancelingRejectsNonApproved() {
-        User user = new User("user@test.com", "password", "테스터", LocalDateTime.now());
-        ReservationGroup group = new ReservationGroup(user, LocalDateTime.now(), LocalDateTime.now().plusMinutes(5));
-        Payment ready = new Payment(group, 10000, LocalDateTime.now(), "order-ready-guard", "KRW");
+        Payment ready = readyPayment();
 
-        assertThrows(IllegalStateException.class, () -> ready.startCanceling(Instant.now()));
+        assertThrows(IllegalStateException.class, () -> ready.startCanceling(NOW));
         assertEquals(PaymentStatus.READY, ready.getStatus());
+    }
+
+    @Test
+    @DisplayName("startCanceling: null 시각이면 APPROVED 상태를 변경하지 않는다")
+    void startCancelingRejectsNullWithoutMutation() {
+        Payment payment = approvedPayment();
+
+        assertThrows(NullPointerException.class, () -> payment.startCanceling(null));
+
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertNull(payment.getCancelingAt());
     }
 
     @Test
@@ -74,15 +109,27 @@ class PaymentTest {
     }
 
     @Test
+    @DisplayName("cancel: null 시각이면 CANCELING 상태를 변경하지 않는다")
+    void cancelRejectsNullWithoutMutation() {
+        Payment payment = approvedPayment();
+        payment.startCanceling(NOW);
+
+        assertThrows(NullPointerException.class, () -> payment.cancel(null));
+
+        assertEquals(PaymentStatus.CANCELING, payment.getStatus());
+        assertNull(payment.getCanceledAt());
+    }
+
+    @Test
     @DisplayName("totalAmountWithVat: 결제 공급가에 VAT 10%를 더한 총 결제 금액을 반환한다")
     void totalAmountWithVat() {
         User user = new User("user@test.com", "password", "테스터", LocalDateTime.now());
         ReservationGroup group = new ReservationGroup(
                 user,
-                LocalDateTime.now(),
-                LocalDateTime.now().plusMinutes(5)
+                NOW,
+                NOW.plusSeconds(300)
         );
-        Payment payment = new Payment(group, 10000, LocalDateTime.now(), "order-payment-total", "KRW");
+        Payment payment = new Payment(group, 10000, NOW, "order-payment-total", "KRW");
 
         assertEquals(11000, payment.totalAmountWithVat());
     }
@@ -112,5 +159,11 @@ class PaymentTest {
     void paymentAmountRejectsNegativeAmount() {
         assertThrows(IllegalArgumentException.class,
                 () -> PaymentAmount.fromSeatTotalAmount(-1));
+    }
+
+    private Payment readyPayment() {
+        User user = new User("user@test.com", "password", "테스터", LocalDateTime.now());
+        ReservationGroup group = new ReservationGroup(user, NOW, NOW.plusSeconds(300));
+        return new Payment(group, 10000, NOW, "order-ready-guard", "KRW");
     }
 }

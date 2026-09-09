@@ -30,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,12 +42,13 @@ class PaymentRecoveryTransactionServiceTest {
     private final PaymentRepository paymentRepository = mock(PaymentRepository.class);
     private final ReservationRepository reservationRepository = mock(ReservationRepository.class);
     private final PaymentEventOutbox paymentEventOutbox = mock(PaymentEventOutbox.class);
+    private final Clock clock = spy(Clock.fixed(NOW, ZoneOffset.UTC));
     private final PaymentRecoveryTransactionService transactionService =
             new PaymentRecoveryTransactionService(
                     paymentRepository,
                     reservationRepository,
                     paymentEventOutbox,
-                    Clock.fixed(NOW, ZoneOffset.UTC)
+                    clock
             );
 
     private final TossPaymentLookupResponse doneLookup =
@@ -92,6 +94,8 @@ class PaymentRecoveryTransactionServiceTest {
 
         assertEquals(RecoveryOutcome.APPROVED, outcome);
         assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertEquals(NOW, payment.getApprovedAt());
+        verify(clock).instant();
         assertEquals(ReservationGroupStatus.CONFIRMED, group.getStatus());
         assertEquals(ReservationStatus.CONFIRMED, reservation.getStatus());
         assertEquals(SeatStatus.BOOKED, reservation.getSeat().getStatus());
@@ -178,7 +182,7 @@ class PaymentRecoveryTransactionServiceTest {
 
     private Payment confirmingPayment(ReservationGroup group, String orderId) {
         Payment payment = new Payment(group, 10000, NOW, orderId, "KRW");
-        payment.confirming();
+        payment.confirming(NOW.minusSeconds(1));
         return payment;
     }
 
@@ -197,6 +201,6 @@ class PaymentRecoveryTransactionServiceTest {
         );
         Seat seat = new Seat(schedule, "A-1", "VIP", 10000, LocalDateTime.now());
         seat.hold();
-        return new Reservation(group.getUser(), seat, group, LocalDateTime.now(), expiresAt);
+        return new Reservation(group.getUser(), seat, group, NOW.minusSeconds(1), expiresAt);
     }
 }

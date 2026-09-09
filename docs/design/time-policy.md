@@ -26,6 +26,24 @@ DB에는 `TIMESTAMP WITH TIME ZONE`으로 저장합니다. 전역 `hibernate.jdb
 
 API에서 이 값들은 UTC 기준 ISO-8601 시각으로 전달하고, 화면 표시는 프론트엔드가 `Asia/Seoul` 기준으로 변환합니다.
 
+## 도메인 상태 전이 시각
+
+`Payment`와 `Reservation` 도메인은 시스템 시계를 직접 조회하지 않습니다. 운영 애플리케이션 서비스가 주입받은 `Clock`에서 `Instant`를 샘플링하고 상태 전이 메서드에 명시적으로 전달합니다.
+
+현재 적용 범위:
+
+- `Payment.confirmingAt`, `Payment.approvedAt`, `Payment.cancelingAt`, `Payment.canceledAt`
+- `Reservation.canceledAt`
+- `Payment`, `ReservationGroup`, `Reservation` 생성 시각과 만료 시각
+
+상태 진입 시각인 `confirmingAt`과 `cancelingAt`은 필요한 행 락을 획득한 뒤 PG 호출 전에 중간 상태를 남기는 위치에서 샘플링합니다. 완료 시각인 `approvedAt`, `Payment.canceledAt`, `Reservation.canceledAt`은 PG 응답 또는 보정 조회가 끝나고 행 락을 다시 획득한 뒤 실제 상태 전이를 적용하는 위치에서 샘플링합니다. 승인 진행 및 보정 승인에서는 만료 검증과 상태 기록에 같은 `Instant`를 사용합니다. 같은 취소 완료 트랜잭션에서 변경되는 `Payment`와 `Reservation`에도 하나의 `Instant`를 전달합니다.
+
+절대 시점 도메인 생성자는 `Instant`만 받습니다. `LocalDateTime`을 JVM 기본 타임존(`ZoneId.systemDefault()`)으로 변환하던 레거시 오버로드는 실행 환경에 따라 결과가 달라질 수 있어 제거했습니다.
+
+개발용 `DataInitializer`의 과거 이력 fixture는 실행 시작 시 한 번 만든 기준 `Instant`를 결제 요청·승인 진행·승인 완료·취소 이력에 재사용합니다. 이는 운영 상태 전이 경로가 아니라 개발 조회용 데이터의 내부 시각 일관성을 위한 변경입니다.
+
+공식 근거: [Java SE 21 `Clock`](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/time/Clock.html)은 현재 시각이 필요한 코드에 `Clock`을 주입하면 `fixed` 같은 대체 시계를 사용해 테스트를 결정적으로 만들 수 있다고 설명하며, 기본 타임존 의존은 피하도록 권고합니다.
+
 ## 공연 일정 시각
 
 회차 시작/종료 시간은 특정 instant 기록보다 "공연장 현지 기준 몇 시 공연인가"가 중요하므로 `LocalDateTime`으로 둡니다.

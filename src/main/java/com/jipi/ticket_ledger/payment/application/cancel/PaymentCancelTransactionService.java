@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
@@ -159,10 +160,11 @@ public class PaymentCancelTransactionService {
     }
 
     private void applyCancellation(Payment payment, List<Reservation> reservations) {
-        payment.cancel(clock.instant());
+        Instant canceledAt = clock.instant();
+        payment.cancel(canceledAt);
         payment.getReservationGroup().cancel();
         reservations.forEach(reservation -> {
-            reservation.cancel();
+            reservation.cancel(canceledAt);
             reservation.getSeat().releaseBooked();
         });
     }

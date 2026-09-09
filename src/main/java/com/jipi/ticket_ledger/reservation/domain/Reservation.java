@@ -8,8 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.util.Objects;
 
 @Getter
 @Entity
@@ -53,29 +52,16 @@ public class Reservation {
         this.expiresAt = expiresAt;
     }
 
-    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now, LocalDateTime expiresAt) {
-        this(
-                user,
-                seat,
-                reservationGroup,
-                now.atZone(ZoneId.systemDefault()).toInstant(),
-                expiresAt.atZone(ZoneId.systemDefault()).toInstant()
-        );
-    }
-
-    public Reservation(User user, Seat seat, ReservationGroup reservationGroup, LocalDateTime now, Instant expiresAt) {
-        this(user, seat, reservationGroup, now.atZone(ZoneId.systemDefault()).toInstant(), expiresAt);
-    }
-
     public void confirm() {
         if (this.status != ReservationStatus.PENDING) throw new IllegalStateException("진행 중이거나 예매가 확정된 상태입니다.");
         this.status = ReservationStatus.CONFIRMED;
     }
 
-    public void cancel() {
+    public void cancel(Instant canceledAt) {
         if (this.status != ReservationStatus.PENDING && this.status != ReservationStatus.CONFIRMED) throw new IllegalStateException("진행 중이거나 확정된 예매만 취소할 수 있습니다.");
+        Objects.requireNonNull(canceledAt, "예매 취소 시각은 필수입니다.");
         this.status = ReservationStatus.CANCELED;
-        this.canceledAt = Instant.now();
+        this.canceledAt = canceledAt;
     }
 
     public void expire() {

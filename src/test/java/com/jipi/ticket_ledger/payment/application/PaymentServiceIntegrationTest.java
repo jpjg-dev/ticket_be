@@ -503,7 +503,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment ready = paymentRepository.save(new Payment(
                 reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
                 fixture.price,
-                LocalDateTime.now(),
+                Instant.now(),
                 "expired-concurrent-order-" + System.nanoTime()
         ));
         paymentIds.add(ready.getId());
@@ -590,7 +590,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
@@ -633,7 +633,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
@@ -694,11 +694,11 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Payment firstPayment = paymentRepository.findById(firstReady.getId()).orElseThrow();
-            firstPayment.confirming();
+            firstPayment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(firstPayment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
 
             Payment secondPayment = paymentRepository.findById(secondReady.getId()).orElseThrow();
-            secondPayment.confirming();
+            secondPayment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(secondPayment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
@@ -731,7 +731,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment ready = paymentRepository.save(new Payment(
                 reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
                 fixture.price,
-                LocalDateTime.now(),
+                Instant.now(),
                 "expired-confirming-order-" + System.nanoTime()
         ));
         paymentIds.add(ready.getId());
@@ -740,7 +740,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
@@ -779,7 +779,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment ready = paymentRepository.save(new Payment(
                 reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
                 fixture.price,
-                LocalDateTime.now(),
+                Instant.now(),
                 "expired-confirming-refund-timeout-order-" + System.nanoTime()
         ));
         paymentIds.add(ready.getId());
@@ -788,7 +788,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
@@ -845,13 +845,13 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment poison = paymentRepository.save(new Payment(
                 reservationGroupRepository.findById(fixtureA.reservationGroupId).orElseThrow(),
                 fixtureA.price,
-                LocalDateTime.now(),
+                Instant.now(),
                 "poison-order-" + System.nanoTime()
         ));
         paymentIds.add(poison.getId());
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(poison.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
         when(paymentGateway.getPaymentByOrderId(poison.getOrderId()))
@@ -864,7 +864,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         int totalAmountWithVat = amountWithVat(healthy.getAmount());
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(healthy.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
         when(paymentGateway.getPaymentByOrderId(healthy.getOrderId()))
@@ -899,7 +899,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
@@ -942,7 +942,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Payment payment = paymentRepository.findById(ready.getId()).orElseThrow();
-            payment.confirming();
+            payment.confirming(java.time.Instant.now());
             ReflectionTestUtils.setField(payment, "confirmingAt", Instant.now().minus(Duration.ofMinutes(10)));
         });
 
@@ -1038,7 +1038,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment ready = paymentRepository.save(new Payment(
                 reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
                 fixture.price,
-                LocalDateTime.now(),
+                Instant.now(),
                 "ctrl-expired-order-" + System.nanoTime()
         ));
         paymentIds.add(ready.getId());
@@ -1059,7 +1059,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         Payment payment = paymentRepository.save(new Payment(
                 reservationGroupRepository.findById(fixture.reservationGroupId).orElseThrow(),
                 fixture.price,
-                LocalDateTime.now(),
+                Instant.now(),
                 "expired-order-" + System.nanoTime()
         ));
         paymentIds.add(payment.getId());
@@ -1682,6 +1682,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
 
     private Fixture createPendingReservationFixture(boolean expiredReservation, int seatCount) {
         LocalDateTime now = LocalDateTime.now();
+        Instant occurredAt = Instant.now();
         String runId = String.valueOf(System.nanoTime());
 
         User user = userRepository.save(new User(
@@ -1709,8 +1710,8 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
         ));
         scheduleIds.add(schedule.getId());
 
-        LocalDateTime expiresAt = expiredReservation ? now.minusMinutes(1) : now.plusMinutes(5);
-        ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, now, expiresAt));
+        Instant expiresAt = expiredReservation ? occurredAt.minusSeconds(60) : occurredAt.plusSeconds(300);
+        ReservationGroup reservationGroup = reservationGroupRepository.save(new ReservationGroup(user, occurredAt, expiresAt));
         reservationGroupIds.add(reservationGroup.getId());
 
         java.util.List<Long> fixturesavedReservationIds = new java.util.ArrayList<>();
@@ -1732,7 +1733,7 @@ class PaymentServiceIntegrationTest extends PostgresTestContainerSupport {
             seatIds.add(seat.getId());
             fixtureSeatIds.add(seat.getId());
 
-            Reservation reservation = reservationRepository.save(new Reservation(user, seat, reservationGroup, now, expiresAt));
+            Reservation reservation = reservationRepository.save(new Reservation(user, seat, reservationGroup, occurredAt, expiresAt));
             savedReservationIds.add(reservation.getId());
             fixturesavedReservationIds.add(reservation.getId());
             totalPrice += seat.getPrice();

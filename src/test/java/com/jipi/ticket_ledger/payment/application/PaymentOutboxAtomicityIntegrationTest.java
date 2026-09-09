@@ -223,6 +223,7 @@ class PaymentOutboxAtomicityIntegrationTest extends PostgresTestContainerSupport
 
     private Fixture createPendingFixture() {
         LocalDateTime now = LocalDateTime.now();
+        Instant occurredAt = Instant.now();
         String runId = String.valueOf(System.nanoTime());
 
         User user = userRepository.save(new User(
@@ -250,12 +251,12 @@ class PaymentOutboxAtomicityIntegrationTest extends PostgresTestContainerSupport
         seatIds.add(seat.getId());
 
         ReservationGroup group = reservationGroupRepository.save(
-                new ReservationGroup(user, now, now.plusMinutes(5))
+                new ReservationGroup(user, occurredAt, occurredAt.plusSeconds(300))
         );
         reservationGroupIds.add(group.getId());
 
         Reservation reservation = reservationRepository.save(
-                new Reservation(user, seat, group, now, now.plusMinutes(5))
+                new Reservation(user, seat, group, occurredAt, occurredAt.plusSeconds(300))
         );
         reservationIds.add(reservation.getId());
 

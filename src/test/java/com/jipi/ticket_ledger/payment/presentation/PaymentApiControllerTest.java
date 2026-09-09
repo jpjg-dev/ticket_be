@@ -228,15 +228,16 @@ class PaymentApiControllerTest {
 
     private PaymentFixture createReadyPayment() {
         LocalDateTime now = LocalDateTime.now();
+        java.time.Instant occurredAt = java.time.Instant.now();
         Event event = new Event("테스트 공연", "설명", "테스트홀", now, now);
         Schedule schedule = new Schedule(event, now.plusDays(1), now.plusDays(1).plusHours(2), now);
         Seat seat = new Seat(schedule, "A-1", "VIP", 100000, now);
         seat.hold();
         User user = new User("ready@test.com", "pw", "유저", now);
-        ReservationGroup reservationGroup = new ReservationGroup(user, now, now.plusMinutes(5));
+        ReservationGroup reservationGroup = new ReservationGroup(user, occurredAt, occurredAt.plusSeconds(300));
         org.springframework.test.util.ReflectionTestUtils.setField(reservationGroup, "id", 1L);
-        Reservation reservation = new Reservation(user, seat, reservationGroup, now, reservationGroup.getExpiresAt());
-        Payment payment = new Payment(reservationGroup, 100000, now, "order-1", "KRW");
+        Reservation reservation = new Reservation(user, seat, reservationGroup, occurredAt, reservationGroup.getExpiresAt());
+        Payment payment = new Payment(reservationGroup, 100000, occurredAt, "order-1", "KRW");
 
         org.springframework.test.util.ReflectionTestUtils.setField(payment, "id", 1L);
         return new PaymentFixture(payment, List.of(reservation));
@@ -245,8 +246,8 @@ class PaymentApiControllerTest {
     private PaymentFixture createApprovedPayment() {
         PaymentFixture fixture = createReadyPayment();
         Payment payment = fixture.payment();
-        payment.confirming();
-        payment.approve("pay-key", "CARD", "DONE");
+        payment.confirming(java.time.Instant.now());
+        payment.approve("pay-key", "CARD", "DONE", java.time.Instant.now());
         fixture.reservations().forEach(reservation -> {
             reservation.confirm();
             reservation.getSeat().book();

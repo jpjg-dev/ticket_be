@@ -7,8 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.util.Objects;
 
 @Getter
 @Entity
@@ -60,10 +59,6 @@ public class Payment {
         this(reservationGroup, amount, now, orderId, "KRW");
     }
 
-    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId) {
-        this(reservationGroup, amount, now.atZone(ZoneId.systemDefault()).toInstant(), orderId);
-    }
-
     public Payment(ReservationGroup reservationGroup, Integer amount, Instant now, String orderId, String currency) {
         this.reservationGroup = reservationGroup;
         this.amount = amount;
@@ -71,10 +66,6 @@ public class Payment {
         this.requestedAt = now;
         this.orderId = orderId;
         this.currency = currency;
-    }
-
-    public Payment(ReservationGroup reservationGroup, Integer amount, LocalDateTime now, String orderId, String currency) {
-        this(reservationGroup, amount, now.atZone(ZoneId.systemDefault()).toInstant(), orderId, currency);
     }
 
     public PaymentAmount paymentAmount() {
@@ -85,23 +76,25 @@ public class Payment {
         return paymentAmount().totalAmount();
     }
 
-    public void confirming() {
+    public void confirming(Instant confirmingAt) {
         if (this.status != PaymentStatus.READY) {
             throw new IllegalStateException("결제 대기 상태에서만 승인 진행 상태로 변경할 수 있습니다.");
         }
+        Objects.requireNonNull(confirmingAt, "승인 진행 시각은 필수입니다.");
         this.status = PaymentStatus.CONFIRMING;
-        this.confirmingAt = Instant.now();
+        this.confirmingAt = confirmingAt;
     }
 
-    public void approve(String paymentKey, String method, String pgStatus) {
+    public void approve(String paymentKey, String method, String pgStatus, Instant approvedAt) {
         if (this.status != PaymentStatus.CONFIRMING) {
             throw new IllegalStateException("승인 진행 상태의 결제만 승인 완료할 수 있습니다.");
         }
+        Objects.requireNonNull(approvedAt, "승인 완료 시각은 필수입니다.");
         this.paymentKey = paymentKey;
         this.method = method;
         this.pgStatus = pgStatus;
         this.status = PaymentStatus.APPROVED;
-        this.approvedAt = Instant.now();
+        this.approvedAt = approvedAt;
     }
 
     public void fail() {
@@ -115,6 +108,7 @@ public class Payment {
         if (this.status != PaymentStatus.APPROVED) {
             throw new IllegalStateException("승인된 결제만 취소를 시작할 수 있습니다.");
         }
+        Objects.requireNonNull(now, "취소 시작 시각은 필수입니다.");
         this.status = PaymentStatus.CANCELING;
         this.cancelingAt = now;
     }
@@ -123,11 +117,9 @@ public class Payment {
         if (this.status != PaymentStatus.CANCELING) {
             throw new IllegalStateException("취소 진행 중인 결제만 취소 완료할 수 있습니다.");
         }
+        Objects.requireNonNull(canceledAt, "취소 완료 시각은 필수입니다.");
         this.status = PaymentStatus.CANCELED;
         this.canceledAt = canceledAt;
     }
 
-    public void cancel(LocalDateTime canceledAt) {
-        cancel(canceledAt.atZone(ZoneId.systemDefault()).toInstant());
-    }
 }

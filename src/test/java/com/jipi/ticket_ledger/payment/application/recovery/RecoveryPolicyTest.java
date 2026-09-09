@@ -170,6 +170,6 @@ class RecoveryPolicyTest {
         );
         Seat seat = new Seat(schedule, "A-1", "VIP", 10000, LocalDateTime.now());
         seat.hold();
-        return new Reservation(group.getUser(), seat, group, LocalDateTime.now(), expiresAt);
+        return new Reservation(group.getUser(), seat, group, java.time.Instant.now(), expiresAt);
     }
 }

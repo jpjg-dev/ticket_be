@@ -262,15 +262,15 @@ class PaymentRecoveryServiceTest {
 
     private Payment confirmingPayment(String orderId) {
         Payment payment = new Payment(newGroup(), 10000, NOW, orderId, "KRW");
-        payment.confirming();
+        payment.confirming(java.time.Instant.now());
         ReflectionTestUtils.setField(payment, "id", PAYMENT_ID);
         return payment;
     }
 
     private Payment approvedPayment(String orderId) {
         Payment payment = new Payment(newGroup(), 10000, NOW, orderId, "KRW");
-        payment.confirming();
-        payment.approve("pay-key-1", "CARD", "DONE");
+        payment.confirming(java.time.Instant.now());
+        payment.approve("pay-key-1", "CARD", "DONE", java.time.Instant.now());
         ReflectionTestUtils.setField(payment, "id", PAYMENT_ID);
         return payment;
     }
