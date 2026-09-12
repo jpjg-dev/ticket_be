@@ -82,6 +82,8 @@ Tx2에서 커밋 실패/크래시 시 결제는 `CANCELING`에 남고, 다음 �
 
 스케줄러(`PaymentRecoveryScheduler.recoverGrayZonePayments`)는 한 주기에서 **confirm 배치 → cancel 배치 → backlog gauge 갱신**을 순차 실행합니다. Spring 기본 `TaskScheduler`가 단일 스레드라 `@Scheduled`를 쪼개도 직렬로 돌기 때문에, 두 배치와 게이지 갱신을 각각 예외로 격리해 하나의 실패가 나머지를 건너뛰지 않게 합니다. 설정 노브 `payment.recovery-scheduler.{grace-ms, batch-size, fixed-delay-ms}`는 두 배치가 공유합니다(취소 전용 노브는 두지 않았습니다).
 
+`grace-ms`, `batch-size`, `fixed-delay-ms`는 모두 필수이며 각각 `0 이상`, `1 이상`, `1 이상`의 밀리초/건수 값으로 검증합니다. Docker 환경변수 계약은 `PAYMENT_RECOVERY_SCHEDULER_GRACE_MS`와 `PAYMENT_RECOVERY_SCHEDULER_FIXED_DELAY_MS`를 유지하며, `perf` 프로필은 이 두 값과 자신의 `batch-size: 10`을 함께 사용합니다.
+
 PG 상태 조회 회로가 OPEN이면 외부 상태를 판단할 수 없으므로 confirm/cancel 보정 배치를 시작하지 않고 backlog gauge만 갱신합니다. 배치 처리 중 lookup 회로가 열리면 남은 건도 다음 주기로 넘깁니다. cancel 회로만 OPEN인 경우에는 PG 조회로 이미 취소된 건을 내부 확정할 수 있으므로 배치 전체를 미리 차단하지 않습니다.
 
 ### 1. 후보 선정 — `CONFIRMING` / `CANCELING` 상태

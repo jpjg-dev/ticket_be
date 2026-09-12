@@ -6,7 +6,6 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
 
@@ -21,13 +20,15 @@ class PaymentRecoverySchedulerTest {
     private final CircuitBreakerRegistry circuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults();
     private final Resilience4jPaymentGatewayCircuitState circuitState =
             new Resilience4jPaymentGatewayCircuitState(circuitBreakerRegistry);
-    private final PaymentRecoveryScheduler scheduler =
-            new PaymentRecoveryScheduler(paymentRecoveryService, circuitState);
+    private PaymentRecoveryScheduler scheduler;
 
     @BeforeEach
     void setUpSchedulerProperties() {
-        ReflectionTestUtils.setField(scheduler, "graceMs", 60_000L);
-        ReflectionTestUtils.setField(scheduler, "batchSize", 20);
+        PaymentRecoverySchedulerProperties properties = new PaymentRecoverySchedulerProperties();
+        properties.setGraceMs(60_000L);
+        properties.setBatchSize(20);
+        properties.setFixedDelayMs(60_000L);
+        scheduler = new PaymentRecoveryScheduler(paymentRecoveryService, circuitState, properties);
     }
 
     @Test
