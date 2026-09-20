@@ -38,7 +38,16 @@ public class CacheAsideLoader {
     private <T> T loadOnCacheMiss(String key, Supplier<Optional<T>> cacheReader, Supplier<T> databaseReader,
                                   Consumer<T> cacheWriter) {
         String token = UUID.randomUUID().toString();
-        if (!eventCache.tryAcquireRefreshLock(key, token, policy.refreshLockTtl())) {
+        long lockStarted = System.nanoTime();
+        boolean acquired;
+        try {
+            acquired = eventCache.tryAcquireRefreshLock(key, token, policy.refreshLockTtl());
+        } catch (EventCacheAccessException exception) {
+            metrics.refreshLock("redis_error", lockStarted);
+            throw exception;
+        }
+        metrics.refreshLock(acquired ? "owner" : "follower", lockStarted);
+        if (!acquired) {
             return waitForRefresh(cacheReader);
         }
 
@@ -63,14 +72,31 @@ public class CacheAsideLoader {
     }
 
     private <T> T waitForRefresh(Supplier<Optional<T>> cacheReader) {
+        long waitStarted = System.nanoTime();
+        int polls = 0;
         Instant deadline = Instant.now().plus(policy.refreshWaitTimeout());
-        while (Instant.now().isBefore(deadline)) {
-            sleep(policy.refreshRetryInterval());
-            Optional<T> cached = cacheReader.get();
-            if (cached.isPresent()) {
-                return cached.get();
+        try {
+            while (Instant.now().isBefore(deadline)) {
+                try {
+                    Thread.sleep(policy.refreshRetryInterval());
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    metrics.refreshWait("interrupted", waitStarted, polls);
+                    metrics.rejected("interrupted");
+                    throw databaseLoadGuard.unavailable();
+                }
+                polls++;
+                Optional<T> cached = cacheReader.get();
+                if (cached.isPresent()) {
+                    metrics.refreshWait("hit", waitStarted, polls);
+                    return cached.get();
+                }
             }
+        } catch (EventCacheAccessException exception) {
+            metrics.refreshWait("redis_error", waitStarted, polls);
+            throw exception;
         }
+        metrics.refreshWait("timeout", waitStarted, polls);
         metrics.rejected("refresh_timeout");
         throw databaseLoadGuard.unavailable();
     }
@@ -94,13 +120,4 @@ public class CacheAsideLoader {
         }
     }
 
-    private void sleep(Duration duration) {
-        try {
-            Thread.sleep(duration);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            metrics.rejected("interrupted");
-            throw databaseLoadGuard.unavailable();
-        }
-    }
 }
