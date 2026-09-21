@@ -208,6 +208,14 @@ JFR 기록은 추가 관측 비용이 있으므로 이번 실행을 성능 합�
 
 따라서 #71과 #77은 완료 처리하지 않습니다. 남은 결정은 운영 OSIV 변경 여부이며, 주요 LAZY 로딩 경로와 실제 부하 조건의 추가 회귀 검증 후 판단합니다. 운영 설정과 테스트 기준을 완화하지 않은 상태를 유지합니다.
 
+## 2026-09-21 JDBC attribution 진단 체크포인트
+
+캐시 refresh owner/follower 경합을 JDBC checkout·hold 구간과 연결하기 위한 opt-in 진단 계측을 준비했습니다. 기존 cache focused 테스트 4개는 통과했습니다.
+
+OSIV=false와 진단 계측을 활성화한 후보 backend는 정상 기동했지만, cold 부하 전에 readiness가 필수 CPU·Hikari pending 메트릭을 읽지 못해 120초 후 중단됐습니다. backend health와 Outbox backlog는 정상이며 k6 부하는 시작되지 않았습니다. 따라서 이 실행을 성능 실패나 OSIV 결과로 해석하지 않습니다.
+
+다음은 diagnostic DataSource 계측이 Hikari 메트릭 노출에 영향을 주는지 확인한 뒤, readiness 계약을 유지한 상태에서 JDBC attribution 진단을 재개하는 단계입니다. pool·timeout·OSIV·cache 정책은 아직 변경하지 않았습니다. 상세 계측 코드와 실행 자료는 private으로 보관합니다.
+
 ## 2026-09-20 캐시 재생성 경합 진단 세이브포인트
 
 OSIV=false 후보에서 기존 cold 시나리오를 한 번 실행하고, 캐시 재생성 owner와 follower의 대기 구간을 opt-in 계측했습니다. 후보 실행은 정합성은 유지했지만 클라이언트 완료 기준을 통과하지 못했습니다.
