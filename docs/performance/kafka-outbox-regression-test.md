@@ -175,6 +175,16 @@ JFR 기록은 추가 관측 비용이 있으므로 이번 실행을 성능 합�
 
 재개 전에는 실행 중인 테스트가 없는지와 현재 이미지·환경을 다시 확인합니다. 원본 JFR에는 민감한 환경 메타데이터가 포함될 수 있으므로 JFR·상세 통계·로컬 세이브포인트는 private 자료로만 보관합니다. 이 문서는 공개 가능한 진행 상태와 다음 작업만 기록합니다.
 
+## 2026-09-22 Hikari checkout/hold 진단
+
+기존 Hikari DataSource 타입과 Micrometer tracker를 보존하는 opt-in `MetricsTrackerFactory` delegate를 적용해 JDBC checkout·connection hold 시간을 관측했습니다. DataSource wrapper 방식에서 발생했던 readiness 메트릭 유실은 재현되지 않았습니다.
+
+진단 cold 실행에서는 owner JDBC checkout 4회, 합산 약 2.858초, connection hold 합산 약 0.182초가 관측됐습니다. 같은 실행에서 Hikari pending은 183까지 증가했고, 서버 측 이벤트 정합성은 유지됐습니다.
+
+이 결과는 owner가 커넥션을 오래 보유한 것보다 커넥션을 획득하기 위해 기다린 시간이 컸다는 근거를 보강합니다. 진단 계측 오버헤드가 포함된 단일 실행이며, 어떤 백그라운드 작업이 대기를 만들었는지까지 식별하지는 못했습니다. 계측은 `-Dticketledger.cache.diagnostic=true`에서만 활성화되고 기본 운영 동작에는 영향을 주지 않습니다.
+
+운영 pool 크기·timeout·OSIV·cache 정책은 변경하지 않았습니다. 다음은 background borrower와 owner checkout 구간을 분리하는 방법을 검토한 뒤, 동일 조건의 bounded 비교를 수행하는 단계입니다.
+
 ## 2026-09-14 단일 요청 커넥션 수명 세이브포인트
 
 `SeatConnectionLifetimeProbeTest`를 추가해 실제 JWT 인증과 PostgreSQL을 사용하는 좌석 조회 한 건의 커넥션 대여·반환, 컨트롤러 처리, 응답 작성 순서를 기록했습니다. 만료 후보가 없는 정상 좌석 응답을 검증하며, 커넥션이 어느 경계까지 유지되어야 한다는 가설을 테스트의 합격 조건으로 강제하지 않습니다.

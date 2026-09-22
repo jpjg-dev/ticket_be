@@ -60,7 +60,9 @@ public class CacheAsideLoader {
             long databaseStarted = System.nanoTime();
             T value;
             try {
-                value = databaseLoadGuard.execute(databaseReader);
+                try (CacheDiagnosticContext.Scope ignored = CacheDiagnosticContext.open("cache_owner")) {
+                    value = databaseLoadGuard.execute(databaseReader);
+                }
             } finally {
                 metrics.refreshPhase("database_load", databaseStarted);
             }
