@@ -41,7 +41,7 @@
 
 초기에는 단일 DB를 유지하고 애플리케이션 내부의 소유권과 계약부터 분리합니다. 서비스와 DB의 물리 분리는 이벤트 계약과 장애 복구를 검증한 뒤 진행합니다.
 
-Outbox 전달은 `at-least-once`로 보고, 발행 완료 반영 전 장애로 생기는 중복은 Consumer가 `eventId`로 제거합니다. Audit Inbox와 retention까지 검증했으며, 다음 구현 단계는 Payment 결과를 Booking 상태에 반영하는 상태형 Consumer와 보상 흐름입니다.
+Outbox 전달은 `at-least-once`로 보고, 발행 완료 반영 전 장애로 생기는 중복은 Consumer가 `eventId`로 제거합니다. Audit Inbox와 retention까지 검증했습니다. 현재 모놀리스에서는 예약·좌석 핵심 상태 전이를 동기로 유지하므로 상태형 Booking Consumer는 구현하지 않으며, 서비스와 DB 경계를 분리할 때 이벤트 version·순서·보상 계약과 함께 다시 설계합니다. 당장의 후속 검증은 Relay/Audit Consumer 처리율과 E2E 회귀입니다.
 
 성능 회귀와 장애 복구 결과는 [Kafka Outbox 회귀·장애 테스트](../performance/kafka-outbox-regression-test.md)에 정리했습니다. 다음 운영 조정은 Relay/Consumer 처리량 제한과 Kafka 자원 격리를 먼저 검토합니다.
 

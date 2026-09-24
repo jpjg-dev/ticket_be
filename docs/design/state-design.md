@@ -174,7 +174,7 @@ PG 승인(돈이 빠짐)과 내부 상태 확정은 하나의 트랜잭션으로
 
 PG 승인/취소 요청 후 서버가 응답을 받지 못한 경우에는 `orderId` 조회 결과를 기준으로 내부 상태를 확정합니다. 응답을 받지 못한 채 커밋 실패나 프로세스 종료가 발생하면 결제가 `CONFIRMING`에 남고, 보정 스케줄러가 `orderId`로 PG를 재조회해 위 [confirm 재진입 정책](#confirm-재진입-정책)과 같은 기준으로 수렴시킵니다. 자세한 설계는 [결제 장애 복구 설계](payment-failure-recovery-design.md)를 참고하세요.
 
-현재 구현에서 보정 대상은 오래된 `CONFIRMING` 결제입니다. PG 조회 결과가 `DONE`이고 예약/좌석이 아직 `PENDING/HELD`이며 금액·통화가 일치하면 내부 상태를 `APPROVED/CONFIRMED/BOOKED`로 확정합니다. PG는 `DONE`이지만 좌석이 유효하지 않거나 금액·통화가 불일치하면 환불 후 실패 상태로 정리합니다(`orderId` 자체가 불일치하면 자동 처리하지 않고 보류). 또한 confirm 요청 처리 중 회색지대로 실패하면 컨트롤러가 같은 보정 로직을 동기로 1회 시도하고, 확정되지 않으면 `CONFIRMING`으로 두어 스케줄러에 위임합니다.
+현재 구현에서 승인 보정 대상은 오래된 `CONFIRMING`, 취소 보정 대상은 오래된 `CANCELING` 결제입니다. `CONFIRMING`의 PG 조회 결과가 `DONE`이고 예약/좌석이 아직 `PENDING/HELD`이며 금액·통화가 일치하면 내부 상태를 `APPROVED/CONFIRMED/BOOKED`로 확정합니다. PG는 `DONE`이지만 좌석이 유효하지 않거나 금액·통화가 불일치하면 환불 후 실패 상태로 정리합니다(`orderId` 자체가 불일치하면 자동 처리하지 않고 보류). 또한 confirm 요청 처리 중 회색지대로 실패하면 컨트롤러가 같은 보정 로직을 동기로 1회 시도하고, 확정되지 않으면 `CONFIRMING`으로 두어 스케줄러에 위임합니다.
 
 결제 취소도 대칭입니다. 취소 시작 시 `APPROVED -> CANCELING` 중간 상태를 PG 취소 호출 전에 먼저 커밋하고, PG 취소가 확인되면 `CANCELING -> CANCELED`로 확정하면서 예매·좌석을 함께 정리합니다. `CANCELING`인 동안에는 `ReservationGroup=CONFIRMED`, `Seat=BOOKED`를 유지하므로, 만료 스케줄러는 이 예약을 만료 대상(결제 `PENDING`)으로 보지 않아 좌석을 풀지 않습니다. 따라서 `CANCELING`이 오래 남아도 이중 판매나 돈 손실은 발생하지 않고, 보정 스케줄러가 `CANCELED`로 수렴시킵니다. 마이페이지 결제 내역에는 `APPROVED`, `CANCELING`, `CANCELED`가 노출됩니다.
 

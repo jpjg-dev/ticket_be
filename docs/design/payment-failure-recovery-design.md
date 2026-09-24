@@ -233,7 +233,6 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceling_at  timestamp NULL;  -- 
 | --- | --- |
 | `orderId` 불일치 보류 건 알림/지표화 | 현재 `log.error`만 남깁니다. 운영 규모가 커지면 모니터링 지표·알림으로 승격할 후보입니다. |
 | 인덱스 후보 | `payments(status, confirming_at)` / `(status, canceling_at)`가 없어 주기당 status 기준 조회가 4회(stale 2 + count 2) 발생합니다. 저볼륨에선 무해하지만, 볼륨이 커지면 부분/복합 인덱스를 검토합니다(트레이드오프 6). |
-| 패키지 결합 정리 | `payment.application.cancel` ↔ `payment.application.recovery`가 공용 `PaymentRecoveryMetrics`를 두고 양방향 참조합니다. DI 사이클은 없으나, 향후 관측성 등 중립 패키지로 이동할 후보입니다(트레이드오프 7). |
 
 > **아래 항목은 향후 분산 아키텍처에서 함께 설계합니다** (Kafka + 분산락 + 분산 트랜잭션 + 서비스/DB 분해 도입 시):
 > retry 카운터·백오프·최대 횟수, dead-letter, 알림 임계, `HOLD_MANUAL` 핫루프 차단, ShedLock(다중 인스턴스 가드), `CANCELING` 전용 워커 분리. 현재 규모에서는 중간 상태 + 단일 주기 보정으로 정합성이 보장되므로 도입하지 않습니다.
@@ -244,12 +243,13 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceling_at  timestamp NULL;  -- 
 - **cancel 크래시 갭(CANCELING 중간 상태) 해소**: PG 취소 성공 직후 커밋 전 크래시로 결제가 `APPROVED`로 남던 갭을, `APPROVED -> CANCELING`을 PG 호출 전에 커밋하는 방식으로 메웠습니다. 이제 취소 미확정은 `CANCELING`에 남아 보정이 `CANCELED`로 수렴합니다.
 - **confirm 보정 환불을 트랜잭션 밖으로 분리**: 좌석 소실/데이터 불일치 환불 분기의 Toss cancel 호출을 보정 트랜잭션 밖으로 빼, **어떤 트랜잭션·행 락 안에서도 PG를 호출하지 않는** 구조로 통일했습니다(`PaymentRecoveryService.recover`가 apply 트랜잭션 전에 환불을 호출). 이전에는 환불이 보정 트랜잭션 안에서 실행됐습니다.
 - **결정 규칙 정책 객체화(순수 함수)**: confirm은 `RecoveryPolicy.decide`, cancel은 `PaymentCancelPolicy.decide`로 결정 로직을 순수 함수로 추출해 트랜잭션·외부 호출과 분리했습니다(닫힌 고정 매트릭스라 전략 패턴까지는 가지 않고 메서드 추출 수준 유지).
-- **보정 메트릭 노출(Micrometer)**: `payment_gray_zone_recovery_total`/`pg_failure_total`/`backlog`를 confirm/cancel 대칭으로 기록합니다(위 [메트릭](#메트릭-micrometer) 참고). 단, actuator 엔드포인트는 아직 열지 않았습니다.
+- **보정 메트릭 노출(Micrometer)**: `payment_gray_zone_recovery_total`/`pg_failure_total`/`backlog`를 confirm/cancel 대칭으로 기록합니다(위 [메트릭](#메트릭-micrometer) 참고). `/actuator/health`와 `/actuator/prometheus`만 HTTP endpoint로 노출합니다. Backend는 Docker 내부 네트워크에서 Prometheus와 healthcheck가 접근하고, host port를 publish하지 않으며 Nginx도 `/actuator` 경로를 차단합니다. Endpoint exposure와 외부 네트워크 접근 통제는 별개입니다 ([Spring Boot Actuator endpoint exposure/security](https://docs.spring.io/spring-boot/reference/actuator/endpoints.html)).
 - **소유자 검증(403)**: cancel 엔드포인트가 `@AuthenticationPrincipal Long userId`를 받아 `ReservationGroup.user.id`와 대조하고, 불일치 시 `ForbiddenAccessException` → `403`을 반환합니다. 검증은 `markCanceling` 트랜잭션 안에서 마킹 전에 수행합니다.
 - **보정 스케줄러 건별 예외 격리**: confirm/cancel 배치 루프를 건별 try-catch로 감싸(`runRecoveryBatch`), 한 건의 실패(PG 오류·NPE·데이터 이상 등)가 배치 전체를 중단시키지 않도록 했습니다. 실패 건은 회색지대로 남아 다음 주기에 재시도되며 `log.error` + `recovery_total{outcome=batch_exception}`로 노출됩니다. 이 격리 전에는 한 건의 결정적 예외(poison pill)가 그 뒤 결제들을 영구히 방치할 수 있었습니다. 배치·게이지 갱신도 서로 독립 격리됩니다.
 - **보정/만료 스케줄러 batch-size 제한**: 재기동 후 backlog가 한 번에 몰려 서버를 다시 압박하지 않도록, 결제 보정과 예약 만료 후보 조회를 한 주기당 설정된 개수로 제한했습니다.
 - **Toss Payments timeout 명시**: 외부 PG 호출이 무한 대기하지 않도록 connect/read timeout을 설정했습니다. timeout은 결제 실패 확정이 아니라 결과 불명 상태로 보고, 기존 회색지대 조회/보정 흐름으로 수렴시킵니다.
 - **연산별 PG Circuit Breaker**: 승인·조회·취소 회로를 분리하고, 승인 permit을 `CONFIRMING` 전이에 앞서 확보합니다. lookup 회로가 OPEN이면 보정 배치를 다음 주기로 넘기며, 일반 4xx는 외부 장애율에서 제외합니다. 자동 Retry는 추가하지 않았습니다.
+- **관측성 패키지 분리**: `PaymentRecoveryMetrics`는 confirm/cancel 서비스가 함께 사용하는 `payment.application.observability` 패키지에 배치해 양방향 패키지 참조를 제거했습니다.
 
 ## 트레이드오프
 
@@ -259,9 +259,8 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS canceling_at  timestamp NULL;  -- 
 4. **전액 취소 확정 기준**: PG 응답의 원결제 금액과 취소 가능 잔액을 검증합니다. `balanceAmount=0`인 전액 환불만 내부 취소로 확정하고, 잔액이 남으면 `CANCELING`/`BOOKED`를 유지해 좌석을 잘못 재판매하지 않습니다.
 5. **gauge push 방식**: 스크레이프 시 DB 조회가 없다는 장점 대신, 스케줄러가 지속 실패하면 gauge가 stale해지는 단점이 있습니다(배치와 독립 격리로 완화).
 6. **인덱스 부재**: `payments(status, confirming_at)`/`(status, canceling_at)`가 없어 주기당 status 기준 조회 4회(stale 2 + count 2)가 풀스캔에 가깝습니다. 저볼륨에선 무해하나 볼륨 증가 시 부분/복합 인덱스를 검토합니다.
-7. **패키지 결합**: `payment.application.cancel` ↔ `payment.application.recovery`가 공용 `PaymentRecoveryMetrics`로 양방향 참조합니다. DI 사이클은 없습니다. 향후 중립(관측성) 패키지로 이동할 후보입니다.
-8. **동기 취소 메트릭 미기록**: 메트릭 스코프가 "보정"이라 사용자 동기 취소는 카운터를 남기지 않습니다. 사용자 취소 볼륨은 backlog gauge로 간접 관측합니다.
-9. **Circuit Breaker와 보정의 역할 분리**: 회로는 장애 중 신규 외부 호출을 줄이고, 중간 상태와 보정은 이미 시작된 결제의 최종 일관성을 담당합니다. 회로가 정합성 복구를 대신하지 않습니다.
+7. **동기 취소 메트릭 미기록**: 메트릭 스코프가 "보정"이라 사용자 동기 취소는 카운터를 남기지 않습니다. 사용자 취소 볼륨은 backlog gauge로 간접 관측합니다.
+8. **Circuit Breaker와 보정의 역할 분리**: 회로는 장애 중 신규 외부 호출을 줄이고, 중간 상태와 보정은 이미 시작된 결제의 최종 일관성을 담당합니다. 회로가 정합성 복구를 대신하지 않습니다.
 
 ## 관련 문서
 

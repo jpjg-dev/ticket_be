@@ -24,7 +24,7 @@ occurredAt
 source: NORMAL | RECOVERY
 ```
 
-외부 PG의 `paymentKey`는 소비 계약에 필요하지 않고 노출 위험이 있으므로 제외합니다. Kafka partition key는 이후 Publisher를 구현할 때 `paymentId`로 고정해 같은 결제의 이벤트가 같은 파티션으로 전달되게 합니다.
+외부 PG의 `paymentKey`는 소비 계약에 필요하지 않고 노출 위험이 있으므로 제외합니다. Publisher는 Kafka message key로 `paymentId`를 사용해 같은 결제의 이벤트가 같은 파티션으로 전달되게 합니다.
 
 `userId`는 감사와 사용자별 후처리를 위한 내부 식별자입니다. `source`는 정상·보정 경로를 구분하는 감사 메타데이터일 뿐이며 Consumer가 결제 상태 전이를 다르게 처리하는 분기 조건으로 사용하지 않습니다.
 
@@ -124,4 +124,4 @@ Kafka record 수신
 - Inbox가 삭제된 뒤 장기 replay가 발생해도 감사 이력의 `eventId + payloadHash`로 중복과 충돌을 다시 판정합니다.
 - cleanup은 relay와 다른 단일 스레드 scheduler를 사용합니다.
 
-다음 단계는 상태형 Booking Consumer, DLT 수동 replay와 `PUBLISHED` 보존 기간의 운영 데이터 기반 조정입니다.
+현재 모놀리스에서는 예약·좌석의 핵심 상태 전이를 동기로 유지하며, 상태형 Booking Consumer는 서비스 및 DB 경계를 분리할 때까지 구현을 보류합니다. 그 전의 후속 작업은 [#71 Relay/Audit Consumer 처리율 및 E2E 회귀 검증](https://github.com/jpjg-dev/ticket_be/issues/71), [#74 DLT 수동 replay와 보존 정책 운영화](https://github.com/jpjg-dev/ticket_be/issues/74)처럼 기존 감사 후처리의 운영성과 자원 사용을 검증하는 범위입니다.
