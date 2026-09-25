@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.payment.application.port.out.PaymentGatewayCircuitState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,7 @@ public class PaymentRecoveryScheduler {
     private final PaymentRecoveryService paymentRecoveryService;
     private final PaymentGatewayCircuitState paymentGatewayCircuitState;
     private final PaymentRecoverySchedulerProperties properties;
+    private final JdbcBorrowerRoleContext roleContext;
 
     // Spring 기본 TaskScheduler 는 1스레드라 @Scheduled 를 쪼개도 직렬이므로, 한 주기에서 confirm → cancel 배치를
     // 순차 실행하고 backlog gauge 를 갱신한다. 설정 노브(payment.recovery-scheduler.*)는 두 배치가 공유한다.
@@ -52,7 +54,10 @@ public class PaymentRecoveryScheduler {
     }
 
     private int runBatch(String operation, IntSupplier batch) {
-        try {
+        String role = "confirming".equals(operation)
+                ? JdbcBorrowerRoleContext.PAYMENT_RECOVERY_CONFIRM
+                : JdbcBorrowerRoleContext.PAYMENT_RECOVERY_CANCEL;
+        try (JdbcBorrowerRoleContext.Scope ignored = roleContext.openRoot(role)) {
             return batch.getAsInt();
         } catch (Exception e) {
             log.error("Gray-zone recovery batch failed, skipping to next cycle. operation={}", operation, e);
@@ -61,7 +66,8 @@ public class PaymentRecoveryScheduler {
     }
 
     private void updateBacklogGauges() {
-        try {
+        try (JdbcBorrowerRoleContext.Scope ignored = roleContext.openRoot(
+                JdbcBorrowerRoleContext.PAYMENT_RECOVERY_GAUGE)) {
             paymentRecoveryService.updateBacklogGauges();
         } catch (Exception e) {
             // 게이지 갱신 실패는 보정 자체와 무관하므로 삼키고 다음 주기에 재시도한다(게이지는 1주기 stale).

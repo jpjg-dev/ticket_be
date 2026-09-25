@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.paymentaudit.infrastructure.kafka;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.paymentaudit.application.PaymentAuditInboxTransactionService;
 import com.jipi.ticket_ledger.paymentaudit.application.model.PaymentAuditConsumeResult;
 import com.jipi.ticket_ledger.paymentaudit.application.model.PaymentAuditRecordMetadata;
@@ -20,6 +21,7 @@ public class PaymentAuditKafkaConsumer {
     private final PaymentAuditInboxTransactionService transactionService;
     private final PaymentAuditMetrics paymentAuditMetrics;
     private final Clock clock;
+    private final JdbcBorrowerRoleContext roleContext;
 
     @KafkaListener(
             topics = "${payment.audit.consumer.topic}",
@@ -27,7 +29,9 @@ public class PaymentAuditKafkaConsumer {
             containerFactory = "paymentAuditKafkaListenerContainerFactory"
     )
     public void consume(ConsumerRecord<String, String> record) {
-        PaymentAuditConsumeResult result = transactionService.consume(
+        try (JdbcBorrowerRoleContext.Scope ignored = roleContext.openRoot(
+                JdbcBorrowerRoleContext.AUDIT_CONSUMER)) {
+            PaymentAuditConsumeResult result = transactionService.consume(
                 record.key(),
                 record.value(),
                 new PaymentAuditRecordMetadata(
@@ -37,11 +41,12 @@ public class PaymentAuditKafkaConsumer {
                         clock.instant()
                 )
         );
-        paymentAuditMetrics.recordConsume(
-                result.outcome().name().toLowerCase(java.util.Locale.ROOT)
-        );
-        if (result.outcome() == PaymentAuditConsumeResult.Outcome.PROCESSED) {
-            paymentAuditMetrics.recordAudit(result.eventType());
+            paymentAuditMetrics.recordConsume(
+                    result.outcome().name().toLowerCase(java.util.Locale.ROOT)
+            );
+            if (result.outcome() == PaymentAuditConsumeResult.Outcome.PROCESSED) {
+                paymentAuditMetrics.recordAudit(result.eventType());
+            }
         }
     }
 }

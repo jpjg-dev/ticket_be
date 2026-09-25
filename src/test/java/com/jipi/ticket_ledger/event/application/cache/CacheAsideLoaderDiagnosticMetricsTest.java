@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.event.application.cache;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,7 @@ class CacheAsideLoaderDiagnosticMetricsTest {
     private CacheAsideLoader loader(EventCache eventCache, SimpleMeterRegistry registry,
                                     EventCachePolicyProperties policy) {
         EventCacheMetrics metrics = new EventCacheMetrics(registry);
-        return new CacheAsideLoader(eventCache, new CacheDatabaseLoadGuard(policy, metrics), policy, metrics);
+        return new CacheAsideLoader(eventCache, new CacheDatabaseLoadGuard(policy, metrics), policy, metrics,
+                new JdbcBorrowerRoleContext(true));
     }
 }

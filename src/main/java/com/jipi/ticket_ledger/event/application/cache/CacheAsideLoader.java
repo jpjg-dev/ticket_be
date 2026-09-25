@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.event.application.cache;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,7 @@ public class CacheAsideLoader {
     private final CacheDatabaseLoadGuard databaseLoadGuard;
     private final EventCachePolicyProperties policy;
     private final EventCacheMetrics metrics;
+    private final JdbcBorrowerRoleContext roleContext;
 
     public <T> T load(String key, Supplier<Optional<T>> cacheReader, Supplier<T> databaseReader,
                       Consumer<T> cacheWriter) {
@@ -60,7 +62,9 @@ public class CacheAsideLoader {
             long databaseStarted = System.nanoTime();
             T value;
             try {
-                try (CacheDiagnosticContext.Scope ignored = CacheDiagnosticContext.open("cache_owner")) {
+                try (CacheDiagnosticContext.Scope ignored = CacheDiagnosticContext.open("cache_owner");
+                     JdbcBorrowerRoleContext.Scope phase = roleContext.openPhase(
+                             JdbcBorrowerRoleContext.CACHE_OWNER)) {
                     value = databaseLoadGuard.execute(databaseReader);
                 }
             } finally {

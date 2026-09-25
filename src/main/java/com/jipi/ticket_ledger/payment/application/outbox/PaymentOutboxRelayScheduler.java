@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.outbox;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -13,13 +14,15 @@ import org.springframework.stereotype.Component;
 public class PaymentOutboxRelayScheduler {
 
     private final PaymentOutboxRelayService paymentOutboxRelayService;
+    private final JdbcBorrowerRoleContext roleContext;
 
     @Scheduled(
             fixedDelayString = "${payment.outbox.relay.fixed-delay}",
             scheduler = "paymentOutboxTaskScheduler"
     )
     public void publishPendingEvents() {
-        try {
+        try (JdbcBorrowerRoleContext.Scope ignored = roleContext.openRoot(
+                JdbcBorrowerRoleContext.OUTBOX_RELAY)) {
             PaymentOutboxRelayResult result = paymentOutboxRelayService.publishBatch();
             if (result.claimedCount() > 0) {
                 log.info("Payment Outbox relay completed. claimed={} published={} retryScheduled={} holdManual={} staleResult={}",

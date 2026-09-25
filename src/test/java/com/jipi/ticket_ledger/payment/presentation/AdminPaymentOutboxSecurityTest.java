@@ -3,6 +3,7 @@ package com.jipi.ticket_ledger.payment.presentation;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtAuthenticationFilter;
 import com.jipi.ticket_ledger.auth.infrastructure.JwtTokenProvider;
 import com.jipi.ticket_ledger.global.config.SecurityConfig;
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.payment.application.outbox.PaymentOutboxAdminService;
 import com.jipi.ticket_ledger.payment.application.outbox.PaymentOutboxRequeueResult;
@@ -45,6 +46,9 @@ class AdminPaymentOutboxSecurityTest {
 
     @MockitoBean
     private UserRepository userRepository;
+
+    @MockitoBean
+    private JdbcBorrowerRoleContext borrowerRoleContext;
 
     @Test
     void anonymousRequestIsUnauthorized() throws Exception {

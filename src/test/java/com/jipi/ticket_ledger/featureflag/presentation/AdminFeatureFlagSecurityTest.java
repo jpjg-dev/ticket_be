@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.featureflag.application.FeatureFlagService;
 import com.jipi.ticket_ledger.featureflag.domain.QueueMode;
 import com.jipi.ticket_ledger.featureflag.domain.QueueModeSnapshot;
 import com.jipi.ticket_ledger.global.config.SecurityConfig;
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.global.security.CsrfOriginFilter;
 import com.jipi.ticket_ledger.queue.application.QueueAutoActivationManager;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
@@ -45,6 +46,9 @@ class AdminFeatureFlagSecurityTest {
 
     @MockitoBean
     private UserRepository userRepository;
+
+    @MockitoBean
+    private JdbcBorrowerRoleContext borrowerRoleContext;
 
     @Test
     @DisplayName("관리자 feature flag API는 인증되지 않은 요청을 401로 차단한다")

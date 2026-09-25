@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.event.application.cache;
 
 import com.jipi.ticket_ledger.global.exception.CacheTemporarilyUnavailableException;
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -17,7 +18,8 @@ class CacheAsideLoaderRejectionTest {
             1, Duration.ofMillis(30), Duration.ofMillis(5), Duration.ofSeconds(2),
             1, 0.1, Duration.ofSeconds(1));
     private final CacheAsideLoader loader = new CacheAsideLoader(mock(EventCache.class),
-            new CacheDatabaseLoadGuard(policy, metrics), policy, metrics);
+            new CacheDatabaseLoadGuard(policy, metrics), policy, metrics,
+            new JdbcBorrowerRoleContext(false));
 
     @Test
     void recordsRefreshTimeoutWithoutStartingAnotherDatabaseLoad() {

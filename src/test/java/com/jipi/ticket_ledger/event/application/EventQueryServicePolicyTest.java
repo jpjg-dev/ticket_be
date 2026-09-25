@@ -6,6 +6,7 @@ import com.jipi.ticket_ledger.event.application.cache.EventCache;
 import com.jipi.ticket_ledger.event.application.cache.EventCacheAccessException;
 import com.jipi.ticket_ledger.event.application.cache.EventCacheMetrics;
 import com.jipi.ticket_ledger.event.application.cache.EventCachePolicyProperties;
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.event.application.model.EventListCacheResponse;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -31,7 +32,7 @@ class EventQueryServicePolicyTest {
         EventCacheMetrics metrics = new EventCacheMetrics(new SimpleMeterRegistry());
         CacheDatabaseLoadGuard guard = new CacheDatabaseLoadGuard(policy, metrics);
         EventQueryService service = new EventQueryService(cache, databaseReader,
-                new CacheAsideLoader(cache, guard, policy, metrics));
+                new CacheAsideLoader(cache, guard, policy, metrics, new JdbcBorrowerRoleContext(false)));
         EventListCacheResponse expected = new EventListCacheResponse(List.of());
 
         when(cache.findEventList()).thenThrow(new EventCacheAccessException(new IllegalStateException("redis down")));

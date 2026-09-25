@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.payment.application.recovery;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.payment.infrastructure.Resilience4jPaymentGatewayCircuitState;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
@@ -28,7 +29,8 @@ class PaymentRecoverySchedulerTest {
         properties.setGraceMs(60_000L);
         properties.setBatchSize(20);
         properties.setFixedDelayMs(60_000L);
-        scheduler = new PaymentRecoveryScheduler(paymentRecoveryService, circuitState, properties);
+        scheduler = new PaymentRecoveryScheduler(paymentRecoveryService, circuitState, properties,
+                new JdbcBorrowerRoleContext(false));
     }
 
     @Test

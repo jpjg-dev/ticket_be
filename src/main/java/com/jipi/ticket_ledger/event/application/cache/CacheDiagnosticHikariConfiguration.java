@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.event.application.cache;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.metrics.IMetricsTracker;
 import com.zaxxer.hikari.metrics.MetricsTrackerFactory;
@@ -19,26 +20,31 @@ import java.util.concurrent.TimeUnit;
 public class CacheDiagnosticHikariConfiguration {
 
     @Bean
-    static BeanPostProcessor cacheDiagnosticHikariPostProcessor(ObjectProvider<MeterRegistry> registryProvider) {
+    static BeanPostProcessor cacheDiagnosticHikariPostProcessor(
+            ObjectProvider<MeterRegistry> registryProvider,
+            ObjectProvider<JdbcBorrowerRoleContext> roleContextProvider) {
         return new BeanPostProcessor() {
             @Override
             public Object postProcessAfterInitialization(Object bean, String beanName) {
                 if (bean instanceof HikariDataSource hikariDataSource) {
                     MeterRegistry registry = registryProvider.getObject();
-                    hikariDataSource.setMetricsTrackerFactory(new DiagnosticTrackerFactory(registry));
+                    JdbcBorrowerRoleContext roleContext = roleContextProvider.getObject();
+                    hikariDataSource.setMetricsTrackerFactory(new DiagnosticTrackerFactory(registry, roleContext));
                 }
                 return bean;
             }
         };
     }
 
-    private static final class DiagnosticTrackerFactory implements MetricsTrackerFactory {
+    static final class DiagnosticTrackerFactory implements MetricsTrackerFactory {
         private final MetricsTrackerFactory standard;
         private final MeterRegistry registry;
+        private final JdbcBorrowerRoleContext roleContext;
 
-        private DiagnosticTrackerFactory(MeterRegistry registry) {
+        DiagnosticTrackerFactory(MeterRegistry registry, JdbcBorrowerRoleContext roleContext) {
             this.standard = new MicrometerMetricsTrackerFactory(registry);
             this.registry = registry;
+            this.roleContext = roleContext;
         }
 
         @Override
@@ -49,18 +55,26 @@ public class CacheDiagnosticHikariConfiguration {
                 public void recordConnectionAcquiredNanos(long elapsedNanos) {
                     delegate.recordConnectionAcquiredNanos(elapsedNanos);
                     record("checkout", elapsedNanos, TimeUnit.NANOSECONDS);
+                    registry.timer("ticketledger.jdbc.diagnostic.acquisition.attempt.wait",
+                                    "role", roleContext.acquisitionRole())
+                            .record(elapsedNanos, TimeUnit.NANOSECONDS);
                 }
 
                 @Override
                 public void recordConnectionUsageMillis(long elapsedMillis) {
                     delegate.recordConnectionUsageMillis(elapsedMillis);
                     record("hold", elapsedMillis, TimeUnit.MILLISECONDS);
+                    registry.timer("ticketledger.jdbc.diagnostic.connection.hold",
+                                    "role", roleContext.holdRole())
+                            .record(elapsedMillis, TimeUnit.MILLISECONDS);
                 }
 
                 @Override
                 public void recordConnectionTimeout() {
                     delegate.recordConnectionTimeout();
                     registry.counter("ticketledger.event.cache.diagnostic.jdbc.timeout").increment();
+                    registry.counter("ticketledger.jdbc.diagnostic.acquisition.timeout",
+                            "role", roleContext.acquisitionRole()).increment();
                 }
 
                 @Override

@@ -1,5 +1,6 @@
 package com.jipi.ticket_ledger.auth.infrastructure;
 
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.domain.UserRole;
@@ -28,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
 
 @ExtendWith(MockitoExtension.class)
 class JwtAuthenticationFilterTest {
@@ -37,6 +39,12 @@ class JwtAuthenticationFilterTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private JdbcBorrowerRoleContext borrowerRoleContext;
+
+    @Mock
+    private JdbcBorrowerRoleContext.Scope borrowerRoleScope;
 
     @InjectMocks
     private JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -88,6 +96,7 @@ class JwtAuthenticationFilterTest {
         when(jwtTokenProvider.isValidToken("valid-token")).thenReturn(true);
         when(jwtTokenProvider.isAccessToken("valid-token")).thenReturn(true);
         when(jwtTokenProvider.getUserId("valid-token")).thenReturn(1L);
+        when(borrowerRoleContext.openPhase(anyString())).thenReturn(borrowerRoleScope);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(user.getStatus()).thenReturn(UserStatus.ACTIVE);
         when(user.getRole()).thenReturn(UserRole.ROLE_USER);

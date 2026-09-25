@@ -1,6 +1,7 @@
 package com.jipi.ticket_ledger.auth.infrastructure;
 
 import com.jipi.ticket_ledger.global.log.TraceIdFilter;
+import com.jipi.ticket_ledger.global.observability.JdbcBorrowerRoleContext;
 import com.jipi.ticket_ledger.user.domain.User;
 import com.jipi.ticket_ledger.user.domain.UserRepository;
 import com.jipi.ticket_ledger.user.domain.UserStatus;
@@ -31,6 +32,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
+    private final JdbcBorrowerRoleContext roleContext;
 
     // 매 요청마다 Access Token 쿠키를 확인하고, 유효한 사용자라면 SecurityContext에 인증 객체를 등록한다.
     @Override
@@ -54,7 +56,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // 토큰에서 사용자 식별자를 추출한다.
         Long userId = jwtTokenProvider.getUserId(accessToken);
         // 식별자로 사용자 정보를 조회한다.
-        User user = userRepository.findById(userId).orElse(null);
+        User user;
+        try (JdbcBorrowerRoleContext.Scope ignored = roleContext.openPhase(
+                JdbcBorrowerRoleContext.JWT_USER_LOOKUP)) {
+            user = userRepository.findById(userId).orElse(null);
+        }
 
         // 사용자가 없거나 비활성 상태면 인증 정보를 제거하고 다음으로 진행한다.
         if (user == null || user.getStatus() != UserStatus.ACTIVE) {
